@@ -256,7 +256,7 @@ async function main() {
 
   await page.evaluate(() => {
     window.__captureOpens = 0;
-    document.querySelector('[data-role="capture-input"]')?.addEventListener("click", () => {
+    document.querySelector('[data-role="capture-photo-input"]')?.addEventListener("click", () => {
       window.__captureOpens = (window.__captureOpens || 0) + 1;
     });
   });
@@ -285,7 +285,7 @@ async function main() {
   const jpeg = await gradientJpegBuffer(page);
   await page.evaluate(
     async (bytes) => {
-      const input = document.querySelector('[data-role="capture-input"]');
+      const input = document.querySelector('[data-role="capture-photo-input"]');
       const file = new File([new Uint8Array(bytes)], "gradient.jpg", { type: "image/jpeg" });
       const dt = new DataTransfer();
       dt.items.add(file);

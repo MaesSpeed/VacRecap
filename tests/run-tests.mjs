@@ -138,7 +138,7 @@ async function main() {
   await page.click('[data-day="2026-11-06"]');
   await page.waitForSelector('[data-testid="trip-content"][data-active-day="2026-11-06"]');
 
-  await longPress(page, '[data-footer-action="camera"]');
+  await longPress(page, '[data-footer-action="pin"]');
   await page.waitForSelector(".trip-footer-hint--visible");
   await waitForNoToast(page);
   if (await page.locator('[data-testid="camera-sheet"]').count()) {

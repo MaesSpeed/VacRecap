@@ -13,7 +13,14 @@ import { rememberPlaceFromGps, trySoftPointOnOpen } from "./place-service.js";
 import { newestHardPlace } from "./places.js";
 import { leaveTripToOverview, navigate } from "./router.js";
 import { getRememberLocationOnOpen } from "./settings-store.js";
-import { previewNoteCaptureTarget, resolveCaptureTarget } from "./target-place.js";
+import {
+  previewNoteCaptureTarget,
+  resolveCaptureTarget,
+  resolveFooterCaptureTarget,
+  resolvePlaceCardCaptureTarget,
+} from "./target-place.js";
+import { markMapOpenedFromTrip } from "./map-nav.js";
+import { consumePendingFooter } from "./pending-footer.js";
 import { loadTripSelection, saveTripSelection } from "./trip-selection-store.js";
 import { prefetchCaptureGps } from "./capture-gps-prefetch.js";
 import { blockTripFooter, isTripFooterBlocked, SHEET_INPUT_BLOCK_MS } from "./overlay-stack.js";
@@ -45,6 +52,20 @@ export function setTripSelection(vacationId, day, placeId) {
   if (!state) return;
   state.activeDay = day;
   state.selectedByDay[day] = placeId;
+}
+
+export async function storeTripSelection(vacationId, day, placeId) {
+  const state = tripUiState.get(vacationId);
+  if (state) {
+    state.activeDay = day;
+    if (placeId) state.selectedByDay[day] = placeId;
+    persistSelection(vacationId, state);
+    return;
+  }
+  const saved = (await loadTripSelection(vacationId)) || { selectedByDay: {}, activeDay: day };
+  saved.activeDay = day;
+  if (placeId) saved.selectedByDay[day] = placeId;
+  await saveTripSelection(vacationId, saved);
 }
 
 async function getState(id, vacation) {
@@ -99,7 +120,8 @@ export async function renderUrlaubDetail(appEl, id) {
       </div>
     </div>
     <main class="trip-content trip-content--places" data-role="day-content" data-testid="trip-content"></main>
-    <input type="file" accept="image/*,video/*" capture hidden data-role="capture-input" data-testid="capture-input" />
+    <input type="file" accept="image/*" capture="environment" hidden data-role="capture-photo-input" data-testid="capture-photo-input" />
+    <input type="file" accept="video/*" capture="environment" hidden data-role="capture-video-input" data-testid="capture-video-input" />
     <input type="file" accept="image/*,video/*" multiple hidden data-role="gallery-input" />
     <div data-role="footer-mount"></div>
   `;
@@ -107,8 +129,12 @@ export async function renderUrlaubDetail(appEl, id) {
   const chipsEl = appEl.querySelector('[data-role="chips"]');
   const contentEl = appEl.querySelector('[data-role="day-content"]');
   const footerMount = appEl.querySelector('[data-role="footer-mount"]');
-  const captureInput = appEl.querySelector('[data-role="capture-input"]');
+  const capturePhotoInput = appEl.querySelector('[data-role="capture-photo-input"]');
+  const captureVideoInput = appEl.querySelector('[data-role="capture-video-input"]');
   const galleryInput = appEl.querySelector('[data-role="gallery-input"]');
+  let captureTargetPlaceId = null;
+
+  const VIDEO_LONGPRESS_HINT_KEY = "vacrecap-video-longpress-hint";
 
   function renderChips() {
     const total = days.length;
@@ -210,12 +236,20 @@ export async function renderUrlaubDetail(appEl, id) {
   }
 
   async function resolveTargetPlace(mediaKind = "photo") {
-    const r = await resolveCaptureTarget({
-      vacationId: id,
-      day: state.activeDay,
-      selectedPlaceId: state.selectedByDay[state.activeDay],
-      mediaKind,
-    });
+    const selectedPlaceId = state.selectedByDay[state.activeDay];
+    const r = captureTargetPlaceId
+      ? await resolvePlaceCardCaptureTarget({
+          vacationId: id,
+          day: state.activeDay,
+          placeId: captureTargetPlaceId,
+          mediaKind,
+        })
+      : await resolveFooterCaptureTarget({
+          vacationId: id,
+          day: state.activeDay,
+          selectedPlaceId,
+          mediaKind,
+        });
     state.selectedByDay[state.activeDay] = r.place.id;
     persistSelection(id, state);
     if (r.needsRefresh) await refreshDayList();
@@ -239,11 +273,28 @@ export async function renderUrlaubDetail(appEl, id) {
     }
   }
 
-  function openNativeCamera() {
+  function openCapturePhotoInput(placeId = null) {
     if (state.captureBusy || isTripFooterBlocked()) return;
+    captureTargetPlaceId = placeId;
+    blockTripFooter(SHEET_INPUT_BLOCK_MS);
+    if (!placeId) prefetchCaptureGps();
+    capturePhotoInput.click();
+  }
+
+  function openNativeCamera() {
+    openCapturePhotoInput(null);
+  }
+
+  function openNativeVideoCamera() {
+    if (state.captureBusy || isTripFooterBlocked()) return;
+    captureTargetPlaceId = null;
+    if (!localStorage.getItem(VIDEO_LONGPRESS_HINT_KEY)) {
+      localStorage.setItem(VIDEO_LONGPRESS_HINT_KEY, "1");
+      showToast("Lange drücken = Video");
+    }
     blockTripFooter(SHEET_INPUT_BLOCK_MS);
     prefetchCaptureGps();
-    captureInput.click();
+    captureVideoInput.click();
   }
 
   async function handleMediaFile(file, kind) {
@@ -270,15 +321,28 @@ export async function renderUrlaubDetail(appEl, id) {
       }
     } finally {
       state.captureBusy = false;
-      captureInput.value = "";
+      captureTargetPlaceId = null;
+      capturePhotoInput.value = "";
+      captureVideoInput.value = "";
     }
   }
 
-  captureInput.addEventListener("change", () => {
-    const file = captureInput.files?.[0];
-    if (!file) return;
-    const kind = file.type.startsWith("video/") ? "video" : "photo";
-    handleMediaFile(file, kind);
+  capturePhotoInput.addEventListener("change", () => {
+    const file = capturePhotoInput.files?.[0];
+    if (!file) {
+      captureTargetPlaceId = null;
+      return;
+    }
+    handleMediaFile(file, "photo");
+  });
+
+  captureVideoInput.addEventListener("change", () => {
+    const file = captureVideoInput.files?.[0];
+    if (!file) {
+      captureTargetPlaceId = null;
+      return;
+    }
+    handleMediaFile(file, "video");
   });
 
   async function onNoteFooter() {
@@ -414,7 +478,8 @@ export async function renderUrlaubDetail(appEl, id) {
         });
       } else if (camBtn) {
         state.selectedByDay[state.activeDay] = placeId;
-        openCameraSheet();
+        persistSelection(id, state);
+        openCapturePhotoInput(placeId);
       } else if (expandBtn) {
         state.notesExpanded.add(placeId);
         await refreshDayList();
@@ -479,6 +544,7 @@ export async function renderUrlaubDetail(appEl, id) {
   mountTripFooter(footerMount, {
     onRememberPlace,
     onCamera: openNativeCamera,
+    onCameraVideo: openNativeVideoCamera,
     onNote: onNoteFooter,
     onGallery: openGalleryPicker,
   });
@@ -489,6 +555,7 @@ export async function renderUrlaubDetail(appEl, id) {
   });
 
   appEl.querySelector('[data-action="map"]').addEventListener("click", () => {
+    markMapOpenedFromTrip();
     navigate({ name: "urlaub-map", id });
   });
 
@@ -503,12 +570,11 @@ export async function renderUrlaubDetail(appEl, id) {
 
   bindSwipe(contentEl, shiftDay);
 
-  const pendingFooter = sessionStorage.getItem("vacrecap-pending-footer");
+  const pendingFooter = consumePendingFooter();
   if (pendingFooter) {
-    sessionStorage.removeItem("vacrecap-pending-footer");
     requestAnimationFrame(() => {
       if (pendingFooter === "gallery") openGalleryPicker();
-      else if (pendingFooter === "camera") openCameraSheet();
+      else if (pendingFooter === "camera") openNativeCamera();
       else if (pendingFooter === "note") void onNoteFooter();
     });
   }

@@ -216,7 +216,7 @@ async function runSuite(deviceName, { baseUrl, browser }) {
   }
 
   await page.evaluate(() => {
-    const input = document.querySelector('[data-role="capture-input"]');
+    const input = document.querySelector('[data-role="capture-photo-input"]');
     window.__captureInputOpens = 0;
     input?.addEventListener("click", () => {
       window.__captureInputOpens = (window.__captureInputOpens || 0) + 1;
@@ -252,7 +252,7 @@ async function runSuite(deviceName, { baseUrl, browser }) {
     const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.9));
     return Array.from(new Uint8Array(await blob.arrayBuffer()));
   });
-  await page.locator('[data-role="capture-input"]').setInputFiles({
+  await page.locator('[data-role="capture-photo-input"]').setInputFiles({
     name: "v.jpg",
     mimeType: "image/jpeg",
     buffer: Buffer.from(buf),
@@ -329,7 +329,7 @@ async function main() {
     const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.9));
     return Array.from(new Uint8Array(await blob.arrayBuffer()));
   });
-  await page.locator('[data-role="capture-input"]').setInputFiles({
+  await page.locator('[data-role="capture-photo-input"]').setInputFiles({
     name: "s.jpg",
     mimeType: "image/jpeg",
     buffer: Buffer.from(buf),

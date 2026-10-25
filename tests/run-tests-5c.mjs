@@ -230,8 +230,8 @@ async function assertOfflineBackup(page) {
   });
   const cached = await page.evaluate(async () => {
     const keys = await caches.keys();
-    if (!keys.includes("vacrecap-v22")) return false;
-    const cache = await caches.open("vacrecap-v22");
+    if (!keys.includes("vacrecap-v23")) return false;
+    const cache = await caches.open("vacrecap-v23");
     const hit = await cache.match("./js/backup-service.js");
     const zip = await cache.match("./js/zip-builder.js");
     return Boolean(hit && zip);

@@ -162,7 +162,7 @@ async function runSuite(deviceName, viewport, { baseUrl, browser }) {
   }
 
   const buf = await galleryFileBuffer(page);
-  await page.locator('[data-role="capture-input"]').setInputFiles({
+  await page.locator('[data-role="capture-photo-input"]').setInputFiles({
     name: "p.jpg",
     mimeType: "image/jpeg",
     buffer: Buffer.from(buf),
@@ -188,7 +188,7 @@ async function runSuite(deviceName, viewport, { baseUrl, browser }) {
   await page.waitForSelector('[data-testid="media-viewer"]', { state: "hidden" });
 
   await page.evaluate(() => {
-    const input = document.querySelector('[data-role="capture-input"]');
+    const input = document.querySelector('[data-role="capture-photo-input"]');
     window.__captureInputOpens = 0;
     input?.addEventListener("click", () => {
       window.__captureInputOpens = (window.__captureInputOpens || 0) + 1;

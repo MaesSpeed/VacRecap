@@ -143,6 +143,64 @@ export async function previewNoteCaptureTarget({ vacationId, day, selectedPlaceI
   return { label: OHNE_ORT, kind: "fallback" };
 }
 
+/** Footer-Kamera/Video: immer GPS (wie Ort merken), sonst Fallback auf Auswahl/Ohne Ort. */
+export async function resolveFooterCaptureTarget({
+  vacationId,
+  day,
+  selectedPlaceId,
+  mediaKind = "photo",
+}) {
+  const title =
+    mediaKind === "video"
+      ? "Video gespeichert"
+      : mediaKind === "note"
+        ? "Notiz gespeichert"
+        : "Foto gespeichert";
+
+  try {
+    const gps = await resolveWithGps({ vacationId, day });
+    const toast = gps.toast
+      ? { ...gps.toast, title }
+      : { title, line: `«${gps.place.name}»` };
+    return { ...gps, needsRefresh: true, toast };
+  } catch {
+    const fb = await fallbackPlace({ vacationId, day, selectedPlaceId });
+    const line = fb.place.name === OHNE_ORT
+      ? "Ohne Position (Standort nicht verfügbar)"
+      : `«${fb.place.name}»`;
+    return {
+      ...fb,
+      needsRefresh: fb.createdOhneOrt,
+      toast: {
+        title,
+        line,
+        variant: fb.place.lat == null ? "warn" : undefined,
+      },
+    };
+  }
+}
+
+export async function resolvePlaceCardCaptureTarget({
+  vacationId,
+  day,
+  placeId,
+  mediaKind = "photo",
+}) {
+  const all = await getPlacesForDay(vacationId, day);
+  const place = all.find((p) => p.id === placeId && !p.soft);
+  if (!place) {
+    throw new Error("place missing");
+  }
+  const title =
+    mediaKind === "video" ? "Video gespeichert" : "Foto gespeichert";
+  return {
+    place: normalizePlace(place),
+    createdOhneOrt: false,
+    needsRefresh: false,
+    toast: { title, line: `«${place.name}»` },
+  };
+}
+
 export async function resolveCaptureTarget({
   vacationId,
   day,

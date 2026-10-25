@@ -153,7 +153,7 @@ async function runSuite(deviceName, { baseUrl, browser }) {
     const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.9));
     return Array.from(new Uint8Array(await blob.arrayBuffer()));
   });
-  await page.locator('[data-role="capture-input"]').setInputFiles({
+  await page.locator('[data-role="capture-photo-input"]').setInputFiles({
     name: "x.jpg",
     mimeType: "image/jpeg",
     buffer: Buffer.from(buf),
