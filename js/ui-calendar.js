@@ -94,6 +94,7 @@ export function openDateRangePicker({ startDate, endDate, onApply }) {
     const m = monthDate.getMonth();
     const section = document.createElement("section");
     section.className = "calendar-month";
+    section.dataset.yearMonth = `${y}-${String(m + 1).padStart(2, "0")}`;
     section.innerHTML = `<h3 class="calendar-month__title">${MONTH_NAMES[m]} ${y}</h3>`;
     const grid = document.createElement("div");
     grid.className = "calendar-grid";
@@ -189,6 +190,14 @@ export function openDateRangePicker({ startDate, endDate, onApply }) {
   });
 
   refresh();
+
+  const scrollIso = draftStart || formatIsoDate(today);
+  const scrollDate = parseIsoDate(scrollIso);
+  const ym = `${scrollDate.getFullYear()}-${String(scrollDate.getMonth() + 1).padStart(2, "0")}`;
+  requestAnimationFrame(() => {
+    const target = monthsEl.querySelector(`[data-year-month="${ym}"]`);
+    target?.scrollIntoView({ block: "start", behavior: "instant" });
+  });
 }
 
 export function formatRangeSummary(startIso, endIso) {

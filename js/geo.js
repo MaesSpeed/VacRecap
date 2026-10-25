@@ -15,7 +15,7 @@ export function getCapturePosition() {
   return getCurrentPosition({
     enableHighAccuracy: false,
     timeout: 4000,
-    maximumAge: 30000,
+    maximumAge: 5000,
   });
 }
 

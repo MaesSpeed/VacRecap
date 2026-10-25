@@ -55,10 +55,13 @@ export function formatDatePart(iso, withYear = true) {
 
 export function formatDateRangeCard(startIso, endIso) {
   const days = dayCountInclusive(startIso, endIso);
+  const sy = parseIsoDate(startIso).getFullYear();
+  const ey = parseIsoDate(endIso).getFullYear();
+  const startWithYear = sy !== ey;
   if (days === 1) {
     return `${formatDatePart(startIso, true)} · 1 Tag`;
   }
-  return `${formatDatePart(startIso, false)} – ${formatDatePart(endIso, true)} · ${days} Tage`;
+  return `${formatDatePart(startIso, startWithYear)} – ${formatDatePart(endIso, true)} · ${days} Tage`;
 }
 
 export function formatDateRangeOverlay(startIso, endIso) {

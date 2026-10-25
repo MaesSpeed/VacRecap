@@ -15,7 +15,7 @@ import { navigate } from "./router.js";
 import { getRememberLocationOnOpen } from "./settings-store.js";
 import { resolveCaptureTarget } from "./target-place.js";
 import { loadTripSelection, saveTripSelection } from "./trip-selection-store.js";
-import { dismissActiveToast, showToast, showTwoLineToast } from "./toast.js";
+import { dismissActiveToast, showToast, showTwoLineToast, showWarnToast } from "./toast.js";
 import { openCameraChoiceSheet } from "./ui-camera-sheet.js";
 import { openMediaViewer } from "./ui-media-viewer.js";
 import { openNoteSheet } from "./ui-note-sheet.js";
@@ -225,16 +225,19 @@ export async function renderUrlaubDetail(appEl, id) {
   }
 
   function showCaptureResultToast(r, mediaKind) {
-    const title =
+    const defaultTitle =
       mediaKind === "video"
         ? "Video gespeichert"
         : mediaKind === "note"
           ? "Notiz gespeichert"
           : "Foto gespeichert";
-    if (r.toast?.line) {
-      showTwoLineToast(title, r.toast.line);
-    } else if (r.toast?.title) {
-      showTwoLineToast(r.toast.title, r.toast.line || "");
+    const title = r.toast?.title || defaultTitle;
+    const line = r.toast?.line || "";
+    if (!line) return;
+    if (r.toast?.variant === "warn") {
+      showWarnToast(line, { title });
+    } else {
+      showTwoLineToast(title, line);
     }
   }
 
@@ -285,9 +288,14 @@ export async function renderUrlaubDetail(appEl, id) {
 
   async function onNoteFooter() {
     if (state.captureBusy) return;
-    const r = await resolveTargetPlace("note");
+    const selectedId = state.selectedByDay[state.activeDay];
+    let initialPlace = null;
+    if (selectedId) {
+      const items = await loadDayPlacesEnriched(id, state.activeDay);
+      initialPlace = items.find((i) => i.place.id === selectedId)?.place ?? null;
+    }
     openNoteSheet({
-      place: r.place,
+      place: initialPlace,
       vacationId: id,
       vacation,
       day: state.activeDay,
@@ -296,13 +304,28 @@ export async function renderUrlaubDetail(appEl, id) {
         const items = await loadDayPlacesEnriched(id, state.activeDay);
         return items.map((i) => i.place).filter((p) => !p.soft);
       },
-      onSaved: () => refreshDayList(),
+      resolvePlaceOnSave: async () => {
+        const r = await resolveCaptureTarget({
+          vacationId: id,
+          day: state.activeDay,
+          selectedPlaceId: state.selectedByDay[state.activeDay],
+          mediaKind: "note",
+        });
+        state.selectedByDay[state.activeDay] = r.place.id;
+        persistSelection(id, state);
+        return r;
+      },
+      onSaved: (captureResult) => {
+        if (captureResult?.toast?.line) {
+          showCaptureResultToast(captureResult, "note");
+        }
+        return refreshDayList();
+      },
       onPlaceChange: (placeId) => {
         state.selectedByDay[state.activeDay] = placeId;
         persistSelection(id, state);
       },
     });
-    if (r.toast?.line) showCaptureResultToast(r, "note");
   }
 
   contentEl.addEventListener("click", async (e) => {

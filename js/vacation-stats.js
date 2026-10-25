@@ -23,8 +23,15 @@ export async function computeVacationStats(vacationId) {
 }
 
 export function formatVacationStatsLine(stats) {
-  const p = formatCountLabel(stats.places, "Ort", "Orte");
-  const f = formatCountLabel(stats.media, "Foto", "Fotos");
-  const n = formatCountLabel(stats.notes, "Notiz", "Notizen");
-  return `${p} · ${f} · ${n}`;
+  const parts = [formatCountLabel(stats.places, "Ort", "Orte")];
+  if (stats.photos > 0) {
+    parts.push(formatCountLabel(stats.photos, "Foto", "Fotos"));
+  }
+  if (stats.videos > 0) {
+    parts.push(formatCountLabel(stats.videos, "Video", "Videos"));
+  }
+  if (stats.notes > 0) {
+    parts.push(formatCountLabel(stats.notes, "Notiz", "Notizen"));
+  }
+  return parts.join(" · ");
 }
