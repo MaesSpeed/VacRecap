@@ -14,12 +14,12 @@ import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { showToast } from "./toast.js";
 import { escapeHtml } from "./utils.js";
 
-const ICON_PIN = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0066B3" stroke-width="2" aria-hidden="true"><path d="M12 21s7-4.5 7-11a7 7 0 1 0-14 0c0 6.5 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>`;
-const ICON_RADIUS = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0066B3" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>`;
+const ICON_CROSSHAIR = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0066B3" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="1.5" fill="#0066B3" stroke="none"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>`;
+const ICON_RADIUS = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0066B3" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="7" stroke-dasharray="3 3"/><circle cx="12" cy="12" r="1.5" fill="#0066B3" stroke="none"/><path d="M12 8v2l2 1.5"/></svg>`;
 const ICON_CAMERA = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0066B3" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>`;
-const ICON_BACKUP = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0066B3" stroke-width="2" aria-hidden="true"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>`;
+const ICON_BACKUP = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0066B3" stroke-width="2" aria-hidden="true"><rect x="5" y="4" width="14" height="16" rx="2"/><path d="M9 11l3 3 3-3"/></svg>`;
 const ICON_LOCK = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5B6B7A" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>`;
-const ICON_CHEVRON = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9AABB9" stroke-width="2.5" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>`;
+const ICON_CHEVRON = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#B8C5D1" stroke-width="1.75" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>`;
 
 function switchHtml(id, on, label) {
   return `<button type="button" class="ios-switch${on ? " ios-switch--on" : ""}" role="switch" data-testid="${id}" aria-checked="${on ? "true" : "false"}" aria-label="${escapeHtml(label)}"><span class="ios-switch__knob" aria-hidden="true"></span></button>`;
@@ -52,7 +52,7 @@ export async function renderUrlaubSettings(appEl, id) {
         <h2 class="settings-block__label">Standort · Alle Urlaube</h2>
         <div class="settings-card">
           <div class="settings-item settings-item--switch" data-action="toggle-remember">
-            <span class="settings-item__icon">${ICON_PIN}</span>
+            <span class="settings-item__icon">${ICON_CROSSHAIR}</span>
             <div class="settings-item__text">
               <span class="settings-item__title">Standort beim Öffnen merken</span>
               <span class="settings-item__sub">Setzt beim Öffnen einen weichen Punkt</span>

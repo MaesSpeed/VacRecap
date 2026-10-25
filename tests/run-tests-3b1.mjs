@@ -46,7 +46,7 @@ function startServer() {
 async function seedMapVacation(page) {
   await page.goto("./");
   await page.click('[data-action="new"]');
-  await page.fill('[name="title"]', "Paris Karte");
+  await page.fill('[name="title"]', "Paris");
   await page.click('[data-action="pick-dates"]');
   await page.click('.calendar-day[data-date="2026-10-25"]');
   await page.click('.calendar-day[data-date="2026-10-27"]');
@@ -120,6 +120,31 @@ async function seedMapVacation(page) {
   return vacationId;
 }
 
+async function assertTripNameVisible(page, expected) {
+  const trip = page.locator(".map-header__trip");
+  const text = await trip.innerText();
+  if (text !== expected) {
+    throw new Error(`trip name: expected "${expected}", got "${text}"`);
+  }
+  const clipped = await trip.evaluate((el) => el.scrollWidth > el.clientWidth + 1);
+  if (expected === "Paris" && clipped) {
+    throw new Error("Paris should not be truncated in header");
+  }
+}
+
+async function assertSettingsLinesSingleRow(page, label) {
+  const bad = await page.evaluate(() => {
+    const els = document.querySelectorAll(".settings-item__title, .settings-item__sub");
+    return [...els].filter((el) => {
+      const lh = parseFloat(getComputedStyle(el).lineHeight) || 14;
+      return el.scrollHeight > lh * 1.3;
+    }).map((el) => el.textContent);
+  });
+  if (bad.length) {
+    throw new Error(`${label}: wrapped settings lines: ${bad.join(" | ")}`);
+  }
+}
+
 async function runFlow(page, { captureScreenshots, label }) {
   await page.route("**/tile.openstreetmap.org/**", (route) =>
     route.fulfill({ path: tilePlaceholder, contentType: "image/png" })
@@ -129,6 +154,7 @@ async function runFlow(page, { captureScreenshots, label }) {
 
   await page.tap('[data-action="map"]');
   await page.waitForSelector('[data-testid="map-screen"]');
+  await assertTripNameVisible(page, "Paris");
   await page.waitForSelector(".leaflet-container");
   await page.waitForFunction(
     () => document.querySelectorAll(".map-marker--hard").length >= 10
@@ -158,12 +184,16 @@ async function runFlow(page, { captureScreenshots, label }) {
 
   await page.tap('[data-action="back"]');
   await page.waitForSelector('[data-testid="trip-content"]');
+  await page.goto(`./#/urlaub/${vacationId}`);
+  await page.waitForSelector('[data-action="settings"]');
 
   if (captureScreenshots) {
     await page.setViewportSize({ width: 390, height: 844 });
   }
-  await page.tap('[data-action="settings"]');
+  await page.locator('[data-action="settings"]').tap();
   await page.waitForSelector('[data-testid="settings-screen"]');
+  await assertTripNameVisible(page, "Paris");
+  await assertSettingsLinesSingleRow(page, label);
   const radiusBtn = page.locator('[data-radius="100"]');
   await radiusBtn.tap();
   await page.waitForFunction(() => {
@@ -183,6 +213,35 @@ async function runFlow(page, { captureScreenshots, label }) {
   if (!vacationId) throw new Error(`${label}: missing vacation id`);
 }
 
+async function testLongVacationName(page, width) {
+  await page.setViewportSize({ width, height: 740 });
+  await page.goto("./");
+  const longTitle = "Alpenüberquerung Sommer 2026 CH";
+  await page.click('[data-action="new"]');
+  await page.fill('[name="title"]', longTitle);
+  await page.click('[data-action="pick-dates"]');
+  await page.click('.calendar-day[data-date="2026-11-01"]');
+  await page.click('.calendar-day[data-date="2026-11-03"]');
+  await page.click('button[data-action="apply"]');
+  await page.click('button[type="submit"]');
+  await page.waitForSelector('[data-testid="trip-content"]');
+  await page.tap('[data-action="settings"]');
+  await page.waitForSelector('[data-testid="settings-screen"]');
+  await assertSettingsLinesSingleRow(page, `long-${width}`);
+  const clipped = await page.locator(".map-header__trip").evaluate(
+    (el) => el.scrollWidth > el.clientWidth + 1
+  );
+  if (!clipped) {
+    throw new Error(`expected long title ellipsis at ${width}px`);
+  }
+  const titleOk = await page.locator(".map-header__title").evaluate(
+    (el) => el.scrollWidth <= el.clientWidth + 1
+  );
+  if (!titleOk) {
+    throw new Error(`settings title clipped at ${width}px`);
+  }
+}
+
 async function main() {
   const { server, baseUrl } = await startServer();
   const browser = await chromium.launch();
@@ -197,6 +256,7 @@ async function main() {
   });
   const pageI = await ctxI.newPage();
   await runFlow(pageI, { captureScreenshots: true, label: "iphone8" });
+  await testLongVacationName(pageI, 375);
   await ctxI.close();
 
   const ctxA = await browser.newContext({
@@ -209,6 +269,7 @@ async function main() {
   });
   const pageA = await ctxA.newPage();
   await runFlow(pageA, { captureScreenshots: false, label: "android" });
+  await testLongVacationName(pageA, 360);
   await ctxA.close();
 
   await browser.close();
