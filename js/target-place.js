@@ -17,6 +17,41 @@ function findOhneOrt(places) {
   );
 }
 
+export async function getOrCreateOhneOrtPlace({ vacationId, day, showToastOnCreate = true }) {
+  const all = await getPlacesForDay(vacationId, day);
+  const hard = all.filter((p) => !p.soft);
+  const existing = findOhneOrt(hard);
+  if (existing) return { place: existing, created: false };
+
+  const ts = tsForDay(day);
+  const place = createPlace({
+    vacationId,
+    day,
+    ts,
+    lat: null,
+    lng: null,
+    name: OHNE_ORT,
+    soft: false,
+    source: "ohne-ort",
+  });
+  await putPlace(place);
+  if (showToastOnCreate) showToast("Ohne Ort gespeichert");
+  return { place, created: true };
+}
+
+export async function resolveMediathekTarget({ vacationId, day, selectedPlaceId }) {
+  const all = await getPlacesForDay(vacationId, day);
+  const hard = all.filter((p) => !p.soft);
+
+  if (selectedPlaceId) {
+    const selected = hard.find((p) => p.id === selectedPlaceId);
+    if (selected) return { place: selected, ohneOrtPending: false };
+  }
+  const newest = newestHardPlace(hard);
+  if (newest) return { place: newest, ohneOrtPending: false };
+  return { place: null, ohneOrtPending: true };
+}
+
 export async function ensureTargetPlace({ vacationId, day, selectedPlaceId }) {
   const all = await getPlacesForDay(vacationId, day);
   const hard = all.filter((p) => !p.soft);
