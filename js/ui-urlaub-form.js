@@ -34,6 +34,8 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
   appEl.innerHTML = `
     <header class="form-header form-header--minimal">
       <button type="button" class="link-btn" data-action="cancel">Abbrechen</button>
+      <h1 class="form-header__title">${isEdit ? "Reise bearbeiten" : "Neue Reise"}</h1>
+      <span class="form-header__spacer" aria-hidden="true"></span>
     </header>
     <form class="vacation-form" id="vacation-form">
       <label class="field">
@@ -93,7 +95,7 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
     </form>
     <footer class="form-footer">
       <button type="submit" form="vacation-form" class="btn btn-emaille btn-emaille--block">
-        ${isEdit ? "Speichern" : "Urlaub anlegen"}
+        ${isEdit ? "Speichern" : "Reise anlegen"}
       </button>
     </footer>
   `;
@@ -255,7 +257,7 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
       navigate({ name: "urlaub-detail", id: vacation.id }, { replace: true });
     } else {
       showToast(formatDateRange(vacation.startDate, vacation.endDate), {
-        title: `Urlaub «${title}» angelegt`,
+        title: `Reise «${title}» angelegt`,
       });
       window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
       clearTripUiState(vacation.id);

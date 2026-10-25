@@ -109,13 +109,11 @@ async function runViewportTests(browser, baseUrl, label, viewport, hasTouch) {
     path: path.join(screenshotsDir, "17-urlaub-ansicht-390.png"),
     fullPage: true,
   });
-  await page.click('[data-action="calendar"]');
-  await page.waitForSelector(".sheet--trip-calendar");
-  await page.screenshot({
-    path: path.join(screenshotsDir, "19-kalender-mit-schliessen.png"),
-    fullPage: true,
-  });
-  await page.click('[data-action="close"]');
+  if (await page.locator('[data-action="calendar"]').count()) {
+    throw new Error("Kalender-Icon soll entfernt sein");
+  }
+  await page.click('[data-day="2026-10-25"]');
+  await page.waitForSelector('[data-testid="trip-content"][data-active-day="2026-10-25"]');
 
   await context.close();
 }

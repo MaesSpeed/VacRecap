@@ -114,16 +114,17 @@ async function openMediathekCancel(page, vacationId) {
       });
       const file = new File([blob], "m.jpg", { type: "image/jpeg" });
       const { createMediathekSession } = await import("./js/mediathek-session.js");
+      const { navigate } = await import("./js/router.js");
       createMediathekSession({
         vacationId,
         day: "2026-10-25",
         selectedPlaceId: null,
         files: [file],
       });
+      navigate({ name: "urlaub-mediathek", id: vacationId }, { replace: true });
     },
     { vacationId }
   );
-  await page.goto(`./#/urlaub/${vacationId}/mediathek`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector('[data-testid="mediathek-screen"]');
   await page.click('[data-action="cancel"]');
   await page.waitForSelector('[data-testid="trip-content"]');

@@ -135,11 +135,7 @@ async function main() {
   await swipeHorizontal(page, '[data-testid="trip-content"]', "left");
   await page.waitForSelector('[data-testid="trip-content"][data-active-day="2026-11-08"]');
 
-  await page.click('[data-action="calendar"]');
-  await page.waitForSelector(".sheet--trip-calendar");
-  await waitForNoToast(page);
-  await page.screenshot({ path: path.join(screenshotsDir, "06-kalender.png"), fullPage: true });
-  await page.click('.calendar-day[data-date="2026-11-06"]');
+  await page.click('[data-day="2026-11-06"]');
   await page.waitForSelector('[data-testid="trip-content"][data-active-day="2026-11-06"]');
 
   await longPress(page, '[data-footer-action="camera"]');
@@ -208,11 +204,7 @@ async function main() {
     start: "2026-10-20",
     end: "2026-11-22",
   });
-  await page.click('[data-action="calendar"]');
-  await page.waitForSelector(".calendar-month__title");
-  const months = await page.locator(".calendar-month__title").allTextContents();
-  if (!months.some((t) => t.includes("November"))) throw new Error("calendar missing November");
-  await page.click('.calendar-day[data-date="2026-11-10"]');
+  await page.click('[data-day="2026-11-10"]');
   await page.waitForSelector('[data-testid="trip-content"][data-active-day="2026-11-10"]');
 
   await page.click('[data-action="back"]');

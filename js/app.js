@@ -8,6 +8,7 @@ import { renderMapScreen } from "./ui-map.js";
 import { renderMediathekScreen } from "./ui-mediathek.js";
 import { renderUrlaubeScreen } from "./ui-urlaube.js";
 import { installGestureGuards } from "./gesture-guard.js";
+import { installVisualViewportKeyboard } from "./visual-viewport.js";
 import { dismissOverlayOnly, initOverlayHistory } from "./overlay-stack.js";
 
 const appEl = document.getElementById("app");
@@ -52,6 +53,7 @@ function registerServiceWorker() {
 
 async function boot() {
   installGestureGuards();
+  installVisualViewportKeyboard();
   initOverlayHistory();
   await requestPersistentStorage();
   registerServiceWorker();
