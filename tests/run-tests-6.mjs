@@ -216,6 +216,27 @@ async function main() {
   if (!stats.some((s) => s.dash && s.dash !== "none" && !s.dash.startsWith("0px"))) {
     throw new Error(`Fehler-Fallback: keine gestrichelte Linie (${JSON.stringify(stats)})`);
   }
+  const retryFetches = await page.evaluate(async () => {
+    let hits = 0;
+    const real = window.fetch.bind(window);
+    window.fetch = async (url, ...args) => {
+      if (String(url).includes("routing.openstreetmap.de")) {
+        hits += 1;
+        return { ok: false, status: 503, json: async () => ({}) };
+      }
+      return real(url, ...args);
+    };
+    const { resolveRouteSegment } = await import("./js/route-service.js");
+    const from = { lat: -78.12, lng: 166.55 };
+    const to = { lat: -78.18, lng: 166.62 };
+    await resolveRouteSegment(from, to, { routesEnabled: true, online: true });
+    await resolveRouteSegment(from, to, { routesEnabled: true, online: true });
+    window.fetch = real;
+    return hits;
+  });
+  if (retryFetches < 2) {
+    throw new Error(`5xx-Fehler: erwartet 2 Fetch-Versuche, got ${retryFetches}`);
+  }
 
   await page.unroute("**/routing.openstreetmap.de/**");
   let longCalls = 0;

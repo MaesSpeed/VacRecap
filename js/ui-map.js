@@ -437,11 +437,10 @@ export async function renderMapScreen(appEl, vacationId) {
     },
     onCamera: () => {
       const day = dayForFooter();
-      void storeTripSelection(vacationId, day, null).then(() => {
-        setTripSelection(vacationId, day, null);
-        prefetchCaptureGps();
-        captureInput.click();
-      });
+      setTripSelection(vacationId, day, null);
+      void storeTripSelection(vacationId, day, null);
+      prefetchCaptureGps();
+      if (captureInput) captureInput.click();
     },
     onNote: () => {
       const day = dayForFooter();
