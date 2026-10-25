@@ -87,6 +87,14 @@ function queueFooterAction(action) {
   sessionStorage.setItem("vacrecap-pending-footer", action);
 }
 
+function returnToTripFromMap(vacationId) {
+  if (window.history.length > 1) {
+    window.history.back();
+    return;
+  }
+  navigate({ name: "urlaub-detail", id: vacationId }, { replace: true });
+}
+
 export async function renderMapScreen(appEl, vacationId) {
   const vacation = await getVacation(vacationId);
   if (!vacation) {
@@ -323,8 +331,8 @@ export async function renderMapScreen(appEl, vacationId) {
         const btn = root?.querySelector(".map-popup__btn");
         btn?.addEventListener("click", () => {
           setTripSelection(vacationId, dayIso, place.id);
-          navigate({ name: "urlaub-detail", id: vacationId });
           map.closePopup();
+          returnToTripFromMap(vacationId);
         });
       });
     });
@@ -387,17 +395,17 @@ export async function renderMapScreen(appEl, vacationId) {
     onCamera: () => {
       setTripSelection(vacationId, dayForFooter(), null);
       queueFooterAction("camera");
-      navigate({ name: "urlaub-detail", id: vacationId });
+      returnToTripFromMap(vacationId);
     },
     onNote: () => {
       setTripSelection(vacationId, dayForFooter(), null);
       queueFooterAction("note");
-      navigate({ name: "urlaub-detail", id: vacationId });
+      returnToTripFromMap(vacationId);
     },
     onGallery: () => {
       setTripSelection(vacationId, dayForFooter(), null);
       queueFooterAction("gallery");
-      navigate({ name: "urlaub-detail", id: vacationId });
+      returnToTripFromMap(vacationId);
     },
   });
 

@@ -1,11 +1,8 @@
 const listeners = new Set();
 const NAV_FROM_OVERVIEW_KEY = "vacrecap-nav-from-overview";
-const LAST_HASH_KEY = "vacrecap-last-hash";
 
 export function leaveTripToOverview() {
-  const fromOverview =
-    sessionStorage.getItem(NAV_FROM_OVERVIEW_KEY) === "1" ||
-    sessionStorage.getItem(LAST_HASH_KEY) === "#/urlaube";
+  const fromOverview = sessionStorage.getItem(NAV_FROM_OVERVIEW_KEY) === "1";
   sessionStorage.removeItem(NAV_FROM_OVERVIEW_KEY);
   if (fromOverview && history.length > 1) {
     history.back();
@@ -49,7 +46,8 @@ export function getRoute() {
 
 export function navigate(route, { replace = false } = {}) {
   const current = getRoute();
-  if (!replace && current.name === "urlaube" && route.name === "urlaub-detail") {
+  const fromOverview = !replace && current.name === "urlaube" && route.name === "urlaub-detail";
+  if (fromOverview) {
     sessionStorage.setItem(NAV_FROM_OVERVIEW_KEY, "1");
   }
   let hash = "#/urlaube";
@@ -78,6 +76,12 @@ export function navigate(route, { replace = false } = {}) {
     default:
       break;
   }
+  const url = `${window.location.pathname}${window.location.search}${hash}`;
+  if (replace) {
+    history.replaceState(null, "", url);
+    notify();
+    return;
+  }
   const apply = () => {
     if (window.location.hash !== hash) {
       window.location.hash = hash;
@@ -85,12 +89,6 @@ export function navigate(route, { replace = false } = {}) {
       notify();
     }
   };
-  if (replace) {
-    const url = `${window.location.pathname}${window.location.search}${hash}`;
-    history.replaceState(null, "", url);
-    notify();
-    return;
-  }
   apply();
 }
 
@@ -100,12 +98,8 @@ function notify() {
 }
 
 export function startRouter() {
-  let prevHash = window.location.hash;
-  window.addEventListener("hashchange", () => {
-    sessionStorage.setItem(LAST_HASH_KEY, prevHash);
-    prevHash = window.location.hash;
-    notify();
-  });
+  sessionStorage.removeItem("vacrecap-last-hash");
+  window.addEventListener("hashchange", () => notify());
   notify();
 }
 

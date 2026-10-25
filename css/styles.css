@@ -1861,8 +1861,19 @@ body {
 }
 
 .sheet--note-bottom.sheet--note-kb {
-  top: var(--note-sheet-top, 126px);
-  max-height: calc(100dvh - var(--note-sheet-top, 126px) - var(--kb));
+  top: max(8px, min(var(--note-sheet-top, 126px), calc(100dvh - var(--kb) - 330px)));
+  max-height: calc(100dvh - var(--kb) - max(8px, min(var(--note-sheet-top, 126px), calc(100dvh - var(--kb) - 330px))));
+  bottom: var(--kb);
+  gap: 8px;
+}
+
+.sheet--note-bottom.sheet--note-kb .note-sheet__dictate {
+  display: none;
+}
+
+.sheet--note-bottom.sheet--note-kb .note-sheet__place {
+  padding: 8px 10px;
+  margin-bottom: 0;
 }
 
 .note-sheet__field {
@@ -1877,6 +1888,21 @@ body {
   flex: 1 1 auto;
   min-height: 4.5em;
   resize: none;
+}
+
+.sheet--note-bottom.sheet--note-kb .note-sheet__field {
+  flex: 1 1 auto;
+  min-height: 3em;
+  overflow: hidden;
+  margin-bottom: 0;
+}
+
+.sheet--note-bottom.sheet--note-kb .note-sheet__field textarea {
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
 }
 
 .sheet--note-bottom:not(.sheet--note-kb) .note-sheet__field {
@@ -1946,7 +1972,7 @@ body {
 }
 
 .sheet--note-bottom.sheet--note-kb .note-sheet__save-bottom {
-  margin-top: auto;
+  margin-top: 0;
 }
 
 .note-sheet__save-bottom:disabled {
