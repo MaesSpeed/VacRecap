@@ -75,16 +75,16 @@ async function fetchOsrm(from, to, profile) {
   const timer = setTimeout(() => ctrl.abort(), ROUTE_TIMEOUT_MS);
   try {
     const res = await fetch(url, { signal: ctrl.signal });
-    if (!res.ok) return null;
+    if (!res.ok) return { error: true };
     const data = await res.json();
     const route = data?.routes?.[0];
-    if (!route?.geometry) return null;
+    if (!route?.geometry) return { noRoute: true };
     const latlngs = geoJsonToLatLngs(route.geometry);
-    if (!latlngs || latlngs.length < 2) return null;
+    if (!latlngs || latlngs.length < 2) return { noRoute: true };
     const lengthM = route.distance ?? polylineLengthM(latlngs);
     return { latlngs, lengthM, profile };
   } catch {
-    return null;
+    return { error: true };
   } finally {
     clearTimeout(timer);
   }
@@ -119,7 +119,11 @@ export async function resolveRouteSegment(from, to, { routesEnabled = true, onli
   }
 
   const fetched = await enqueue(() => fetchOsrm(from, to, profile));
-  if (!fetched) {
+  if (!fetched || fetched.error) {
+    return { kind: "straight", latlngs: straight, airM };
+  }
+
+  if (fetched.noRoute) {
     await putRouteCacheEntry({
       key,
       miss: true,

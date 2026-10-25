@@ -7,9 +7,16 @@ import { peekRouteSegment, resolveRouteSegment } from "./route-service.js";
 import { getMapRoutesEnabled } from "./settings-store.js";
 import { ICON_BACK_CHEVRON } from "./icons.js";
 import { getMapSegment, setMapSegment } from "./map-session.js";
+import { prefetchCaptureGps } from "./capture-gps-prefetch.js";
+import { savePhotoForPlace, saveVideoForPlace } from "./media-service.js";
+import { leaveMapScreen, returnToTripFromMap } from "./map-nav.js";
+import { queuePendingFooter } from "./pending-footer.js";
 import { navigate } from "./router.js";
-import { setTripSelection } from "./ui-urlaub-detail.js";
+import { resolveCaptureTarget } from "./target-place.js";
+import { loadTripSelection } from "./trip-selection-store.js";
+import { storeTripSelection, setTripSelection } from "./ui-urlaub-detail.js";
 import { mountTripFooter } from "./ui-trip-footer.js";
+import { dismissActiveToast, showToast, showTwoLineToast } from "./toast.js";
 import { escapeHtml } from "./utils.js";
 
 const PARIS = { lat: 48.8566, lng: 2.3522 };
@@ -83,18 +90,6 @@ function contextDay(vacationId, vacation, segment) {
   return days[0];
 }
 
-function queueFooterAction(action) {
-  sessionStorage.setItem("vacrecap-pending-footer", action);
-}
-
-function returnToTripFromMap(vacationId) {
-  if (window.history.length > 1) {
-    window.history.back();
-    return;
-  }
-  navigate({ name: "urlaub-detail", id: vacationId }, { replace: true });
-}
-
 export async function renderMapScreen(appEl, vacationId) {
   const vacation = await getVacation(vacationId);
   if (!vacation) {
@@ -126,16 +121,16 @@ export async function renderMapScreen(appEl, vacationId) {
       <p class="map-empty-hint" data-role="empty-hint" hidden>Noch keine Orte mit Position</p>
     </div>
     <div class="map-legend" data-role="legend"></div>
+    <input type="file" accept="image/*,video/*" capture hidden data-role="capture-input" data-testid="map-capture-input" />
     <div data-role="footer-mount"></div>
   `;
 
   appEl.querySelector('[data-action="back"]').addEventListener("click", () => {
-    if (window.history.length > 1) {
-      history.back();
-    } else {
-      navigate({ name: "urlaub-detail", id: vacationId }, { replace: true });
-    }
+    leaveMapScreen(vacationId);
   });
+
+  const captureInput = appEl.querySelector('[data-role="capture-input"]');
+  let captureBusy = false;
 
   const mapEl = appEl.querySelector('[data-role="map"]');
   const offlineHint = appEl.querySelector('[data-role="offline-hint"]');
@@ -146,6 +141,7 @@ export async function renderMapScreen(appEl, vacationId) {
   const map = L.map(mapEl, {
     zoomControl: false,
     attributionControl: false,
+    zoomSnap: 0.25,
   });
 
   L.control
@@ -366,7 +362,7 @@ export async function renderMapScreen(appEl, vacationId) {
       return;
     }
     const bounds = L.latLngBounds(coords.map((p) => [p.lat, p.lng]));
-    map.fitBounds(bounds, { padding: [40, 40], animate: false });
+    map.fitBounds(bounds, { padding: [24, 24], animate: false });
   }
 
   async function centerDefault() {
@@ -383,29 +379,85 @@ export async function renderMapScreen(appEl, vacationId) {
   drawMarkers();
 
   const dayForFooter = () => contextDay(vacationId, vacation, segment);
+
+  async function resolveMapCaptureDayPlace() {
+    const day = dayForFooter();
+    const saved = await loadTripSelection(vacationId);
+    const activeDay = saved?.activeDay ?? day;
+    const selectedPlaceId = saved?.selectedByDay?.[activeDay] ?? null;
+    return { day: activeDay, selectedPlaceId };
+  }
+
+  captureInput.addEventListener("change", () => {
+    const file = captureInput.files?.[0];
+    captureInput.value = "";
+    if (!file || captureBusy) return;
+    const kind = file.type.startsWith("video/") ? "video" : "photo";
+    captureBusy = true;
+    showToast("Wird gespeichert…", { sticky: true, icon: "none" });
+    void (async () => {
+      try {
+        const { day, selectedPlaceId } = await resolveMapCaptureDayPlace();
+        const r = await resolveCaptureTarget({
+          vacationId,
+          day,
+          selectedPlaceId,
+          mediaKind: kind,
+        });
+        if (kind === "video") {
+          await saveVideoForPlace({ file, place: r.place, vacationId, day });
+        } else {
+          await savePhotoForPlace({ file, place: r.place, vacationId, day });
+        }
+        dismissActiveToast();
+        if (r.toast?.line) {
+          showTwoLineToast(r.toast.title || "Foto gespeichert", r.toast.line);
+        } else {
+          showToast(kind === "video" ? "Video gespeichert" : "Foto gespeichert");
+        }
+      } catch {
+        dismissActiveToast();
+        showToast("Speichern fehlgeschlagen");
+      } finally {
+        captureBusy = false;
+        returnToTripFromMap(vacationId);
+      }
+    })();
+  });
+
   mountTripFooter(appEl.querySelector('[data-role="footer-mount"]'), {
     onRememberPlace: async () => {
       const { rememberPlaceFromGps } = await import("./place-service.js");
       const day = dayForFooter();
+      await storeTripSelection(vacationId, day, null);
       setTripSelection(vacationId, day, null);
       await rememberPlaceFromGps({ vacationId, day });
       mapData = await loadMapPlaces(vacationId);
       drawMarkers();
     },
     onCamera: () => {
-      setTripSelection(vacationId, dayForFooter(), null);
-      queueFooterAction("camera");
-      returnToTripFromMap(vacationId);
+      const day = dayForFooter();
+      void storeTripSelection(vacationId, day, null).then(() => {
+        setTripSelection(vacationId, day, null);
+        prefetchCaptureGps();
+        captureInput.click();
+      });
     },
     onNote: () => {
-      setTripSelection(vacationId, dayForFooter(), null);
-      queueFooterAction("note");
-      returnToTripFromMap(vacationId);
+      const day = dayForFooter();
+      void storeTripSelection(vacationId, day, null).then(() => {
+        setTripSelection(vacationId, day, null);
+        queuePendingFooter("note");
+        returnToTripFromMap(vacationId);
+      });
     },
     onGallery: () => {
-      setTripSelection(vacationId, dayForFooter(), null);
-      queueFooterAction("gallery");
-      returnToTripFromMap(vacationId);
+      const day = dayForFooter();
+      void storeTripSelection(vacationId, day, null).then(() => {
+        setTripSelection(vacationId, day, null);
+        queuePendingFooter("gallery");
+        returnToTripFromMap(vacationId);
+      });
     },
   });
 

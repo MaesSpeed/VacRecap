@@ -14,6 +14,8 @@ import { newestHardPlace } from "./places.js";
 import { leaveTripToOverview, navigate } from "./router.js";
 import { getRememberLocationOnOpen } from "./settings-store.js";
 import { previewNoteCaptureTarget, resolveCaptureTarget } from "./target-place.js";
+import { markMapOpenedFromTrip } from "./map-nav.js";
+import { consumePendingFooter } from "./pending-footer.js";
 import { loadTripSelection, saveTripSelection } from "./trip-selection-store.js";
 import { prefetchCaptureGps } from "./capture-gps-prefetch.js";
 import { blockTripFooter, isTripFooterBlocked, SHEET_INPUT_BLOCK_MS } from "./overlay-stack.js";
@@ -45,6 +47,20 @@ export function setTripSelection(vacationId, day, placeId) {
   if (!state) return;
   state.activeDay = day;
   state.selectedByDay[day] = placeId;
+}
+
+export async function storeTripSelection(vacationId, day, placeId) {
+  const state = tripUiState.get(vacationId);
+  if (state) {
+    state.activeDay = day;
+    if (placeId) state.selectedByDay[day] = placeId;
+    persistSelection(vacationId, state);
+    return;
+  }
+  const saved = (await loadTripSelection(vacationId)) || { selectedByDay: {}, activeDay: day };
+  saved.activeDay = day;
+  if (placeId) saved.selectedByDay[day] = placeId;
+  await saveTripSelection(vacationId, saved);
 }
 
 async function getState(id, vacation) {
@@ -414,7 +430,8 @@ export async function renderUrlaubDetail(appEl, id) {
         });
       } else if (camBtn) {
         state.selectedByDay[state.activeDay] = placeId;
-        openCameraSheet();
+        persistSelection(id, state);
+        openNativeCamera();
       } else if (expandBtn) {
         state.notesExpanded.add(placeId);
         await refreshDayList();
@@ -489,6 +506,7 @@ export async function renderUrlaubDetail(appEl, id) {
   });
 
   appEl.querySelector('[data-action="map"]').addEventListener("click", () => {
+    markMapOpenedFromTrip();
     navigate({ name: "urlaub-map", id });
   });
 
@@ -503,12 +521,11 @@ export async function renderUrlaubDetail(appEl, id) {
 
   bindSwipe(contentEl, shiftDay);
 
-  const pendingFooter = sessionStorage.getItem("vacrecap-pending-footer");
+  const pendingFooter = consumePendingFooter();
   if (pendingFooter) {
-    sessionStorage.removeItem("vacrecap-pending-footer");
     requestAnimationFrame(() => {
       if (pendingFooter === "gallery") openGalleryPicker();
-      else if (pendingFooter === "camera") openCameraSheet();
+      else if (pendingFooter === "camera") openNativeCamera();
       else if (pendingFooter === "note") void onNoteFooter();
     });
   }

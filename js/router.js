@@ -99,6 +99,7 @@ function notify() {
 
 export function startRouter() {
   sessionStorage.removeItem("vacrecap-last-hash");
+  sessionStorage.removeItem(NAV_FROM_OVERVIEW_KEY);
   window.addEventListener("hashchange", () => notify());
   notify();
 }

@@ -1,4 +1,4 @@
-const CACHE_VERSION = "vacrecap-v22";
+const CACHE_VERSION = "vacrecap-v23";
 const ASSETS = [
   "./",
   "./index.html",
@@ -78,6 +78,8 @@ const ASSETS = [
   "./js/media-file-meta.js",
   "./js/route-cache.js",
   "./js/route-service.js",
+  "./js/map-nav.js",
+  "./js/pending-footer.js",
 ];
 
 self.addEventListener("install", (event) => {
