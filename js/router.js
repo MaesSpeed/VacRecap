@@ -18,6 +18,9 @@ export function getRoute() {
   if (parts[0] === "urlaub" && parts[2] === "bearbeiten") {
     return { name: "urlaub-form", mode: "edit", id: parts[1] };
   }
+  if (parts[0] === "urlaub" && parts[2] === "einstellungen") {
+    return { name: "urlaub-settings", id: parts[1] };
+  }
   if (parts[0] === "urlaub" && parts[1]) {
     return { name: "urlaub-detail", id: parts[1] };
   }
@@ -38,6 +41,9 @@ export function navigate(route) {
       break;
     case "urlaub-detail":
       hash = `#/urlaub/${route.id}`;
+      break;
+    case "urlaub-settings":
+      hash = `#/urlaub/${route.id}/einstellungen`;
       break;
     default:
       break;

@@ -1,5 +1,5 @@
 const DB_NAME = "vacrecap";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbPromise = null;
 
@@ -18,6 +18,26 @@ function openDb() {
         }
         if (!db.objectStoreNames.contains("blobs")) {
           db.createObjectStore("blobs", { keyPath: "id" });
+        }
+        if (!db.objectStoreNames.contains("settings")) {
+          db.createObjectStore("settings", { keyPath: "key" });
+        }
+        if (!db.objectStoreNames.contains("places")) {
+          const places = db.createObjectStore("places", { keyPath: "id" });
+          places.createIndex("vacationDay", ["vacationId", "dayDate"], {
+            unique: false,
+          });
+          places.createIndex("vacationId", "vacationId", { unique: false });
+        }
+        if (!db.objectStoreNames.contains("media")) {
+          const media = db.createObjectStore("media", { keyPath: "id" });
+          media.createIndex("placeId", "placeId", { unique: false });
+          media.createIndex("vacationId", "vacationId", { unique: false });
+        }
+        if (!db.objectStoreNames.contains("notes")) {
+          const notes = db.createObjectStore("notes", { keyPath: "id" });
+          notes.createIndex("placeId", "placeId", { unique: false });
+          notes.createIndex("vacationId", "vacationId", { unique: false });
         }
       };
     });
@@ -102,5 +122,76 @@ export async function deleteBlob(id) {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
     tx.objectStore("blobs").delete(id);
+  });
+}
+
+export async function getSetting(key) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("settings", "readonly");
+    const req = tx.objectStore("settings").get(key);
+    req.onsuccess = () => resolve(req.result?.value);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function putSetting(key, value) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("settings", "readwrite");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.objectStore("settings").put({ key, value });
+  });
+}
+
+export async function getPlacesForDay(vacationId, dayDate) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("places", "readonly");
+    const store = tx.objectStore("places");
+    let req;
+    try {
+      const index = store.index("vacationDay");
+      req = index.getAll([vacationId, dayDate]);
+    } catch {
+      req = store.getAll();
+    }
+    req.onsuccess = () => {
+      const all = req.result ?? [];
+      resolve(
+        all.filter((p) => p.vacationId === vacationId && p.dayDate === dayDate)
+      );
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function putPlace(place) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("places", "readwrite");
+    tx.oncomplete = () => resolve(place);
+    tx.onerror = () => reject(tx.error);
+    tx.objectStore("places").put(place);
+  });
+}
+
+export async function deletePlacesForVacation(vacationId) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("places", "readwrite");
+    const store = tx.objectStore("places");
+    const index = store.index("vacationId");
+    const req = index.openCursor(IDBKeyRange.only(vacationId));
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (cursor) {
+        cursor.delete();
+        cursor.continue();
+      }
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }

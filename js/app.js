@@ -2,6 +2,7 @@ import { assetUrl, getBasePath } from "./config.js";
 import { getAllVacations, requestPersistentStorage } from "./db.js";
 import { getRoute, navigate, onRouteChange, startRouter } from "./router.js";
 import { renderUrlaubDetail } from "./ui-urlaub-detail.js";
+import { renderUrlaubSettings } from "./ui-urlaub-settings.js";
 import { renderUrlaubForm } from "./ui-urlaub-form.js";
 import { renderUrlaubeScreen } from "./ui-urlaube.js";
 
@@ -17,6 +18,9 @@ async function render() {
       break;
     case "urlaub-detail":
       await renderUrlaubDetail(appEl, route.id);
+      break;
+    case "urlaub-settings":
+      await renderUrlaubSettings(appEl, route.id);
       break;
     case "urlaube":
     default:
