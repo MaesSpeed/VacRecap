@@ -1,8 +1,11 @@
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 
 let busy = false;
+let openBlockedUntil = 0;
 
 export function openCameraChoiceSheet({ onPhoto, onVideo }) {
+  if (Date.now() < openBlockedUntil) return;
+  openBlockedUntil = Date.now() + 400;
   const overlay = document.getElementById("overlay-root");
   overlay.hidden = false;
   overlay.innerHTML = `

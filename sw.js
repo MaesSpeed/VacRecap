@@ -1,4 +1,4 @@
-const CACHE_VERSION = "vacrecap-v12";
+const CACHE_VERSION = "vacrecap-v14";
 const ASSETS = [
   "./",
   "./index.html",
@@ -45,6 +45,9 @@ const ASSETS = [
   "./js/media-service.js",
   "./js/note-service.js",
   "./js/target-place.js",
+  "./js/vacation-stats.js",
+  "./js/trip-selection-store.js",
+  "./js/ui-confirm.js",
   "./js/ui-camera-sheet.js",
   "./js/ui-note-sheet.js",
   "./js/media-source.js",
@@ -55,12 +58,19 @@ const ASSETS = [
   "./js/ui-calendar.js",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
-  "./assets/covers/stadt.svg",
-  "./assets/covers/strand.svg",
-  "./assets/covers/berge.svg",
-  "./assets/covers/wald.svg",
-  "./assets/covers/roadtrip.svg",
-  "./assets/covers/winter.svg",
+  "./assets/covers/stadt.jpg",
+  "./assets/covers/stadt-thumb.jpg",
+  "./assets/covers/strand.jpg",
+  "./assets/covers/strand-thumb.jpg",
+  "./assets/covers/berge.jpg",
+  "./assets/covers/berge-thumb.jpg",
+  "./assets/covers/wald.jpg",
+  "./assets/covers/wald-thumb.jpg",
+  "./assets/covers/roadtrip.jpg",
+  "./assets/covers/roadtrip-thumb.jpg",
+  "./assets/covers/winter.jpg",
+  "./assets/covers/winter-thumb.jpg",
+  "./js/ui-cover-credits.js",
 ];
 
 self.addEventListener("install", (event) => {

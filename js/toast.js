@@ -23,20 +23,25 @@ function dismissToast({ immediate = false } = {}) {
   setTimeout(remove, 400);
 }
 
-export function showToast(message, { title, duration = TOAST_MS, sticky = false } = {}) {
+export function showToast(
+  message,
+  { title, duration = TOAST_MS, sticky = false, variant = "success" } = {}
+) {
   const root = document.getElementById("toast-root");
   if (!root) return;
 
   dismissToast({ immediate: true });
 
   const el = document.createElement("div");
-  el.className = "toast";
+  el.className = `toast toast--${variant}`;
   el.setAttribute("data-testid", "app-toast");
+  const icon = variant === "warn" ? "!" : "✓";
+  const line = message ?? "";
   el.innerHTML = `
-    <span class="toast__icon" aria-hidden="true">✓</span>
+    ${variant === "warn" || variant === "success" ? `<span class="toast__icon" aria-hidden="true">${icon}</span>` : ""}
     <div class="toast__text">
       ${title ? `<strong>${escapeHtml(title)}</strong>` : ""}
-      <span>${escapeHtml(message)}</span>
+      ${line ? `<span>${escapeHtml(line)}</span>` : ""}
     </div>
   `;
   root.appendChild(el);
@@ -50,4 +55,12 @@ export function showToast(message, { title, duration = TOAST_MS, sticky = false 
 
 export function dismissActiveToast() {
   dismissToast({ immediate: true });
+}
+
+export function showWarnToast(message, options = {}) {
+  showToast(message, { ...options, variant: "warn" });
+}
+
+export function showTwoLineToast(title, line, options = {}) {
+  showToast(line, { ...options, title });
 }

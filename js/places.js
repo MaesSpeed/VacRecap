@@ -22,6 +22,9 @@ export function normalizePlace(raw) {
     kind: raw.soft ? "soft" : "place",
     mediaIds: raw.mediaIds ?? [],
     noteIds: raw.noteIds ?? [],
+    rememberCount: raw.rememberCount ?? 0,
+    rememberFirstTs: raw.rememberFirstTs ?? null,
+    rememberLastTs: raw.rememberLastTs ?? null,
   };
 }
 
@@ -35,6 +38,9 @@ export function createPlace({
   name,
   soft = false,
   source = "manual",
+  rememberCount = 0,
+  rememberFirstTs = null,
+  rememberLastTs = null,
 }) {
   const now = Date.now();
   return normalizePlace({
@@ -51,6 +57,9 @@ export function createPlace({
     name,
     soft,
     source,
+    rememberCount,
+    rememberFirstTs,
+    rememberLastTs,
   });
 }
 

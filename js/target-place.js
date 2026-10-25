@@ -1,7 +1,12 @@
 import { getPlacesForDay, putPlace } from "./db.js";
-import { rememberPlaceFromGps } from "./place-service.js";
-import { createPlace, newestHardPlace, normalizePlace } from "./places.js";
-import { getRememberCaptureLocation } from "./settings-store.js";
+import { fallbackPlaceName, getCapturePosition } from "./geo.js";
+import {
+  createPlace,
+  findPlaceWithinMeters,
+  newestHardPlace,
+  normalizePlace,
+} from "./places.js";
+import { getRememberCaptureLocation, getSamePlaceRadiusM } from "./settings-store.js";
 import { showToast } from "./toast.js";
 import { todayIso } from "./utils.js";
 
@@ -16,6 +21,106 @@ function findOhneOrt(places) {
   return places.find(
     (p) => !p.soft && p.name === OHNE_ORT && p.lat == null && p.lng == null
   );
+}
+
+async function fallbackPlace({ vacationId, day, selectedPlaceId }) {
+  const all = await getPlacesForDay(vacationId, day);
+  const hard = all.filter((p) => !p.soft);
+
+  if (selectedPlaceId) {
+    const selected = hard.find((p) => p.id === selectedPlaceId);
+    if (selected) return { place: selected, createdOhneOrt: false, toast: null };
+  }
+
+  const newest = newestHardPlace(hard);
+  if (newest) return { place: newest, createdOhneOrt: false, toast: null };
+
+  const existing = findOhneOrt(hard);
+  if (existing) return { place: existing, createdOhneOrt: false, toast: null };
+
+  const ts = tsForDay(day);
+  const place = createPlace({
+    vacationId,
+    day,
+    ts,
+    lat: null,
+    lng: null,
+    name: OHNE_ORT,
+    soft: false,
+    source: "ohne-ort",
+  });
+  await putPlace(place);
+  return {
+    place,
+    createdOhneOrt: true,
+    toast: { title: "Ohne Ort gespeichert", line: "" },
+  };
+}
+
+async function resolveWithGps({ vacationId, day }) {
+  const pos = await getCapturePosition();
+  const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+  const dedupM = await getSamePlaceRadiusM();
+  const all = await getPlacesForDay(vacationId, day);
+  const hard = all.filter((p) => !p.soft);
+  const near = findPlaceWithinMeters(hard, lat, lng, dedupM);
+  if (near) {
+    return {
+      place: normalizePlace(near),
+      createdOhneOrt: false,
+      toast: { line: `Zu «${near.name}» hinzugefügt`, kind: "matched" },
+    };
+  }
+  const ts = Date.now();
+  const name = fallbackPlaceName(ts);
+  const place = createPlace({
+    vacationId,
+    day,
+    ts,
+    lat,
+    lng,
+    accuracy,
+    name,
+    soft: false,
+    source: "capture",
+  });
+  await putPlace(place);
+  return {
+    place,
+    createdOhneOrt: false,
+    toast: {
+      line: `Neuer Ort: ${name}`,
+      kind: "new",
+      placeName: name,
+    },
+  };
+}
+
+export async function resolveCaptureTarget({
+  vacationId,
+  day,
+  selectedPlaceId,
+  mediaKind = "photo",
+}) {
+  const title =
+    mediaKind === "video"
+      ? "Video gespeichert"
+      : mediaKind === "note"
+        ? "Notiz gespeichert"
+        : "Foto gespeichert";
+
+  if (await getRememberCaptureLocation()) {
+    try {
+      const gps = await resolveWithGps({ vacationId, day });
+      if (gps.toast) gps.toast.title = title;
+      return { ...gps, needsRefresh: true };
+    } catch {
+      /* fallback */
+    }
+  }
+
+  const fb = await fallbackPlace({ vacationId, day, selectedPlaceId });
+  return { ...fb, needsRefresh: fb.createdOhneOrt };
 }
 
 export async function getOrCreateOhneOrtPlace({ vacationId, day, showToastOnCreate = true }) {
@@ -54,41 +159,11 @@ export async function resolveMediathekTarget({ vacationId, day, selectedPlaceId 
 }
 
 export async function ensureTargetPlace({ vacationId, day, selectedPlaceId }) {
-  const all = await getPlacesForDay(vacationId, day);
-  const hard = all.filter((p) => !p.soft);
-
-  if (selectedPlaceId) {
-    const selected = hard.find((p) => p.id === selectedPlaceId);
-    if (selected) return { place: selected, createdOhneOrt: false };
-  }
-
-  const newest = newestHardPlace(hard);
-  if (newest) return { place: newest, createdOhneOrt: false };
-
-  if (day === todayIso() && (await getRememberCaptureLocation())) {
-    const gps = await rememberPlaceFromGps({ vacationId, day });
-    if (gps?.place) {
-      return { place: normalizePlace(gps.place), createdOhneOrt: false };
-    }
-  }
-
-  const existing = findOhneOrt(hard);
-  if (existing) {
-    return { place: existing, createdOhneOrt: false };
-  }
-
-  const ts = tsForDay(day);
-  const place = createPlace({
-    vacationId,
-    day,
-    ts,
-    lat: null,
-    lng: null,
-    name: OHNE_ORT,
-    soft: false,
-    source: "ohne-ort",
-  });
-  await putPlace(place);
-  showToast("Ohne Ort gespeichert");
-  return { place, createdOhneOrt: true };
+  const r = await resolveCaptureTarget({ vacationId, day, selectedPlaceId });
+  return {
+    place: r.place,
+    createdOhneOrt: r.createdOhneOrt,
+    toast: r.toast,
+    needsRefresh: r.needsRefresh,
+  };
 }

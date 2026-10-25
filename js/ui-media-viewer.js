@@ -1,6 +1,8 @@
 import { deleteMedia } from "./db.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { formatMediaDuration } from "./media-process.js";
+import { ICON_BACK_CHEVRON } from "./icons.js";
+import { openConfirmDialog } from "./ui-confirm.js";
 import { showToast } from "./toast.js";
 
 const PLAY_ICON = `<svg class="tile__play" width="18" height="18" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>`;
@@ -51,7 +53,7 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
     overlay.innerHTML = `
       <div class="media-viewer" data-testid="media-viewer">
         <header class="media-viewer__bar">
-          <button type="button" class="media-viewer__back" data-action="close" data-testid="media-viewer-close">‹ Zurück</button>
+          <button type="button" class="media-viewer__back" data-action="close" data-testid="media-viewer-close" aria-label="Zurück">${ICON_BACK_CHEVRON}</button>
           <button type="button" class="media-viewer__delete" data-action="delete" aria-label="Löschen">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m-7 4v7m4-7v7M6 7l1 12a1 1 0 0 0 1 .9h8a1 1 0 0 0 1-.9L18 7"/>
@@ -67,9 +69,14 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
     overlay.querySelector('[data-action="close"]').addEventListener("click", () =>
       closeOverlayHistory(close)
     );
-    overlay.querySelector('[data-action="delete"]').addEventListener("click", () => {
-      const label = isVideo ? "Video löschen?" : "Foto löschen?";
-      if (!window.confirm(label)) return;
+    overlay.querySelector('[data-action="delete"]').addEventListener("click", async () => {
+      const title = isVideo ? "Video löschen?" : "Foto löschen?";
+      const ok = await openConfirmDialog({
+        title,
+        message: "Dieses Medium wird unwiderruflich gelöscht.",
+        testId: "confirm-delete-media",
+      });
+      if (!ok) return;
       deleteMedia(item.id).then(() => {
         showToast(isVideo ? "Video gelöscht" : "Foto gelöscht");
         sorted.splice(index, 1);

@@ -1,6 +1,7 @@
 import {
   adjacentDay,
   dayChipDateLine,
+  dayIndexInTrip,
   dayRoleLabel,
   defaultActiveDay,
   vacationDays,
@@ -12,8 +13,9 @@ import { rememberPlaceFromGps, trySoftPointOnOpen } from "./place-service.js";
 import { newestHardPlace } from "./places.js";
 import { navigate } from "./router.js";
 import { getRememberLocationOnOpen } from "./settings-store.js";
-import { ensureTargetPlace } from "./target-place.js";
-import { dismissActiveToast, showToast } from "./toast.js";
+import { resolveCaptureTarget } from "./target-place.js";
+import { loadTripSelection, saveTripSelection } from "./trip-selection-store.js";
+import { dismissActiveToast, showToast, showTwoLineToast } from "./toast.js";
 import { openCameraChoiceSheet } from "./ui-camera-sheet.js";
 import { openMediaViewer } from "./ui-media-viewer.js";
 import { openNoteSheet } from "./ui-note-sheet.js";
@@ -45,12 +47,13 @@ export function setTripSelection(vacationId, day, placeId) {
   state.selectedByDay[day] = placeId;
 }
 
-function getState(id, vacation) {
+async function getState(id, vacation) {
   let state = tripUiState.get(id);
   if (!state) {
+    const saved = await loadTripSelection(id);
     state = {
-      activeDay: defaultActiveDay(vacation),
-      selectedByDay: {},
+      activeDay: saved?.activeDay ?? defaultActiveDay(vacation),
+      selectedByDay: saved?.selectedByDay ?? {},
       notesExpanded: new Set(),
       openGeoDone: new Set(),
       thumbUrls: {},
@@ -61,6 +64,13 @@ function getState(id, vacation) {
   return state;
 }
 
+function persistSelection(id, state) {
+  void saveTripSelection(id, {
+    selectedByDay: state.selectedByDay,
+    activeDay: state.activeDay,
+  });
+}
+
 export async function renderUrlaubDetail(appEl, id) {
   const vacation = await getVacation(id);
   if (!vacation) {
@@ -69,7 +79,7 @@ export async function renderUrlaubDetail(appEl, id) {
   }
 
   const days = vacationDays(vacation);
-  const state = getState(id, vacation);
+  const state = await getState(id, vacation);
 
   appEl.className = "screen screen--trip";
   appEl.dataset.vacationId = id;
@@ -191,25 +201,41 @@ export async function renderUrlaubDetail(appEl, id) {
       day: state.activeDay,
     });
     if (!result) return;
+    state.selectedByDay[state.activeDay] = result.place.id;
+    persistSelection(id, state);
     if (result.duplicate) {
-      state.selectedByDay[state.activeDay] = result.place.id;
-      showToast(`Schon gemerkt: ${result.place.name}`);
-    } else {
-      state.selectedByDay[state.activeDay] = result.place.id;
-      showToast("Ort gemerkt");
+      showTwoLineToast("Schon gemerkt", `Zu «${result.place.name}» hinzugefügt`);
+    } else if (!result.noGps) {
+      showTwoLineToast("Neuer Ort", result.place.name);
     }
     await refreshDayList();
   }
 
-  async function resolveTargetPlace() {
-    const { place, createdOhneOrt } = await ensureTargetPlace({
+  async function resolveTargetPlace(mediaKind = "photo") {
+    const r = await resolveCaptureTarget({
       vacationId: id,
       day: state.activeDay,
       selectedPlaceId: state.selectedByDay[state.activeDay],
+      mediaKind,
     });
-    state.selectedByDay[state.activeDay] = place.id;
-    if (createdOhneOrt) await refreshDayList();
-    return place;
+    state.selectedByDay[state.activeDay] = r.place.id;
+    persistSelection(id, state);
+    if (r.needsRefresh) await refreshDayList();
+    return r;
+  }
+
+  function showCaptureResultToast(r, mediaKind) {
+    const title =
+      mediaKind === "video"
+        ? "Video gespeichert"
+        : mediaKind === "note"
+          ? "Notiz gespeichert"
+          : "Foto gespeichert";
+    if (r.toast?.line) {
+      showTwoLineToast(title, r.toast.line);
+    } else if (r.toast?.title) {
+      showTwoLineToast(r.toast.title, r.toast.line || "");
+    }
   }
 
   function openCameraSheet() {
@@ -224,14 +250,15 @@ export async function renderUrlaubDetail(appEl, id) {
     state.captureBusy = true;
     showToast("Wird gespeichert…", { sticky: true });
     try {
-      const place = await resolveTargetPlace();
+      const r = await resolveTargetPlace(kind);
+      const place = r.place;
       const save =
         kind === "video"
           ? () => saveVideoForPlace({ file, place, vacationId: id, day: state.activeDay })
           : () => savePhotoForPlace({ file, place, vacationId: id, day: state.activeDay });
       await save();
       dismissActiveToast();
-      showToast(kind === "video" ? "Video gespeichert" : "Foto gespeichert");
+      showCaptureResultToast(r, kind);
       await refreshDayList();
     } catch (err) {
       dismissActiveToast();
@@ -258,13 +285,24 @@ export async function renderUrlaubDetail(appEl, id) {
 
   async function onNoteFooter() {
     if (state.captureBusy) return;
-    const place = await resolveTargetPlace();
+    const r = await resolveTargetPlace("note");
     openNoteSheet({
-      place,
+      place: r.place,
       vacationId: id,
+      vacation,
       day: state.activeDay,
+      dayIndex: dayIndexInTrip(vacation, state.activeDay),
+      placesForDay: async () => {
+        const items = await loadDayPlacesEnriched(id, state.activeDay);
+        return items.map((i) => i.place).filter((p) => !p.soft);
+      },
       onSaved: () => refreshDayList(),
+      onPlaceChange: (placeId) => {
+        state.selectedByDay[state.activeDay] = placeId;
+        persistSelection(id, state);
+      },
     });
+    if (r.toast?.line) showCaptureResultToast(r, "note");
   }
 
   contentEl.addEventListener("click", async (e) => {
@@ -281,11 +319,31 @@ export async function renderUrlaubDetail(appEl, id) {
       return;
     }
 
+    const noteRowClick = e.target.closest(".nr[data-note-id]");
+    if (noteRowClick && !e.target.closest('[data-action="edit-note"]')) {
+      const placeHost = e.target.closest(".oc[data-place-id]");
+      if (!placeHost) return;
+      const placeId = placeHost.dataset.placeId;
+      if (placeId !== state.selectedByDay[state.activeDay]) {
+        state.selectedByDay[state.activeDay] = placeId;
+        persistSelection(id, state);
+        await refreshDayList();
+        return;
+      }
+    }
+
     const editNoteBtn = e.target.closest('[data-action="edit-note"]');
     if (editNoteBtn) {
       const noteRow = editNoteBtn.closest("[data-note-id]");
       const placeHost = e.target.closest(".oc[data-place-id]");
       if (!noteRow || !placeHost) return;
+      const placeId = placeHost.dataset.placeId;
+      if (placeId !== state.selectedByDay[state.activeDay]) {
+        state.selectedByDay[state.activeDay] = placeId;
+        persistSelection(id, state);
+        await refreshDayList();
+        return;
+      }
       const items = await loadDayPlacesEnriched(id, state.activeDay);
       const item = items.find((i) => i.place.id === placeHost.dataset.placeId);
       const note = item?.notes.find((n) => n.id === noteRow.dataset.noteId);
@@ -293,9 +351,19 @@ export async function renderUrlaubDetail(appEl, id) {
       openNoteSheet({
         place: item.place,
         vacationId: id,
+        vacation,
         day: state.activeDay,
+        dayIndex: dayIndexInTrip(vacation, state.activeDay),
+        placesForDay: async () => {
+          const list = await loadDayPlacesEnriched(id, state.activeDay);
+          return list.map((i) => i.place).filter((p) => !p.soft);
+        },
         note,
         onSaved: () => refreshDayList(),
+        onPlaceChange: (pid) => {
+          state.selectedByDay[state.activeDay] = pid;
+          persistSelection(id, state);
+        },
       });
       return;
     }
@@ -341,8 +409,16 @@ export async function renderUrlaubDetail(appEl, id) {
       const item = items.find((i) => i.place.id === placeId);
       if (!item) return;
       openSoftPointSheet(item.place, {
-        onPromoted: async (p) => {
+        vacationId: id,
+        day: state.activeDay,
+        onPromoted: async (p, duplicate) => {
           state.selectedByDay[state.activeDay] = p.id;
+          persistSelection(id, state);
+          if (duplicate) {
+            showTwoLineToast("Schon gemerkt", `Zu «${p.name}» hinzugefügt`);
+          } else {
+            showTwoLineToast("Neuer Ort", p.name);
+          }
           await refreshDayList();
         },
         onDiscarded: async () => refreshDayList(),
@@ -353,6 +429,7 @@ export async function renderUrlaubDetail(appEl, id) {
     const card = e.target.closest(".oc[data-place-id]");
     if (card && !card.classList.contains("oc--selected")) {
       state.selectedByDay[state.activeDay] = card.dataset.placeId;
+      persistSelection(id, state);
       await refreshDayList();
     }
   });

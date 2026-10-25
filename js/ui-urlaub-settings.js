@@ -14,6 +14,7 @@ import {
 } from "./settings-store.js";
 import { formatBytesGerman, formatGermanDateTime } from "./storage-format.js";
 import { openBackupSheet } from "./ui-backup-sheet.js";
+import { openCoverCreditsSheet } from "./ui-cover-credits.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { showToast } from "./toast.js";
 import { escapeHtml } from "./utils.js";
@@ -64,7 +65,7 @@ export async function renderUrlaubSettings(appEl, id) {
             <span class="settings-item__icon">${ICON_CROSSHAIR}</span>
             <div class="settings-item__text">
               <span class="settings-item__title">Standort beim Öffnen merken</span>
-              <span class="settings-item__sub">Setzt beim Öffnen einen weichen Punkt</span>
+              <span class="settings-item__sub">Setzt beim Öffnen einen Punkt</span>
             </div>
             ${switchHtml("remember-location", remember, "Standort beim Öffnen merken")}
           </div>
@@ -124,11 +125,26 @@ export async function renderUrlaubSettings(appEl, id) {
           <button type="button" class="settings-link-row settings-link-row--danger" data-action="delete">Urlaub löschen</button>
         </div>
       </section>
+      <section class="settings-block">
+        <h2 class="settings-block__label">Info</h2>
+        <div class="settings-card settings-card--tight">
+          <button type="button" class="settings-item settings-item--link settings-item--info" data-action="credits">
+            <div class="settings-item__text">
+              <span class="settings-item__title settings-item__title--info">Bildnachweise</span>
+            </div>
+            <span class="settings-item__chevron">${ICON_CHEVRON}</span>
+          </button>
+        </div>
+      </section>
     </main>
   `;
 
   appEl.querySelector('[data-action="back"]').addEventListener("click", () => {
-    navigate({ name: "urlaub-detail", id });
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    navigate({ name: "urlaub-detail", id }, { replace: true });
   });
 
   const rememberBtn = appEl.querySelector('[data-testid="remember-location"]');
@@ -203,6 +219,10 @@ export async function renderUrlaubSettings(appEl, id) {
       /* ignore */
     }
   })();
+
+  appEl.querySelector('[data-action="credits"]')?.addEventListener("click", () => {
+    openCoverCreditsSheet();
+  });
 
   appEl.querySelector('[data-action="edit"]').addEventListener("click", () => {
     sessionStorage.setItem(
