@@ -179,7 +179,7 @@ async function runMediathekTests(page, { captureScreenshots, label }) {
   await page.locator('[data-testid="mediathek-place-sheet"] [data-action="cancel"]').tap();
   await page.waitForSelector('[data-testid="mediathek-screen"]');
 
-  await page.tap('[data-action="add"]');
+  await page.locator(".mediathek-bar__add").tap();
   await page.waitForFunction(() => {
     const t = document.querySelector('[data-testid="app-toast"]');
     return t?.textContent?.includes("hinzugefügt");
@@ -201,16 +201,36 @@ async function runMediathekTests(page, { captureScreenshots, label }) {
 
   await waitForNoToast(page);
 
-  await page.goto(`./#/urlaub/${vacationId}/mediathek`);
-  await page.waitForSelector('[data-testid="trip-content"]');
+  const dupOk = await page.evaluate(
+    async (spec) => {
+      const vacationId = document.querySelector(".screen--trip")?.dataset?.vacationId;
+      const { buildMediaSourceKey } = await import("./js/media-source.js");
+      const { getMediaBySourceKey } = await import("./js/db.js");
+      const file = new File([new Uint8Array(spec.bytes)], spec.name, {
+        type: spec.type,
+        lastModified: spec.lastModified,
+      });
+      const key = buildMediaSourceKey(file);
+      const existing = await getMediaBySourceKey(vacationId, key);
+      return Boolean(existing?.sourceKey === key);
+    },
+    fileSpecs[6]
+  );
+  if (!dupOk) {
+    throw new Error(`${label}: sourceKey duplicate lookup failed`);
+  }
 
-  const dupSpecs = [fileSpecs[0]];
-  await openMediathekWithFiles(page, dupSpecs);
-  await page.tap('[data-action="add"]');
-  await page.waitForFunction(() => {
-    const t = document.querySelector('[data-testid="app-toast"]');
-    return t?.textContent?.includes("übersprungen");
-  });
+  await openMediathekWithFiles(page, [fileSpecs[6]]);
+  await page.locator(".mediathek-bar__add").tap();
+  await page.waitForSelector(".screen--trip");
+  const dupToast = await page.waitForFunction(
+    () => {
+      const t = document.querySelector('[data-testid="app-toast"]');
+      return t?.textContent?.includes("übersprungen");
+    },
+    { timeout: 15_000 }
+  );
+  if (!dupToast) throw new Error(`${label}: missing duplicate skip toast`);
   await waitForNoToast(page);
 }
 

@@ -3,9 +3,14 @@ import { bindBackdropDismiss } from "./gesture-guard.js";
 let activeClose = null;
 const closeStack = [];
 let closingFromPop = false;
+let ignoreNextPop = false;
 
 export function initOverlayHistory() {
   window.addEventListener("popstate", () => {
+    if (ignoreNextPop) {
+      ignoreNextPop = false;
+      return;
+    }
     if (!activeClose) return;
     closingFromPop = true;
     const fn = activeClose;
@@ -32,6 +37,7 @@ export function closeOverlayHistory(closeFn) {
     const parent = closeStack.pop() ?? null;
     activeClose = null;
     if (history.state?.vacrecapOverlay) {
+      ignoreNextPop = true;
       history.back();
     }
     activeClose = parent;
@@ -43,6 +49,7 @@ export function abandonOverlayHistory() {
   activeClose = null;
   closeStack.length = 0;
   if (history.state?.vacrecapOverlay) {
+    ignoreNextPop = true;
     history.back();
   }
 }
