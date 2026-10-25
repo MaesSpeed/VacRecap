@@ -256,10 +256,10 @@ function confirmDeleteVacation(vacation) {
     overlay.innerHTML = "";
   };
 
-  bindOverlay(overlay, close);
+  const activeClose = bindOverlay(overlay, close);
 
   overlay.querySelector('[data-action="cancel"]').addEventListener("click", () =>
-    closeOverlayHistory(close)
+    closeOverlayHistory(activeClose)
   );
   overlay.querySelector('[data-action="confirm"]').addEventListener("click", async () => {
     if (vacation.cover?.type === "custom" && vacation.cover.blobId) {
@@ -267,7 +267,7 @@ function confirmDeleteVacation(vacation) {
     }
     await deleteVacationData(vacation.id);
     await deleteVacation(vacation.id);
-    closeOverlayHistory(close);
+    closeOverlayHistory(activeClose);
     showToast("Urlaub gelöscht");
     window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
     navigate({ name: "urlaube" }, { replace: true });

@@ -478,7 +478,7 @@ export async function renderUrlaubDetail(appEl, id) {
       selectedPlaceId: state.selectedByDay[state.activeDay],
       files,
     });
-    navigate({ name: "urlaub-mediathek", id });
+    navigate({ name: "urlaub-mediathek", id }, { replace: true });
   });
 
   mountTripFooter(footerMount, {

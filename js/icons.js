@@ -2,6 +2,8 @@
 
 export const ICON_BACK_CHEVRON = `<svg class="link-btn__chevron" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M14 6l-6 6 6 6" stroke="#0066B3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
+export const ICON_BACK_CHEVRON_WHITE = `<svg class="media-viewer__chevron" width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M14 6l-6 6 6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
 export const ICON_CLOSE = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
 
 export const ICON_MAP = `<svg width="26" height="26" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M3.5 8.4l8-3 9 3 8-3v18.8l-8 3-9-3-8 3z" fill="#9fb3cc"/><path d="M11.5 5.4v18.8M20.5 8.4v18.8" stroke="#fff" stroke-width="1.4" opacity=".8"/><path d="M21 5.6c-3.1 0-5.4 2.3-5.4 5.2 0 3.8 5.4 8.6 5.4 8.6s5.4-4.8 5.4-8.6c0-2.9-2.3-5.2-5.4-5.2z" fill="#d4523e" stroke="#fff" stroke-width="1.3"/><circle cx="21" cy="10.8" r="2" fill="#fff"/></svg>`;

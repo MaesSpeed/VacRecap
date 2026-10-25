@@ -49,14 +49,14 @@ function addButtonLabel(count) {
 export async function renderMediathekScreen(appEl, vacationId) {
   const session = getMediathekSession();
   if (!session || session.vacationId !== vacationId) {
-    navigate({ name: "urlaub-detail", id: vacationId });
+    navigate({ name: "urlaub-detail", id: vacationId }, { replace: true });
     return;
   }
 
   const vacation = await getVacation(vacationId);
   if (!vacation) {
     clearMediathekSession();
-    navigate({ name: "urlaube" });
+    navigate({ name: "urlaube" }, { replace: true });
     return;
   }
 
@@ -77,7 +77,7 @@ export async function renderMediathekScreen(appEl, vacationId) {
   const closeWithoutSave = () => {
     if (!getMediathekSession()) return;
     clearMediathekSession();
-    navigate({ name: "urlaub-detail", id: vacationId });
+    navigate({ name: "urlaub-detail", id: vacationId }, { replace: true });
   };
 
   openOverlayHistory(closeWithoutSave);
@@ -250,7 +250,7 @@ export async function renderMediathekScreen(appEl, vacationId) {
     clearMediathekSession();
     abandonOverlayHistory();
     setTripSelection(vacationId, day, place.id);
-    navigate({ name: "urlaub-detail", id: vacationId });
+    navigate({ name: "urlaub-detail", id: vacationId }, { replace: true });
 
     const toastParts = [];
     if (photos || videos) toastParts.push(formatAddedToast({ photos, videos }));

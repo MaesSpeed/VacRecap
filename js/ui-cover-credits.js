@@ -32,8 +32,8 @@ export function openCoverCreditsSheet() {
     overlay.innerHTML = "";
   };
 
-  bindOverlay(overlay, close);
+  const activeClose = bindOverlay(overlay, close);
   overlay.querySelector('[data-action="close"]').addEventListener("click", () =>
-    closeOverlayHistory(close)
+    closeOverlayHistory(activeClose)
   );
 }

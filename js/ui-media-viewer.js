@@ -1,7 +1,7 @@
 import { deleteMedia } from "./db.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { formatMediaDuration } from "./media-process.js";
-import { ICON_BACK_CHEVRON } from "./icons.js";
+import { ICON_BACK_CHEVRON_WHITE } from "./icons.js";
 import { openConfirmDialog } from "./ui-confirm.js";
 import { showToast } from "./toast.js";
 
@@ -35,13 +35,13 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
     overlay.hidden = true;
   };
 
-  bindOverlay(overlay, close);
+  const activeClose = bindOverlay(overlay, close);
 
   const render = () => {
     revokeAll();
     const item = sorted[index];
     if (!item) {
-      closeOverlayHistory(close);
+      closeOverlayHistory(activeClose);
       return;
     }
     const url = mediaUrl(item);
@@ -53,7 +53,7 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
     overlay.innerHTML = `
       <div class="media-viewer" data-testid="media-viewer">
         <header class="media-viewer__bar">
-          <button type="button" class="media-viewer__back" data-action="close" data-testid="media-viewer-close" aria-label="Zurück">${ICON_BACK_CHEVRON}</button>
+          <button type="button" class="media-viewer__back" data-action="close" data-testid="media-viewer-close" aria-label="Zurück">${ICON_BACK_CHEVRON_WHITE}</button>
           <button type="button" class="media-viewer__delete" data-action="delete" aria-label="Löschen">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m-7 4v7m4-7v7M6 7l1 12a1 1 0 0 0 1 .9h8a1 1 0 0 0 1-.9L18 7"/>
@@ -67,7 +67,7 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
     `;
 
     overlay.querySelector('[data-action="close"]').addEventListener("click", () =>
-      closeOverlayHistory(close)
+      closeOverlayHistory(activeClose)
     );
     overlay.querySelector('[data-action="delete"]').addEventListener("click", async () => {
       const title = isVideo ? "Video löschen?" : "Foto löschen?";
@@ -81,7 +81,7 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
         showToast(isVideo ? "Video gelöscht" : "Foto gelöscht");
         sorted.splice(index, 1);
         if (!sorted.length) {
-          closeOverlayHistory(close);
+          closeOverlayHistory(activeClose);
           onChanged?.();
           return;
         }

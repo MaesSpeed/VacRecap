@@ -110,10 +110,10 @@ export function openTripDayCalendar({ vacation, activeDay, onSelect }) {
     overlay.innerHTML = "";
   };
 
-  bindOverlay(overlay, close);
+  const activeClose = bindOverlay(overlay, close);
 
   sheet.querySelector('[data-action="close"]').addEventListener("click", () => {
-    closeOverlayHistory(close);
+    closeOverlayHistory(activeClose);
   });
 
   sheet.addEventListener("click", (e) => {
@@ -122,6 +122,6 @@ export function openTripDayCalendar({ vacation, activeDay, onSelect }) {
     const iso = day.dataset.date;
     if (!isDayInVacation(vacation, iso)) return;
     onSelect(iso);
-    closeOverlayHistory(close);
+    closeOverlayHistory(activeClose);
   });
 }

@@ -110,16 +110,23 @@ export function hasActiveOverlay() {
  */
 export function bindOverlay(overlay, domClose, dismissHandler) {
   overlayDismissHandler = dismissHandler ?? null;
-  openOverlayHistory(domClose);
+  let unbindBackdrop = null;
+  const activeDomClose = () => {
+    unbindBackdrop?.();
+    unbindBackdrop = null;
+    domClose();
+  };
+  openOverlayHistory(activeDomClose);
   const openedAt = Date.now();
   const sheet = overlay.querySelector(".sheet");
   if (sheet) {
     sheet.classList.add("sheet--input-blocked");
     setTimeout(() => sheet.classList.remove("sheet--input-blocked"), SHEET_INPUT_BLOCK_MS);
   }
-  bindBackdropDismiss(overlay, () => {
+  unbindBackdrop = bindBackdropDismiss(overlay, () => {
     if (Date.now() - openedAt < SHEET_INPUT_BLOCK_MS) return;
     if (dismissHandler) void dismissHandler();
-    else closeOverlayHistory(domClose);
+    else closeOverlayHistory(activeDomClose);
   });
+  return activeDomClose;
 }

@@ -107,10 +107,10 @@ export function openNoteSheet({
       });
       if (!ok) return;
     }
-    closeOverlayHistory(domClose);
+    closeOverlayHistory(activeClose);
   }
 
-  bindOverlay(overlay, domClose, () => dismissNoteSheet());
+  const activeClose = bindOverlay(overlay, domClose, () => dismissNoteSheet());
 
   overlay.querySelector('[data-action="cancel"]').addEventListener("click", () => void dismissNoteSheet());
 
@@ -195,7 +195,7 @@ export function openNoteSheet({
       await createNote({ place: placeToUse, vacationId, day, text });
       showToast("Notiz gespeichert");
     }
-    closeOverlayHistory(domClose);
+    closeOverlayHistory(activeClose);
     await onSaved?.(captureResult);
   });
 
@@ -211,7 +211,7 @@ export function openNoteSheet({
       if (!ok) return;
       saving = true;
       await removeNote(note.id);
-      closeOverlayHistory(domClose);
+      closeOverlayHistory(activeClose);
       showToast("Notiz gelöscht");
       onSaved?.();
     });
