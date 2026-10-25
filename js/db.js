@@ -208,6 +208,102 @@ export async function deletePlace(id) {
   });
 }
 
+export async function putMedia(record) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("media", "readwrite");
+    tx.oncomplete = () => resolve(record);
+    tx.onerror = () => reject(tx.error);
+    tx.objectStore("media").put(record);
+  });
+}
+
+export async function getMedia(id) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("media", "readonly");
+    const req = tx.objectStore("media").get(id);
+    req.onsuccess = () => resolve(req.result ?? null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function deleteMedia(id) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("media", "readwrite");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.objectStore("media").delete(id);
+  });
+}
+
+export async function putNote(record) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("notes", "readwrite");
+    tx.oncomplete = () => resolve(record);
+    tx.onerror = () => reject(tx.error);
+    tx.objectStore("notes").put(record);
+  });
+}
+
+export async function deleteNote(id) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("notes", "readwrite");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.objectStore("notes").delete(id);
+  });
+}
+
+async function deleteByIndex(storeName, indexName, key) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    const req = store.index(indexName).openCursor(IDBKeyRange.only(key));
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (cursor) {
+        cursor.delete();
+        cursor.continue();
+      }
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function deleteMediaForPlace(placeId) {
+  await deleteByIndex("media", "placeId", placeId);
+}
+
+export async function deleteNotesForPlace(placeId) {
+  await deleteByIndex("notes", "placeId", placeId);
+}
+
+export async function deleteMediaForVacation(vacationId) {
+  await deleteByIndex("media", "vacationId", vacationId);
+}
+
+export async function deleteNotesForVacation(vacationId) {
+  await deleteByIndex("notes", "vacationId", vacationId);
+}
+
+export async function deletePlaceCascade(placeId) {
+  await deleteMediaForPlace(placeId);
+  await deleteNotesForPlace(placeId);
+  await deletePlace(placeId);
+}
+
+export async function deleteVacationData(vacationId) {
+  await deleteMediaForVacation(vacationId);
+  await deleteNotesForVacation(vacationId);
+  await deletePlacesForVacation(vacationId);
+}
+
 export async function getMediaForPlace(placeId) {
   const db = await openDb();
   return new Promise((resolve, reject) => {
@@ -243,7 +339,7 @@ export async function getNotesForPlace(placeId) {
       resolve(
         all
           .filter((n) => n.placeId === placeId)
-          .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+          .sort((a, b) => (b.ts ?? b.createdAt ?? 0) - (a.ts ?? a.createdAt ?? 0))
       );
     };
     req.onerror = () => reject(req.error);

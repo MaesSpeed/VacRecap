@@ -261,13 +261,13 @@ function confirmDelete(id, title) {
 
   overlay.querySelector('[data-action="cancel"]').addEventListener("click", close);
   overlay.querySelector('[data-action="confirm"]').addEventListener("click", async () => {
-    const { deleteVacation, getVacation, deleteBlob, deletePlacesForVacation } =
+    const { deleteVacation, getVacation, deleteBlob, deleteVacationData } =
       await import("./db.js");
     const v = await getVacation(id);
     if (v?.cover?.type === "custom" && v.cover.blobId) {
       await deleteBlob(v.cover.blobId);
     }
-    await deletePlacesForVacation(id);
+    await deleteVacationData(id);
     await deleteVacation(id);
     close();
     const { showToast } = await import("./toast.js");
