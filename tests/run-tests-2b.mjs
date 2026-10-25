@@ -203,6 +203,44 @@ async function main() {
   const moreNotes = page.locator(".notes-more", { hasText: "weitere Notizen" });
   if (!(await moreNotes.count())) throw new Error("missing +N weitere Notizen");
 
+  const draftStyles = await page.evaluate(() => {
+    const meta = document.querySelector(".oc--selected .oc__meta");
+    const note = document.querySelector(".oc--selected .nr__text");
+    const nr = document.querySelector(".oc--selected .nr");
+    const icon = document.querySelector(".oc--selected .nr__icon");
+    const csM = getComputedStyle(meta);
+    const csN = getComputedStyle(note);
+    const csNr = getComputedStyle(nr);
+    const csI = getComputedStyle(icon);
+    return {
+      meta: {
+        fontSize: csM.fontSize,
+        fontWeight: csM.fontWeight,
+        color: csM.color,
+        whiteSpace: csM.whiteSpace,
+        overflow: csM.overflow,
+        textOverflow: csM.textOverflow,
+        lineCount: meta.scrollWidth > meta.clientWidth ? "ellipsis-active" : "fits",
+      },
+      note: { fontSize: csN.fontSize, lineHeight: csN.lineHeight },
+      nrGap: csNr.gap,
+      icon: { width: csI.width, height: csI.height },
+    };
+  });
+  console.log("Draft pixel check (2b):", JSON.stringify(draftStyles, null, 2));
+  if (draftStyles.meta.fontSize !== "11.5px" || draftStyles.meta.fontWeight !== "700") {
+    throw new Error(`meta style mismatch: ${JSON.stringify(draftStyles.meta)}`);
+  }
+  if (draftStyles.note.fontSize !== "12.8px") {
+    throw new Error(`note font-size mismatch: ${draftStyles.note.fontSize}`);
+  }
+  if (parseFloat(draftStyles.note.lineHeight) < 17.2 || parseFloat(draftStyles.note.lineHeight) > 17.6) {
+    throw new Error(`note line-height mismatch: ${draftStyles.note.lineHeight}`);
+  }
+  if (draftStyles.nrGap !== "6px") {
+    throw new Error(`nr gap mismatch: ${draftStyles.nrGap}`);
+  }
+
   await page.screenshot({
     path: path.join(screenshotsDir, "12-karte-kacheln-notizen.png"),
     fullPage: true,

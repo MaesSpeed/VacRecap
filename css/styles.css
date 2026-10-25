@@ -1260,16 +1260,17 @@ body {
 
 .pinb .cb {
   position: absolute;
-  right: -5px;
-  bottom: -4px;
-  width: 16px;
-  height: 16px;
+  right: -6px;
+  bottom: -5px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: #1f4fa0;
-  border: 1.5px solid #fff;
+  border: 2px solid #fff;
   display: flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
 }
 
 .oc__body {
@@ -1283,6 +1284,11 @@ body {
   align-items: flex-start;
 }
 
+.oc__head-text {
+  flex: 1;
+  min-width: 0;
+}
+
 .oc__title {
   margin: 0;
   font-size: 15.5px;
@@ -1291,10 +1297,13 @@ body {
 }
 
 .oc__meta {
-  font-size: 12px;
-  font-weight: 800;
-  color: #5b6b7a;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #5a6b7c;
   margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .qa {
@@ -1329,7 +1338,7 @@ body {
 
 .nr {
   display: flex;
-  gap: 7px;
+  gap: 6px;
   align-items: flex-start;
 }
 
@@ -1348,6 +1357,7 @@ body {
 .nr__text {
   font-size: 12.8px;
   line-height: 1.36;
+  font-weight: 400;
   color: #2b3946;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -1361,7 +1371,10 @@ body {
   padding: 0;
   text-align: left;
   cursor: pointer;
-  font: inherit;
+  font-family: inherit;
+  font-size: 12.8px;
+  line-height: 1.36;
+  font-weight: 400;
   width: 100%;
 }
 
@@ -1513,7 +1526,12 @@ body {
 }
 
 .media-viewer__delete {
-  font-size: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
 }
 
 .media-viewer__stage {
@@ -1525,23 +1543,40 @@ body {
   touch-action: pan-y;
 }
 
-.media-viewer__img,
-.media-viewer__video {
+.media-viewer__img {
+  width: 100%;
   max-width: 100%;
-  max-height: 100%;
+  max-height: calc(100% - 120px);
   object-fit: contain;
 }
 
+.media-viewer__video {
+  width: 100%;
+  max-width: 100%;
+  max-height: calc(100% - 120px);
+  object-fit: contain;
+}
+
+.sheet--note textarea,
 .field textarea {
   width: 100%;
   min-height: 120px;
   font-size: 16px;
   line-height: 1.4;
-  border-radius: 10px;
-  border: 1px solid #c5d4e0;
-  padding: 10px 12px;
-  resize: vertical;
+  color: #2b3946;
+  border-radius: 14px;
+  border: 1.5px solid #cfd9e6;
+  padding: 12px;
+  resize: none;
   font-family: inherit;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.sheet--note textarea:focus,
+.field textarea:focus {
+  border-color: #0066b3;
+  box-shadow: 0 0 0 3px rgba(0, 102, 179, 0.15);
 }
 
 .soft-sheet__text {

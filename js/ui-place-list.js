@@ -9,6 +9,7 @@ const PIN_SVG = `<svg width="19" height="19" viewBox="0 0 32 32" fill="none" ari
 
 const ICON_EDIT = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>`;
 const ICON_CAM = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>`;
+const PIN_CAM_BADGE = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>`;
 const ICON_NOTE = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>`;
 const PLAY_SVG = `<svg class="tile__play" width="14" height="14" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>`;
 
@@ -64,11 +65,11 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
         <article class="oc${selected ? " oc--selected" : ""}${dim ? " oc--dim" : ""}" data-place-id="${place.id}">
           <div class="pinb${selected ? " pinb--selected" : ""}">
             ${PIN_SVG}
-            ${hasMedia ? '<span class="cb" aria-hidden="true"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/></svg></span>' : ""}
+            ${hasMedia ? `<span class="cb" aria-hidden="true">${PIN_CAM_BADGE}</span>` : ""}
           </div>
           <div class="oc__body">
             <div class="oc__head">
-              <div>
+              <div class="oc__head-text">
                 <h4 class="oc__title">${escapeHtml(place.name)}</h4>
                 <div class="oc__meta">${escapeHtml(meta)}</div>
               </div>
