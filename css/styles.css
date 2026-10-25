@@ -1622,6 +1622,7 @@ body {
   max-width: 100%;
   max-height: calc(100% - 120px);
   object-fit: contain;
+  image-orientation: from-image;
 }
 
 .media-viewer__video {
@@ -2292,6 +2293,202 @@ body {
 
 .settings-link-row--danger {
   color: var(--danger);
+}
+
+.settings-storage {
+  margin: 8px 4px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #5b6b7a;
+}
+
+.settings-storage--warn {
+  color: #c0392b;
+  font-weight: 800;
+}
+
+.sheet--backup {
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: calc(12px + var(--safe-bottom));
+}
+
+.sheet__grab {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: #c5d0dc;
+  margin: 8px auto 4px;
+}
+
+.backup-sheet__head {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 4px 12px 12px;
+}
+
+.backup-sheet__cancel {
+  border: none;
+  background: none;
+  color: #0066b3;
+  font-size: 16px;
+  font-weight: 700;
+  justify-self: start;
+  cursor: pointer;
+}
+
+.backup-sheet__title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 800;
+  color: #14202b;
+  text-align: center;
+}
+
+.backup-sheet__head-spacer {
+  width: 1px;
+}
+
+.backup-sheet__body {
+  overflow: auto;
+  padding: 0 16px 8px;
+}
+
+.backup-file-card {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: #e6f1fa;
+  border-radius: 16px;
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+.backup-file-card__icon {
+  flex-shrink: 0;
+}
+
+.backup-file-card__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.backup-file-card__name {
+  font-size: 16px;
+  font-weight: 800;
+  color: #14202b;
+  word-break: break-all;
+}
+
+.backup-file-card__size {
+  font-size: 13px;
+  font-weight: 600;
+  color: #5b6b7a;
+}
+
+.backup-stat-rows {
+  border: 1px solid #e3e9f0;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.backup-stat-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 16px;
+}
+
+.backup-stat-row + .backup-stat-row {
+  border-top: 1px solid #e3e9f0;
+}
+
+.backup-stat-row__icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: #e6f1fa;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.backup-stat-row__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.backup-stat-row__title {
+  font-size: 16px;
+  font-weight: 800;
+  color: #14202b;
+}
+
+.backup-stat-row__sub {
+  font-size: 13px;
+  font-weight: 600;
+  color: #5b6b7a;
+}
+
+.backup-sheet__lock {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #5b6b7a;
+}
+
+.backup-sheet__save {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.backup-sheet__save-icon {
+  display: inline-flex;
+}
+
+.backup-sheet__empty,
+.backup-sheet__warn {
+  font-size: 15px;
+  font-weight: 700;
+  color: #5b6b7a;
+  text-align: center;
+  margin: 16px 0;
+}
+
+.backup-sheet__warn {
+  color: #c0392b;
+}
+
+.backup-sheet__days {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.backup-sheet__day-btn {
+  border: 1px solid #d5dee7;
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0066b3;
+  cursor: pointer;
 }
 
 @media (min-width: 520px) {

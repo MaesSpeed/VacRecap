@@ -1,6 +1,10 @@
 import { getMediaBySourceKey, getVacation } from "./db.js";
 import { dayIndexInTrip, dayRoleLabel, vacationDays } from "./days.js";
-import { formatMediaDuration, processPhotoFile, processVideoFile } from "./media-process.js";
+import {
+  createPhotoThumbFromFile,
+  formatMediaDuration,
+  processVideoFile,
+} from "./media-process.js";
 import {
   buildMediaSourceKey,
   formatAddedToast,
@@ -270,8 +274,8 @@ async function prepareThumbs(session, onUpdate) {
         item.thumbUrl = URL.createObjectURL(v.thumbBlob);
         item.durationLabel = v.durationLabel || formatMediaDuration(v.duration);
       } else {
-        const p = await processPhotoFile(item.file);
-        item.thumbUrl = URL.createObjectURL(p.thumbBlob);
+        const thumbBlob = await createPhotoThumbFromFile(item.file);
+        item.thumbUrl = URL.createObjectURL(thumbBlob);
       }
       item.ready = true;
       onUpdate();
