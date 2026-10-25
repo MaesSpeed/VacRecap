@@ -1,6 +1,7 @@
 import { getPlacesForDay, putPlace } from "./db.js";
 import { rememberPlaceFromGps } from "./place-service.js";
 import { createPlace, newestHardPlace, normalizePlace } from "./places.js";
+import { getRememberCaptureLocation } from "./settings-store.js";
 import { showToast } from "./toast.js";
 import { todayIso } from "./utils.js";
 
@@ -64,7 +65,7 @@ export async function ensureTargetPlace({ vacationId, day, selectedPlaceId }) {
   const newest = newestHardPlace(hard);
   if (newest) return { place: newest, createdOhneOrt: false };
 
-  if (day === todayIso()) {
+  if (day === todayIso() && (await getRememberCaptureLocation())) {
     const gps = await rememberPlaceFromGps({ vacationId, day });
     if (gps?.place) {
       return { place: normalizePlace(gps.place), createdOhneOrt: false };

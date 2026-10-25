@@ -7,9 +7,8 @@ import {
 } from "./geo.js";
 import { deletePlace, getPlacesForDay, putPlace } from "./db.js";
 import { createPlace, findPlaceWithinMeters, normalizePlace } from "./places.js";
+import { getSamePlaceRadiusM } from "./settings-store.js";
 import { showToast } from "./toast.js";
-
-const DEDUP_M = 150;
 
 async function resolveName(lat, lng, ts) {
   try {
@@ -31,12 +30,13 @@ export async function rememberPlaceAtLocation({
   source = "manual",
 }) {
   const ts = Date.now();
+  const dedupM = await getSamePlaceRadiusM();
   const existing = await getPlacesForDay(vacationId, day);
   const near = findPlaceWithinMeters(
     existing.filter((p) => !p.soft),
     lat,
     lng,
-    DEDUP_M
+    dedupM
   );
   if (near && !soft) {
     return { place: normalizePlace(near), duplicate: true };
@@ -91,8 +91,9 @@ export async function trySoftPointOnOpen({ vacationId, day, isToday }) {
     const existing = await getPlacesForDay(vacationId, day);
     const sorted = existing.slice().sort((a, b) => b.ts - a.ts);
     const last = sorted[0];
+    const dedupM = await getSamePlaceRadiusM();
     if (last?.lat != null && last?.lng != null) {
-      if (haversineMeters(lat, lng, last.lat, last.lng) <= DEDUP_M) {
+      if (haversineMeters(lat, lng, last.lat, last.lng) <= dedupM) {
         return null;
       }
     }
@@ -101,7 +102,7 @@ export async function trySoftPointOnOpen({ vacationId, day, isToday }) {
         p.soft &&
         p.lat != null &&
         p.lng != null &&
-        haversineMeters(lat, lng, p.lat, p.lng) <= DEDUP_M
+        haversineMeters(lat, lng, p.lat, p.lng) <= dedupM
     );
     if (hasSoftNearby) return null;
 
