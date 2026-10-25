@@ -1,0 +1,132 @@
+const WEEKDAYS_SHORT = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
+
+export function createId() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return `id-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
+export function todayIso() {
+  return formatIsoDate(new Date());
+}
+
+export function parseIsoDate(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+export function formatIsoDate(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+export function formatDateShort(iso) {
+  const date = parseIsoDate(iso);
+  const wd = WEEKDAYS_SHORT[date.getDay()];
+  const d = date.getDate();
+  const m = date.getMonth() + 1;
+  const y = date.getFullYear();
+  return `${wd} ${String(d).padStart(2, "0")}.${String(m).padStart(2, "0")}.${y}`;
+}
+
+/** Kartenzeile: Fr 06.11. – So 08.11.2026 · 3 Tage */
+export function formatDatePart(iso, withYear = true) {
+  const date = parseIsoDate(iso);
+  const wd = WEEKDAYS_SHORT[date.getDay()];
+  const d = String(date.getDate()).padStart(2, "0");
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  if (withYear) return `${wd} ${d}.${m}.${date.getFullYear()}`;
+  return `${wd} ${d}.${m}.`;
+}
+
+export function formatDateRangeCard(startIso, endIso) {
+  const days = dayCountInclusive(startIso, endIso);
+  return `${formatDatePart(startIso, false)} – ${formatDatePart(endIso, true)} · ${days} Tage`;
+}
+
+export function formatDateRangeOverlay(startIso, endIso) {
+  return `${formatDatePart(startIso, false)} – ${formatDatePart(endIso, true)}`;
+}
+
+export function formatDateRange(startIso, endIso) {
+  return formatDateRangeOverlay(startIso, endIso);
+}
+
+export function dayCountInclusive(startIso, endIso) {
+  const start = parseIsoDate(startIso);
+  const end = parseIsoDate(endIso);
+  const ms = end.getTime() - start.getTime();
+  return Math.floor(ms / 86400000) + 1;
+}
+
+export function enumerateDays(startIso, endIso) {
+  const days = [];
+  const cur = parseIsoDate(startIso);
+  const end = parseIsoDate(endIso);
+  while (cur <= end) {
+    days.push(formatIsoDate(cur));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return days;
+}
+
+export function tripStatus(startIso, endIso, refIso = todayIso()) {
+  if (refIso < startIso) return "upcoming";
+  if (refIso > endIso) return "past";
+  return "current";
+}
+
+export function currentDayIndex(startIso, endIso, refIso = todayIso()) {
+  const days = enumerateDays(startIso, endIso);
+  const idx = days.indexOf(refIso);
+  return idx >= 0 ? idx + 1 : 1;
+}
+
+export function daysUntilStart(startIso, refIso = todayIso()) {
+  const start = parseIsoDate(startIso);
+  const ref = parseIsoDate(refIso);
+  return Math.round((start - ref) / 86400000);
+}
+
+export function formatCountdown(daysUntil) {
+  if (daysUntil <= 0) return "heute";
+  if (daysUntil === 1) return "in 1 Tag";
+  if (daysUntil < 30) return `in ${daysUntil} Tagen`;
+  const months = Math.round(daysUntil / 30);
+  if (months === 1) return "in 1 Monat";
+  return `in ${months} Monaten`;
+}
+
+export function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+export function initialsFromNames(names) {
+  const colors = ["#0066B3", "#e67e22", "#2e7d32", "#8e44ad", "#c0392b"];
+  return names.slice(0, 4).map((name, i) => ({
+    label: name.trim().charAt(0).toUpperCase() || "?",
+    color: colors[i % colors.length],
+  }));
+}
+
+export async function resizeImageFile(file, maxSize = 900) {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, maxSize / Math.max(bitmap.width, bitmap.height));
+  const w = Math.round(bitmap.width * scale);
+  const h = Math.round(bitmap.height * scale);
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  bitmap.close();
+  const blob = await new Promise((resolve) =>
+    canvas.toBlob(resolve, "image/jpeg", 0.85)
+  );
+  return blob;
+}

@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 480">
+  <defs>
+    <linearGradient id="stadt-sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5b8def"/>
+      <stop offset="45%" stop-color="#c9a0dc"/>
+      <stop offset="100%" stop-color="#ffb88a"/>
+    </linearGradient>
+    <linearGradient id="stadt-water" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2d6a8f"/>
+      <stop offset="100%" stop-color="#163a78"/>
+    </linearGradient>
+    <linearGradient id="stadt-glow" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0%" stop-color="#ffe6b3" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#ff9f5a" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="480" fill="url(#stadt-sky)"/>
+  <ellipse cx="620" cy="120" rx="70" ry="70" fill="url(#stadt-glow)" opacity="0.85"/>
+  <circle cx="620" cy="105" r="42" fill="#ffd89b"/>
+  <rect y="300" width="800" height="180" fill="url(#stadt-water)"/>
+  <path d="M0 310 Q200 290 400 305 T800 295 L800 480 H0Z" fill="#1a4d6e" opacity="0.35"/>
+  <g fill="#1e2a3a" opacity="0.92">
+    <rect x="40" y="220" width="55" height="95" rx="2"/>
+    <rect x="105" y="195" width="48" height="120"/>
+    <rect x="165" y="170" width="62" height="145"/>
+    <rect x="240" y="200" width="44" height="115"/>
+    <rect x="295" y="155" width="78" height="160"/>
+    <rect x="385" y="185" width="52" height="130"/>
+    <rect x="450" y="210" width="40" height="105"/>
+    <rect x="500" y="175" width="68" height="140"/>
+    <rect x="580" y="205" width="50" height="110"/>
+    <rect x="640" y="190" width="58" height="125"/>
+    <rect x="710" y="215" width="45" height="100"/>
+  </g>
+  <g fill="#2c3e50" opacity="0.75">
+    <rect x="75" y="240" width="35" height="8" fill="#ffe9a8" opacity="0.6"/>
+    <rect x="320" y="200" width="12" height="12" fill="#ffe9a8" opacity="0.5"/>
+    <rect x="530" y="220" width="10" height="10" fill="#ffe9a8" opacity="0.45"/>
+  </g>
+  <path d="M0 305 L800 305" stroke="#ffffff" stroke-opacity="0.15" stroke-width="2"/>
+</svg>

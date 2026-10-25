@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 480">
+  <defs>
+    <linearGradient id="berg-sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#7eb8da"/>
+      <stop offset="100%" stop-color="#c5dff0"/>
+    </linearGradient>
+    <linearGradient id="berg-snow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#d8e8f2"/>
+    </linearGradient>
+    <linearGradient id="berg-rock" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4a6278"/>
+      <stop offset="100%" stop-color="#2c3e50"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="480" fill="url(#berg-sky)"/>
+  <polygon points="0,320 180,80 340,320" fill="url(#berg-rock)" opacity="0.85"/>
+  <polygon points="120,320 320,40 520,320" fill="url(#berg-rock)"/>
+  <polygon points="280,320 500,100 720,320" fill="#3d5266" opacity="0.9"/>
+  <polygon points="150,320 180,80 220,200 200,320" fill="url(#berg-snow)" opacity="0.95"/>
+  <polygon points="300,320 320,40 380,180 360,320" fill="url(#berg-snow)"/>
+  <polygon points="480,320 500,100 560,200 540,320" fill="url(#berg-snow)" opacity="0.9"/>
+  <rect y="318" width="800" height="162" fill="#5a7d5a"/>
+  <rect y="330" width="800" height="150" fill="#4a6b4a" opacity="0.6"/>
+  <ellipse cx="400" cy="400" rx="350" ry="40" fill="#3d5c3d" opacity="0.35"/>
+</svg>

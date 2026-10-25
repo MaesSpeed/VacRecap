@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 480">
+  <defs>
+    <linearGradient id="strand-sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4ecdc4"/>
+      <stop offset="55%" stop-color="#7fdbda"/>
+      <stop offset="100%" stop-color="#f7d59c"/>
+    </linearGradient>
+    <linearGradient id="strand-sea" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a9dad"/>
+      <stop offset="100%" stop-color="#0d5c6d"/>
+    </linearGradient>
+    <linearGradient id="strand-sand" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f4d58d"/>
+      <stop offset="100%" stop-color="#e8b86d"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="480" fill="url(#strand-sky)"/>
+  <circle cx="680" cy="85" r="48" fill="#fff5c0" opacity="0.95"/>
+  <path d="M0 220 C120 200 240 235 400 210 S640 190 800 225 L800 320 L0 320Z" fill="url(#strand-sea)"/>
+  <path d="M0 235 Q100 225 200 240 T400 232 T600 245 T800 238 L800 320 L0 320Z" fill="#2bb5c4" opacity="0.25"/>
+  <rect y="318" width="800" height="162" fill="url(#strand-sand)"/>
+  <ellipse cx="200" cy="400" rx="280" ry="35" fill="#d4a55a" opacity="0.25"/>
+  <path d="M520 318 Q540 280 560 318" stroke="#2d8f6f" stroke-width="8" fill="none" stroke-linecap="round" opacity="0.5"/>
+  <path d="M60 318 Q80 290 95 318" stroke="#2d8f6f" stroke-width="6" fill="none" opacity="0.4"/>
+</svg>
