@@ -94,11 +94,12 @@ export async function renderMapScreen(appEl, vacationId) {
 
   const days = vacationDays(vacation);
   let segment = getMapSegment(vacationId);
-  const L = await loadLeaflet();
 
   appEl.className = "screen screen--map";
   appEl.dataset.testid = "map-screen";
   appEl.dataset.vacationId = vacationId;
+
+  const L = await loadLeaflet();
 
   appEl.innerHTML = `
     <header class="map-header">

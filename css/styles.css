@@ -1702,10 +1702,6 @@ body {
   background: rgba(16, 32, 48, 0.45);
 }
 
-.overlay-root {
-  position: relative;
-}
-
 .sheet--note-bottom {
   align-self: flex-end;
   width: 100%;
