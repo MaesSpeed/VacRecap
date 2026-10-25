@@ -26,10 +26,19 @@ export async function renderUrlaubSettings(appEl, id) {
     <main class="settings-main">
       <section class="settings-section">
         <h2 class="settings-section__label">Standort</h2>
-        <label class="settings-row">
+        <div class="settings-row settings-row--switch" data-action="toggle-row">
           <span>Standort beim Öffnen merken</span>
-          <input type="checkbox" data-testid="remember-location" ${remember ? "checked" : ""} />
-        </label>
+          <button
+            type="button"
+            class="ios-switch"
+            role="switch"
+            data-testid="remember-location"
+            aria-checked="${remember ? "true" : "false"}"
+            aria-label="Standort beim Öffnen merken"
+          >
+            <span class="ios-switch__knob" aria-hidden="true"></span>
+          </button>
+        </div>
       </section>
       <section class="settings-section">
         <h2 class="settings-section__label">Daten</h2>
@@ -47,14 +56,35 @@ export async function renderUrlaubSettings(appEl, id) {
     navigate({ name: "urlaub-detail", id });
   });
 
-  const toggle = appEl.querySelector('[data-testid="remember-location"]');
-  const persistToggle = () => {
-    void setRememberLocationOnOpen(toggle.checked).then(() => {
+  const switchBtn = appEl.querySelector('[data-testid="remember-location"]');
+
+  const setSwitch = (on) => {
+    switchBtn.setAttribute("aria-checked", on ? "true" : "false");
+    switchBtn.classList.toggle("ios-switch--on", on);
+  };
+  setSwitch(remember);
+
+  const persistSwitch = (on) => {
+    void setRememberLocationOnOpen(on).then(() => {
       window.dispatchEvent(new CustomEvent("vacrecap:setting-saved"));
     });
   };
-  toggle.addEventListener("change", persistToggle);
-  toggle.addEventListener("input", persistToggle);
+
+  const toggleRow = () => {
+    const next = switchBtn.getAttribute("aria-checked") !== "true";
+    setSwitch(next);
+    persistSwitch(next);
+  };
+
+  switchBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleRow();
+  });
+
+  appEl.querySelector('[data-action="toggle-row"]').addEventListener("click", (e) => {
+    if (e.target.closest(".ios-switch")) return;
+    toggleRow();
+  });
 
   appEl.querySelector('[data-action="backup"]').addEventListener("click", () => {
     showToast("Kommt im nächsten Schritt");

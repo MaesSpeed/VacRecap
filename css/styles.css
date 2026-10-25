@@ -725,11 +725,11 @@ body {
   position: fixed;
   left: 16px;
   right: 16px;
-  bottom: calc(16px + var(--safe-bottom));
-  z-index: 50;
+  bottom: calc(76px + var(--safe-bottom));
+  z-index: 35;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
   pointer-events: none;
   max-width: 448px;
   margin: 0 auto;
@@ -1027,10 +1027,55 @@ body {
   color: var(--navy);
 }
 
-.settings-row input[type="checkbox"] {
-  width: 22px;
-  height: 22px;
-  accent-color: var(--emaille);
+.settings-row--switch {
+  cursor: pointer;
+  user-select: none;
+}
+
+.ios-switch {
+  flex: 0 0 auto;
+  width: 51px;
+  height: 31px;
+  border: none;
+  border-radius: 16px;
+  padding: 2px;
+  background: #c8d0dc;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.ios-switch--on {
+  background: var(--emaille);
+}
+
+.ios-switch__knob {
+  display: block;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
+  transition: transform 0.2s ease;
+}
+
+.ios-switch--on .ios-switch__knob {
+  transform: translateX(20px);
+}
+
+.sheet--trip-calendar {
+  max-height: calc(100dvh - 24px - var(--safe-bottom));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sheet--trip-calendar .calendar-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .settings-link {

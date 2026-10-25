@@ -1,4 +1,5 @@
 import { isDayInVacation, vacationDays } from "./days.js";
+import { dismissActiveToast } from "./toast.js";
 import { formatIsoDate, parseIsoDate } from "./utils.js";
 
 const MONTH_NAMES = [
@@ -42,6 +43,7 @@ function monthsForVacation(vacation) {
 }
 
 export function openTripDayCalendar({ vacation, activeDay, onSelect }) {
+  dismissActiveToast();
   const overlay = document.getElementById("overlay-root");
   overlay.hidden = false;
   overlay.innerHTML = "";

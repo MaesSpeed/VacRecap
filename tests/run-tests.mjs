@@ -63,6 +63,13 @@ async function longPress(page, selector, ms = 550) {
   await page.mouse.up();
 }
 
+async function waitForNoToast(page) {
+  await page.waitForFunction(() => {
+    const toast = document.querySelector('[data-testid="app-toast"]');
+    return !toast || !toast.classList.contains("toast--visible");
+  });
+}
+
 async function createVacation(page, { title, start, end }) {
   await page.click('[data-action="new"]');
   await page.waitForSelector(".form-header--minimal");
@@ -102,6 +109,7 @@ async function main() {
 
   await page.click('button[type="submit"]');
   await page.waitForSelector('[data-testid="trip-empty"]');
+  await waitForNoToast(page);
   await page.screenshot({ path: path.join(screenshotsDir, "03-urlaub-ansicht.png"), fullPage: true });
 
   await page.click('[data-day="2026-11-07"]');
@@ -114,18 +122,26 @@ async function main() {
 
   await page.click('[data-action="calendar"]');
   await page.waitForSelector(".sheet--trip-calendar");
+  await waitForNoToast(page);
   await page.screenshot({ path: path.join(screenshotsDir, "06-kalender.png"), fullPage: true });
   await page.click('.calendar-day[data-date="2026-11-06"]');
   await page.waitForSelector('[data-testid="trip-content"][data-active-day="2026-11-06"]');
 
   await longPress(page, '[data-footer-action="camera"]');
   await page.waitForSelector(".trip-footer-hint--visible");
+  await waitForNoToast(page);
+
+  await page.click('[data-footer-action="pin"]');
+  await page.click('[data-footer-action="note"]');
+  const toastCount = await page.locator('[data-testid="app-toast"]').count();
+  if (toastCount !== 1) throw new Error("expected exactly one toast in DOM");
 
   await page.click('[data-action="settings"]');
+  await waitForNoToast(page);
   await page.waitForSelector('[data-testid="remember-location"]');
   await page.screenshot({ path: path.join(screenshotsDir, "07-einstellungen.png"), fullPage: true });
 
-  const toggle = page.locator('[data-testid="remember-location"]');
+  const toggle = page.locator('[role="switch"][data-testid="remember-location"]');
   const settingsUrl = page.url();
   await Promise.all([
     page.evaluate(
@@ -134,14 +150,16 @@ async function main() {
           window.addEventListener("vacrecap:setting-saved", resolve, { once: true });
         })
     ),
-    toggle.evaluate((el) => {
-      el.checked = false;
-      el.dispatchEvent(new Event("change", { bubbles: true }));
-    }),
+    toggle.click(),
   ]);
+  if ((await toggle.getAttribute("aria-checked")) !== "false") {
+    throw new Error("switch should be off after click");
+  }
   await page.goto(settingsUrl);
   await page.waitForSelector('[data-testid="remember-location"]');
-  if (await toggle.isChecked()) throw new Error("remember-location should stay off after reload");
+  if ((await toggle.getAttribute("aria-checked")) !== "false") {
+    throw new Error("remember-location should stay off after reload");
+  }
   await Promise.all([
     page.evaluate(
       () =>
@@ -149,17 +167,17 @@ async function main() {
           window.addEventListener("vacrecap:setting-saved", resolve, { once: true });
         })
     ),
-    toggle.evaluate((el) => {
-      el.checked = true;
-      el.dispatchEvent(new Event("change", { bubbles: true }));
-    }),
+    toggle.click(),
   ]);
   await page.goto(settingsUrl);
   await page.waitForSelector('[data-testid="remember-location"]');
-  if (!(await toggle.isChecked())) throw new Error("remember-location should stay on after reload");
+  if ((await toggle.getAttribute("aria-checked")) !== "true") {
+    throw new Error("remember-location should stay on after reload");
+  }
 
   await page.click('[data-action="back"]');
   await page.waitForSelector(".trip-header__title");
+  await waitForNoToast(page);
   await page.screenshot({ path: path.join(screenshotsDir, "05-urlaub-tag-anreise.png"), fullPage: true });
 
   await page.click('[data-action="back"]');
@@ -179,6 +197,7 @@ async function main() {
 
   await page.click('[data-action="back"]');
   await page.waitForSelector("h1.top-bar__title");
+  await waitForNoToast(page);
   await page.screenshot({ path: path.join(screenshotsDir, "04-urlaube-mit-eintrag.png"), fullPage: true });
 
   await browser.close();
