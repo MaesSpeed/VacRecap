@@ -24,6 +24,9 @@ export function getRoute() {
   if (parts[0] === "urlaub" && parts[2] === "mediathek") {
     return { name: "urlaub-mediathek", id: parts[1] };
   }
+  if (parts[0] === "urlaub" && parts[2] === "karte") {
+    return { name: "urlaub-map", id: parts[1] };
+  }
   if (parts[0] === "urlaub" && parts[1]) {
     return { name: "urlaub-detail", id: parts[1] };
   }
@@ -50,6 +53,9 @@ export function navigate(route, { replace = false } = {}) {
       break;
     case "urlaub-mediathek":
       hash = `#/urlaub/${route.id}/mediathek`;
+      break;
+    case "urlaub-map":
+      hash = `#/urlaub/${route.id}/karte`;
       break;
     default:
       break;

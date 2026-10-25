@@ -174,6 +174,25 @@ export async function putSetting(key, value) {
   });
 }
 
+export async function getPlacesForVacation(vacationId) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("places", "readonly");
+    const store = tx.objectStore("places");
+    let req;
+    try {
+      req = store.index("vacationId").getAll(vacationId);
+    } catch {
+      req = store.getAll();
+    }
+    req.onsuccess = () => {
+      const all = req.result ?? [];
+      resolve(all.filter((p) => p.vacationId === vacationId));
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
 export async function getPlacesForDay(vacationId, dayDate) {
   const db = await openDb();
   return new Promise((resolve, reject) => {

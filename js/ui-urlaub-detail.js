@@ -389,7 +389,7 @@ export async function renderUrlaubDetail(appEl, id) {
   });
 
   appEl.querySelector('[data-action="map"]').addEventListener("click", () => {
-    showToast("Kommt im nächsten Schritt");
+    navigate({ name: "urlaub-map", id });
   });
 
   appEl.querySelector('[data-action="settings"]').addEventListener("click", () => {
@@ -410,6 +410,16 @@ export async function renderUrlaubDetail(appEl, id) {
   });
 
   bindSwipe(contentEl, shiftDay);
+
+  const pendingFooter = sessionStorage.getItem("vacrecap-pending-footer");
+  if (pendingFooter) {
+    sessionStorage.removeItem("vacrecap-pending-footer");
+    requestAnimationFrame(() => {
+      if (pendingFooter === "gallery") openGalleryPicker();
+      else if (pendingFooter === "camera") openCameraSheet();
+      else if (pendingFooter === "note") void onNoteFooter();
+    });
+  }
 }
 
 function bindSwipe(element, shiftDay) {

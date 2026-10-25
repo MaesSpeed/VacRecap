@@ -4,6 +4,7 @@ import { getRoute, navigate, onRouteChange, startRouter } from "./router.js";
 import { renderUrlaubDetail } from "./ui-urlaub-detail.js";
 import { renderUrlaubSettings } from "./ui-urlaub-settings.js";
 import { renderUrlaubForm } from "./ui-urlaub-form.js";
+import { renderMapScreen } from "./ui-map.js";
 import { renderMediathekScreen } from "./ui-mediathek.js";
 import { renderUrlaubeScreen } from "./ui-urlaube.js";
 import { installGestureGuards } from "./gesture-guard.js";
@@ -14,6 +15,9 @@ const appEl = document.getElementById("app");
 async function render() {
   const route = getRoute();
   const vacations = await getAllVacations();
+  if (appEl?._mapCleanup) {
+    appEl._mapCleanup();
+  }
 
   switch (route.name) {
     case "urlaub-form":
@@ -27,6 +31,9 @@ async function render() {
       break;
     case "urlaub-mediathek":
       await renderMediathekScreen(appEl, route.id);
+      break;
+    case "urlaub-map":
+      await renderMapScreen(appEl, route.id);
       break;
     case "urlaube":
     default:
