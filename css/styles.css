@@ -14,6 +14,9 @@
   --shadow: 0 4px 18px rgba(22, 58, 120, 0.12);
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --footer-body: 52px;
+  --footer-total: calc(var(--footer-body) + var(--safe-bottom));
+  --kb: 0px;
   --font: "Nunito Sans", system-ui, sans-serif;
 }
 
@@ -373,7 +376,24 @@ body {
 }
 
 .form-header--minimal {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
   padding: 10px 16px 4px;
+}
+
+.form-header__title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 800;
+  text-align: center;
+  color: #14202b;
+}
+
+.form-header__spacer {
+  width: 1px;
+  height: 1px;
 }
 
 .detail-header {
@@ -585,7 +605,7 @@ body {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: var(--kb);
   padding: 12px 16px calc(12px + var(--safe-bottom));
   background: linear-gradient(transparent, var(--bg) 30%);
   max-width: 480px;
@@ -601,12 +621,12 @@ body {
   align-items: flex-end;
   justify-content: center;
   padding: 16px;
-  padding-bottom: calc(16px + var(--safe-bottom));
+  padding-bottom: calc(16px + var(--safe-bottom) + var(--kb));
 }
 
 .overlay-root--bleed {
   padding: 0;
-  padding-bottom: 0;
+  padding-bottom: var(--kb);
   align-items: flex-end;
 }
 
@@ -622,7 +642,7 @@ body {
 .sheet {
   width: 100%;
   max-width: 480px;
-  max-height: 90vh;
+  max-height: min(90vh, calc(100dvh - var(--kb) - 70px));
   overflow: auto;
   background: #fff;
   border-radius: 18px 18px 14px 14px;
@@ -784,7 +804,7 @@ body {
   position: fixed;
   left: 16px;
   right: 16px;
-  bottom: calc(88px + var(--safe-bottom));
+  bottom: calc(var(--footer-body) + 12px + var(--safe-bottom) + var(--kb));
   z-index: 35;
   display: flex;
   flex-direction: column;
@@ -846,7 +866,7 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 100dvh;
-  padding-bottom: calc(84px + var(--safe-bottom));
+  padding-bottom: var(--footer-total);
   overflow-x: hidden;
 }
 
@@ -924,9 +944,8 @@ body {
 .day-chips-wrap {
   flex: 1;
   min-width: 0;
-  padding: 4px 0 4px 14px;
+  padding: 4px 14px;
   position: relative;
-  mask-image: linear-gradient(to right, #000 0%, #000 calc(100% - 52px), transparent 100%);
 }
 
 .day-chips {
@@ -1045,7 +1064,7 @@ body {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   align-items: center;
-  height: calc(84px + var(--safe-bottom));
+  height: var(--footer-total);
   padding: 0 0 var(--safe-bottom);
   box-sizing: border-box;
   background: rgba(255, 255, 255, 0.9);
@@ -1058,7 +1077,7 @@ body {
 
 .trip-footer__btn {
   width: 100%;
-  height: 84px;
+  height: var(--footer-body);
   border: none;
   background: transparent;
   display: flex;
@@ -1072,18 +1091,18 @@ body {
 }
 
 .trip-footer__icon {
-  width: 26px;
-  height: 26px;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transform: translateY(-1px);
+  transform: translateY(-0.5px);
 }
 
 .trip-footer__btn svg.trip-footer__svg {
-  width: 26px;
-  height: 26px;
+  width: 32px;
+  height: 32px;
   display: block;
   flex-shrink: 0;
   filter: drop-shadow(0 1px 2px rgba(22, 58, 120, 0.18));
@@ -1286,7 +1305,7 @@ body {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 84px;
+  bottom: var(--footer-body);
   height: 96px;
   pointer-events: none;
   background: linear-gradient(180deg, rgba(238, 243, 247, 0), #eef3f7 38%);
@@ -1718,13 +1737,15 @@ body {
   position: fixed;
   inset: 0;
   z-index: 300;
+  align-items: flex-end;
+  padding-bottom: calc(var(--kb) + 12px);
 }
 
 .sheet--note-bottom {
   align-self: flex-end;
   width: 100%;
-  max-height: calc(100% - 70px);
-  min-height: min(80vh, calc(100% - 70px));
+  max-height: calc(100dvh - var(--kb) - 70px);
+  min-height: min(80vh, calc(100dvh - var(--kb) - 70px));
   border-radius: 22px 22px 0 0;
   margin-top: auto;
   padding: 12px 16px max(16px, env(safe-area-inset-bottom));
@@ -2628,7 +2649,7 @@ body {
 }
 
 .sheet--camera {
-  padding: 16px 16px max(calc(84px + var(--safe-bottom) + 20px), 24px);
+  padding: 16px 16px max(calc(var(--footer-total) + 20px), 24px);
   box-sizing: border-box;
 }
 

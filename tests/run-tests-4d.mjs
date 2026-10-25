@@ -124,7 +124,7 @@ async function assertFooterVerticalCenter(page, deviceName, width) {
     const mid = (contentTop + contentBottom) / 2;
     return { mid, cy: ir.top + ir.height / 2 };
   });
-  if (Math.abs(m.mid - m.cy) > 1) {
+  if (Math.abs(m.mid - m.cy) > 0.5) {
     throw new Error(`${deviceName} ${width}px: Footer-Icon nicht mittig (${m.cy} vs ${m.mid})`);
   }
 }

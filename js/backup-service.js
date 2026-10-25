@@ -13,12 +13,12 @@ export const MAX_ZIP_BYTES = 3.5 * 1024 * 1024 * 1024;
 
 export function sanitizeBackupBaseName(title) {
   return (
-    (title || "Urlaub")
+    (title || "Reise")
       .trim()
       .replace(/\s+/g, "-")
       .replace(/[^a-zA-Z0-9äöüÄÖÜß\-]+/g, "-")
       .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "") || "Urlaub"
+      .replace(/^-|-$/g, "") || "Reise"
   );
 }
 
@@ -72,10 +72,10 @@ function uniquePath(used, path) {
 
 function buildLiesmich(vacation) {
   const created = new Date().toLocaleString("de-DE");
-  return `Reisetagebuch – Sicherung
+  return `Reisetagebuch – Sicherung dieser Reise
 ========================
 
-Urlaub: ${vacation.title}
+Reise: ${vacation.title}
 Erstellt: ${created}
 
 Inhalt:

@@ -7,7 +7,7 @@ import {
   vacationDays,
 } from "./days.js";
 import { getVacation } from "./db.js";
-import { ICON_BACK_CHEVRON, ICON_CALENDAR, ICON_GEAR, ICON_MAP } from "./icons.js";
+import { ICON_BACK_CHEVRON, ICON_GEAR, ICON_MAP } from "./icons.js";
 import { savePhotoForPlace, saveVideoForPlace } from "./media-service.js";
 import { rememberPlaceFromGps, trySoftPointOnOpen } from "./place-service.js";
 import { newestHardPlace } from "./places.js";
@@ -28,7 +28,6 @@ import {
 } from "./ui-place-list.js";
 import { openEditPlaceSheet, openSoftPointSheet } from "./ui-place-sheets.js";
 import { createMediathekSession } from "./mediathek-session.js";
-import { openTripDayCalendar } from "./ui-trip-day-calendar.js";
 import { mountTripFooter } from "./ui-trip-footer.js";
 import { escapeHtml, todayIso } from "./utils.js";
 
@@ -86,7 +85,7 @@ export async function renderUrlaubDetail(appEl, id) {
 
   appEl.innerHTML = `
     <header class="trip-header">
-      <button type="button" class="link-btn link-btn--back" data-action="back">${ICON_BACK_CHEVRON}<span>Urlaube</span></button>
+      <button type="button" class="link-btn link-btn--back" data-action="back">${ICON_BACK_CHEVRON}<span>Reisen</span></button>
       <h1 class="trip-header__title">${escapeHtml(vacation.title)}</h1>
       <div class="trip-header__actions">
         <button type="button" class="icon-btn icon-btn--map-draft" data-action="map" aria-label="Karte">${ICON_MAP}</button>
@@ -97,7 +96,6 @@ export async function renderUrlaubDetail(appEl, id) {
       <div class="day-chips-wrap">
         <div class="day-chips" data-role="chips" role="tablist"></div>
       </div>
-      <button type="button" class="day-calendar-btn" data-action="calendar" aria-label="Kalender">${ICON_CALENDAR}</button>
     </div>
     <main class="trip-content trip-content--places" data-role="day-content" data-testid="trip-content"></main>
     <input type="file" accept="image/*" capture="environment" hidden data-role="photo-input" />
@@ -490,7 +488,7 @@ export async function renderUrlaubDetail(appEl, id) {
 
   appEl.querySelector('[data-action="back"]').addEventListener("click", () => {
     clearTripUiState(id);
-    navigate({ name: "urlaube" });
+    navigate({ name: "urlaube" }, { replace: true });
   });
 
   appEl.querySelector('[data-action="map"]').addEventListener("click", () => {
@@ -499,14 +497,6 @@ export async function renderUrlaubDetail(appEl, id) {
 
   appEl.querySelector('[data-action="settings"]').addEventListener("click", () => {
     navigate({ name: "urlaub-settings", id });
-  });
-
-  appEl.querySelector('[data-action="calendar"]').addEventListener("click", () => {
-    openTripDayCalendar({
-      vacation,
-      activeDay: state.activeDay,
-      onSelect: (iso) => setActiveDay(iso),
-    });
   });
 
   chipsEl.addEventListener("click", (e) => {

@@ -1,7 +1,7 @@
 {
   "name": "Reisetagebuch",
   "short_name": "Reisetagebuch",
-  "description": "Dein Urlaub – lokal auf dem Gerät",
+  "description": "Deine Reisen – lokal auf dem Gerät",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

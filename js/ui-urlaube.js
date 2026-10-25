@@ -39,7 +39,7 @@ export async function renderUrlaubeScreen(appEl, vacations) {
   delete appEl.dataset.vacationId;
   appEl.innerHTML = `
     <header class="top-bar">
-      <h1 class="top-bar__title">Urlaube</h1>
+      <h1 class="top-bar__title">Übersicht</h1>
       <div class="top-bar__actions">
         <button type="button" class="icon-btn" data-action="settings" aria-label="Einstellungen">
           <svg class="icon-gear" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -47,7 +47,7 @@ export async function renderUrlaubeScreen(appEl, vacations) {
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>
-        <button type="button" class="icon-btn icon-btn--emaille" data-action="new" aria-label="Neuen Urlaub anlegen">
+        <button type="button" class="icon-btn icon-btn--emaille" data-action="new" aria-label="Neue Reise anlegen">
           <span aria-hidden="true">+</span>
         </button>
       </div>
@@ -56,8 +56,8 @@ export async function renderUrlaubeScreen(appEl, vacations) {
       ${
         vacations.length === 0
           ? `<div class="empty-state">
-        <p>Noch keine Urlaube – lege deinen ersten an.</p>
-        <button type="button" class="btn btn-emaille" data-action="new">Neuen Urlaub anlegen</button>
+        <p>Noch keine Reisen – lege deine erste an.</p>
+        <button type="button" class="btn btn-emaille" data-action="new">Neue Reise anlegen</button>
       </div>`
           : ""
       }
@@ -68,7 +68,7 @@ export async function renderUrlaubeScreen(appEl, vacations) {
         vacations.length
           ? `<button type="button" class="card card--dashed" data-action="new">
         <span class="card--dashed__icon">+</span>
-        <span>Neuen Urlaub anlegen</span>
+        <span>Neue Reise anlegen</span>
       </button>`
           : ""
       }
@@ -228,7 +228,7 @@ function showCardMenu(id, vacations) {
   const overlay = document.getElementById("overlay-root");
   overlay.hidden = false;
   overlay.innerHTML = `
-    <div class="action-sheet" role="dialog" aria-label="Urlaub-Aktionen" data-testid="vacation-action-sheet">
+    <div class="action-sheet" role="dialog" aria-label="Reise-Aktionen" data-testid="vacation-action-sheet">
       <p class="action-sheet__title">${escapeHtml(vacation.title)}</p>
       <button type="button" data-action="edit">Bearbeiten</button>
       <button type="button" data-action="delete" class="danger">Löschen</button>
@@ -261,8 +261,8 @@ function confirmDelete(id, title) {
   overlay.hidden = false;
   overlay.innerHTML = `
     <div class="confirm-dialog" role="alertdialog" aria-labelledby="confirm-title">
-      <h2 id="confirm-title">Urlaub löschen?</h2>
-      <p>«${escapeHtml(title)}» wird unwiderruflich gelöscht.</p>
+      <h2 id="confirm-title">Reise löschen?</h2>
+      <p>Alle Orte, Fotos und Notizen dieser Reise werden entfernt.</p>
       <div class="confirm-dialog__actions">
         <button type="button" data-action="cancel">Abbrechen</button>
         <button type="button" data-action="confirm" class="danger">Löschen</button>
@@ -291,7 +291,7 @@ function confirmDelete(id, title) {
     await deleteVacation(id);
     closeOverlayHistory(activeClose);
     const { showToast } = await import("./toast.js");
-    showToast("Urlaub gelöscht");
+    showToast("Reise gelöscht");
     window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
     navigate({ name: "urlaube" }, { replace: true });
   });

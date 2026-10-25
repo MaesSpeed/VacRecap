@@ -59,7 +59,7 @@ export async function renderUrlaubSettings(appEl, id) {
     </header>
     <main class="settings-main settings-main--draft">
       <section class="settings-block">
-        <h2 class="settings-block__label">Standort · Alle Urlaube</h2>
+        <h2 class="settings-block__label">Standort · Alle Reisen</h2>
         <div class="settings-card">
           <div class="settings-item settings-item--switch" data-action="toggle-remember">
             <span class="settings-item__icon">${ICON_CROSSHAIR}</span>
@@ -119,10 +119,10 @@ export async function renderUrlaubSettings(appEl, id) {
         <p class="settings-privacy">${ICON_LOCK} Alles wird nur auf deinem Handy gespeichert.</p>
       </section>
       <section class="settings-block">
-        <h2 class="settings-block__label">Urlaub</h2>
+        <h2 class="settings-block__label">Reise</h2>
         <div class="settings-card settings-card--links">
-          <button type="button" class="settings-link-row" data-action="edit">Urlaub bearbeiten</button>
-          <button type="button" class="settings-link-row settings-link-row--danger" data-action="delete">Urlaub löschen</button>
+          <button type="button" class="settings-link-row" data-action="edit">Reise bearbeiten</button>
+          <button type="button" class="settings-link-row settings-link-row--danger" data-action="delete">Reise löschen</button>
         </div>
       </section>
       <section class="settings-block">
@@ -242,8 +242,8 @@ function confirmDeleteVacation(vacation) {
   overlay.hidden = false;
   overlay.innerHTML = `
     <div class="confirm-dialog" role="alertdialog">
-      <h2>Urlaub löschen?</h2>
-      <p>«${escapeHtml(vacation.title)}» wird unwiderruflich gelöscht.</p>
+      <h2>Reise löschen?</h2>
+      <p>Alle Orte, Fotos und Notizen dieser Reise werden entfernt.</p>
       <div class="confirm-dialog__actions">
         <button type="button" data-action="cancel">Abbrechen</button>
         <button type="button" data-action="confirm" class="danger">Löschen</button>
@@ -268,7 +268,7 @@ function confirmDeleteVacation(vacation) {
     await deleteVacationData(vacation.id);
     await deleteVacation(vacation.id);
     closeOverlayHistory(activeClose);
-    showToast("Urlaub gelöscht");
+    showToast("Reise gelöscht");
     window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
     navigate({ name: "urlaube" }, { replace: true });
   });
