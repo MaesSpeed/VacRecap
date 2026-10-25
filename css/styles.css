@@ -421,7 +421,7 @@ body {
 }
 
 .vacation-form {
-  padding: 8px 16px 100px;
+  padding: 8px 16px calc(100px + var(--kb) + var(--footer-body));
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -738,13 +738,22 @@ body {
 
 .calendar-day--today:not(.calendar-day--start):not(.calendar-day--end):not(.calendar-day--range) {
   background: #fff7e8;
-  box-shadow: inset 0 0 0 1.5px rgba(240, 196, 132, 0.5);
+  box-shadow:
+    inset 0 0 0 1.5px #e3b07c,
+    0 0 0 3px rgba(240, 196, 132, 0.5);
 }
 
 .calendar-day--today.calendar-day--start,
 .calendar-day--today.calendar-day--end,
 .calendar-day--today.calendar-day--range {
-  box-shadow: inset 0 0 0 1.5px rgba(240, 196, 132, 0.5);
+  box-shadow:
+    inset 0 0 0 1.5px #e3b07c,
+    0 0 0 3px rgba(240, 196, 132, 0.5);
+}
+
+.calendar-day--today.calendar-day--start .calendar-day__heute,
+.calendar-day--today.calendar-day--end .calendar-day__heute {
+  color: #ffe2bf;
 }
 
 .calendar-day--empty {
@@ -882,18 +891,11 @@ body {
 }
 
 .toast--warn {
+  overflow: hidden;
   padding-left: 16px;
-}
-
-.toast--warn::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 4px;
-  background: #e3b07c;
-  border-radius: 14px 0 0 14px;
+  box-shadow:
+    inset 4px 0 0 #e3b07c,
+    0 8px 24px rgba(10, 30, 50, 0.28);
 }
 
 .toast__icon {
@@ -1040,11 +1042,22 @@ body {
 
 .day-chips {
   display: flex;
-  gap: 6px;
+  gap: 8px;
+  width: 100%;
   overflow-x: auto;
-  padding: 4px 56px 4px 0;
+  padding: 4px 0;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
+}
+
+.day-chips--fill .day-chip {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.day-chips:not(.day-chips--fill) .day-chip {
+  flex: 0 0 auto;
+  min-width: calc((100vw - 28px - 24px) / 4);
 }
 
 .day-chips::-webkit-scrollbar {
@@ -1052,8 +1065,6 @@ body {
 }
 
 .day-chip {
-  flex: 0 0 auto;
-  min-width: 62px;
   height: 35px;
   padding: 0 10px;
   border-radius: 11px;
@@ -1835,15 +1846,46 @@ body {
   position: fixed;
   left: 0;
   right: 0;
-  top: var(--note-sheet-top, 126px);
   bottom: calc(var(--kb));
   width: 100%;
-  max-height: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   min-height: 0;
   border-radius: 22px 22px 0 0;
   margin-top: 0;
   padding: 12px 16px max(16px, env(safe-area-inset-bottom));
   box-sizing: border-box;
+  top: auto;
+  max-height: min(92dvh, calc(100dvh - var(--note-sheet-top, 126px) - var(--kb)));
+}
+
+.sheet--note-bottom.sheet--note-kb {
+  top: var(--note-sheet-top, 126px);
+  max-height: calc(100dvh - var(--note-sheet-top, 126px) - var(--kb));
+}
+
+.note-sheet__field {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+}
+
+.note-sheet__field textarea {
+  flex: 1 1 auto;
+  min-height: 4.5em;
+  resize: none;
+}
+
+.sheet--note-bottom:not(.sheet--note-kb) .note-sheet__field {
+  flex: 0 1 auto;
+}
+
+.sheet--note-bottom:not(.sheet--note-kb) .note-sheet__field textarea {
+  flex: 0 0 auto;
+  min-height: 4.5em;
 }
 
 .sheet-handle {
@@ -1899,7 +1941,12 @@ body {
 }
 
 .note-sheet__save-bottom {
+  flex: 0 0 auto;
   margin-top: 12px;
+}
+
+.sheet--note-bottom.sheet--note-kb .note-sheet__save-bottom {
+  margin-top: auto;
 }
 
 .note-sheet__save-bottom:disabled {

@@ -105,8 +105,8 @@ async function runSuite(label, viewport, { baseUrl, browser }) {
 
   await page.goto("./");
   const title = await page.locator(".top-bar__title").textContent();
-  if (title?.trim() !== "Übersicht") {
-    throw new Error(`${label}: Übersicht-Titel fehlt (${title})`);
+  if (title?.trim() !== "Reisen") {
+    throw new Error(`${label}: Übersicht-Titel ist nicht „Reisen“ (${title})`);
   }
 
   const vacationId = await seedTrip(page);

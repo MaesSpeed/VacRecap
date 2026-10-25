@@ -1,4 +1,18 @@
 const listeners = new Set();
+const NAV_FROM_OVERVIEW_KEY = "vacrecap-nav-from-overview";
+const LAST_HASH_KEY = "vacrecap-last-hash";
+
+export function leaveTripToOverview() {
+  const fromOverview =
+    sessionStorage.getItem(NAV_FROM_OVERVIEW_KEY) === "1" ||
+    sessionStorage.getItem(LAST_HASH_KEY) === "#/urlaube";
+  sessionStorage.removeItem(NAV_FROM_OVERVIEW_KEY);
+  if (fromOverview && history.length > 1) {
+    history.back();
+    return;
+  }
+  navigate({ name: "urlaube" }, { replace: true });
+}
 
 function parseHash() {
   const raw = window.location.hash.replace(/^#/, "") || "/";
@@ -34,6 +48,10 @@ export function getRoute() {
 }
 
 export function navigate(route, { replace = false } = {}) {
+  const current = getRoute();
+  if (!replace && current.name === "urlaube" && route.name === "urlaub-detail") {
+    sessionStorage.setItem(NAV_FROM_OVERVIEW_KEY, "1");
+  }
   let hash = "#/urlaube";
   switch (route.name) {
     case "urlaube":
@@ -82,7 +100,12 @@ function notify() {
 }
 
 export function startRouter() {
-  window.addEventListener("hashchange", notify);
+  let prevHash = window.location.hash;
+  window.addEventListener("hashchange", () => {
+    sessionStorage.setItem(LAST_HASH_KEY, prevHash);
+    prevHash = window.location.hash;
+    notify();
+  });
   notify();
 }
 

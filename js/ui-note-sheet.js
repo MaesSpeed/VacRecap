@@ -30,7 +30,14 @@ export function openNoteSheet({
   overlay.hidden = false;
   overlay.classList.add("overlay-root--bleed");
 
+  let kbViewportHandler = null;
+
   const domClose = () => {
+    if (kbViewportHandler) {
+      window.visualViewport?.removeEventListener("resize", kbViewportHandler);
+      window.visualViewport?.removeEventListener("scroll", kbViewportHandler);
+      kbViewportHandler = null;
+    }
     overlay.classList.remove("overlay-root--bleed");
     overlay.hidden = true;
     overlay.innerHTML = "";
@@ -81,14 +88,27 @@ export function openNoteSheet({
     </div>
   `;
 
+  const sheetEl = overlay.querySelector(".sheet--note-bottom");
+
   const syncNoteSheetTop = () => {
     const chips = document.querySelector(".day-chips-wrap");
     if (!chips) return;
     const bottom = chips.getBoundingClientRect().bottom;
     document.documentElement.style.setProperty("--note-sheet-top", `${bottom + 20}px`);
   };
-  syncNoteSheetTop();
-  requestAnimationFrame(syncNoteSheetTop);
+
+  const syncNoteSheetKb = () => {
+    const kb =
+      parseInt(getComputedStyle(document.documentElement).getPropertyValue("--kb"), 10) || 0;
+    sheetEl?.classList.toggle("sheet--note-kb", kb > 80);
+    syncNoteSheetTop();
+  };
+
+  syncNoteSheetKb();
+  requestAnimationFrame(syncNoteSheetKb);
+  kbViewportHandler = () => syncNoteSheetKb();
+  window.visualViewport?.addEventListener("resize", kbViewportHandler);
+  window.visualViewport?.addEventListener("scroll", kbViewportHandler);
 
   const textarea = overlay.querySelector('[data-role="text"]');
   const saveBtn = overlay.querySelector('[data-action="save"]');

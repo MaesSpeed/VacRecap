@@ -11,7 +11,7 @@ import { ICON_BACK_CHEVRON, ICON_GEAR, ICON_MAP } from "./icons.js";
 import { savePhotoForPlace, saveVideoForPlace } from "./media-service.js";
 import { rememberPlaceFromGps, trySoftPointOnOpen } from "./place-service.js";
 import { newestHardPlace } from "./places.js";
-import { navigate } from "./router.js";
+import { leaveTripToOverview, navigate } from "./router.js";
 import { getRememberLocationOnOpen } from "./settings-store.js";
 import { previewNoteCaptureTarget, resolveCaptureTarget } from "./target-place.js";
 import { loadTripSelection, saveTripSelection } from "./trip-selection-store.js";
@@ -112,6 +112,7 @@ export async function renderUrlaubDetail(appEl, id) {
 
   function renderChips() {
     const total = days.length;
+    chipsEl.classList.toggle("day-chips--fill", total <= 4);
     chipsEl.innerHTML = days
       .map((iso, i) => {
         const active = iso === state.activeDay;
@@ -484,7 +485,7 @@ export async function renderUrlaubDetail(appEl, id) {
 
   appEl.querySelector('[data-action="back"]').addEventListener("click", () => {
     clearTripUiState(id);
-    navigate({ name: "urlaube" }, { replace: true });
+    leaveTripToOverview();
   });
 
   appEl.querySelector('[data-action="map"]').addEventListener("click", () => {

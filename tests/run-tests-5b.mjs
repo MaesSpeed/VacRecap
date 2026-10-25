@@ -150,19 +150,19 @@ async function assertNativeCamera(page, label) {
   await page.waitForTimeout(500);
 }
 
-async function assertNoteSheetGap(page, label) {
+async function assertNoteSheetCompact(page, label) {
   await page.locator('[data-footer-action="note"]').click();
   await page.waitForSelector('[data-testid="note-sheet"]');
-  const gap = await page.evaluate(() => {
-    const chips = document.querySelector(".day-chips-wrap");
+  const waste = await page.evaluate(() => {
     const sheet = document.querySelector(".sheet--note-bottom");
-    if (!chips || !sheet) return null;
-    const cb = chips.getBoundingClientRect();
+    const save = sheet?.querySelector('[data-action="save"]');
+    if (!sheet || !save) return null;
     const sb = sheet.getBoundingClientRect();
-    return sb.top - cb.bottom;
+    const rb = save.getBoundingClientRect();
+    return sb.bottom - rb.bottom;
   });
-  if (gap == null || Math.abs(gap - 20) > 6) {
-    throw new Error(`${label}: Notiz-Sheet-Abstand ${gap}px (Ziel ~20px)`);
+  if (waste == null || waste > 48) {
+    throw new Error(`${label}: Leerraum unter Speichern ${waste}px`);
   }
   await page.click('[data-action="cancel"]');
   await page.waitForFunction(() => document.getElementById("overlay-root")?.hidden);
@@ -182,7 +182,7 @@ async function runSuite(label, viewport, { baseUrl, browser }) {
   const vacationId = await seedTrip(page);
   await page.goto(`./#/urlaub/${vacationId}`);
   await assertToastPill(page, label);
-  await assertNoteSheetGap(page, label);
+  await assertNoteSheetCompact(page, label);
   await assertNativeCamera(page, label);
 
   await ctx.close();
@@ -203,7 +203,7 @@ async function main() {
   const page = await ctx.newPage();
   const vacationId = await seedTrip(page);
   await page.goto(`./#/urlaub/${vacationId}`);
-  await assertNoteSheetGap(page, "390x844");
+  await assertNoteSheetCompact(page, "390x844");
   await ctx.close();
 
   await browser.close();
