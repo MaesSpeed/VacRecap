@@ -1,5 +1,5 @@
 const DB_NAME = "vacrecap";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 let dbPromise = null;
 
@@ -34,11 +34,23 @@ function openDb() {
           const media = db.createObjectStore("media", { keyPath: "id" });
           media.createIndex("placeId", "placeId", { unique: false });
           media.createIndex("vacationId", "vacationId", { unique: false });
+          media.createIndex("vacationSourceKey", ["vacationId", "sourceKey"], {
+            unique: false,
+          });
         }
         if (!db.objectStoreNames.contains("notes")) {
           const notes = db.createObjectStore("notes", { keyPath: "id" });
           notes.createIndex("placeId", "placeId", { unique: false });
           notes.createIndex("vacationId", "vacationId", { unique: false });
+        }
+
+        if (db.objectStoreNames.contains("media")) {
+          const media = tx.objectStore("media");
+          if (!media.indexNames.contains("vacationSourceKey")) {
+            media.createIndex("vacationSourceKey", ["vacationId", "sourceKey"], {
+              unique: false,
+            });
+          }
         }
 
         if (event.oldVersion < 3 && db.objectStoreNames.contains("places")) {
@@ -302,6 +314,50 @@ export async function deleteVacationData(vacationId) {
   await deleteMediaForVacation(vacationId);
   await deleteNotesForVacation(vacationId);
   await deletePlacesForVacation(vacationId);
+}
+
+export async function getMediaBySourceKey(vacationId, sourceKey) {
+  if (!sourceKey) return null;
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("media", "readonly");
+    const store = tx.objectStore("media");
+    let req;
+    try {
+      req = store.index("vacationSourceKey").get([vacationId, sourceKey]);
+    } catch {
+      req = store.getAll();
+    }
+    req.onsuccess = () => {
+      const val = req.result;
+      if (val && !Array.isArray(val)) {
+        resolve(val);
+        return;
+      }
+      const all = val ?? [];
+      resolve(all.find((m) => m.vacationId === vacationId && m.sourceKey === sourceKey) ?? null);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function getAllMediaForVacation(vacationId) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("media", "readonly");
+    const store = tx.objectStore("media");
+    let req;
+    try {
+      req = store.index("vacationId").getAll(vacationId);
+    } catch {
+      req = store.getAll();
+    }
+    req.onsuccess = () => {
+      const all = req.result ?? [];
+      resolve(all.filter((m) => m.vacationId === vacationId));
+    };
+    req.onerror = () => reject(req.error);
+  });
 }
 
 export async function getMediaForPlace(placeId) {

@@ -80,6 +80,10 @@ export function mountTripFooter(container, handlers = {}) {
         await handlers.onNote();
         return;
       }
+      if (action.id === "gallery" && handlers.onGallery) {
+        handlers.onGallery();
+        return;
+      }
       showToast("Kommt im nächsten Schritt");
     });
   });

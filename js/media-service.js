@@ -21,7 +21,14 @@ function isQuotaError(err) {
   );
 }
 
-export async function savePhotoForPlace({ file, place, vacationId, day }) {
+export async function savePhotoForPlace({
+  file,
+  place,
+  vacationId,
+  day,
+  ts = Date.now(),
+  sourceKey,
+}) {
   await ensurePersist();
   const processed = await processPhotoFile(file);
   const record = {
@@ -29,12 +36,13 @@ export async function savePhotoForPlace({ file, place, vacationId, day }) {
     placeId: place.id,
     vacationId,
     day,
-    ts: Date.now(),
+    ts,
     type: "photo",
     blob: processed.blob,
     thumbBlob: processed.thumbBlob,
     w: processed.w,
     h: processed.h,
+    sourceKey: sourceKey ?? null,
   };
   try {
     await putMedia(record);
@@ -45,7 +53,14 @@ export async function savePhotoForPlace({ file, place, vacationId, day }) {
   }
 }
 
-export async function saveVideoForPlace({ file, place, vacationId, day }) {
+export async function saveVideoForPlace({
+  file,
+  place,
+  vacationId,
+  day,
+  ts = Date.now(),
+  sourceKey,
+}) {
   await ensurePersist();
   const processed = await processVideoFile(file);
   const record = {
@@ -53,7 +68,7 @@ export async function saveVideoForPlace({ file, place, vacationId, day }) {
     placeId: place.id,
     vacationId,
     day,
-    ts: Date.now(),
+    ts,
     type: "video",
     blob: processed.blob,
     thumbBlob: processed.thumbBlob,
@@ -61,6 +76,7 @@ export async function saveVideoForPlace({ file, place, vacationId, day }) {
     h: processed.h,
     duration: processed.duration,
     durationLabel: processed.durationLabel,
+    sourceKey: sourceKey ?? null,
   };
   try {
     await putMedia(record);

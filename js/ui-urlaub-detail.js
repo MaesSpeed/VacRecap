@@ -25,6 +25,7 @@ import {
   wrapPlaceList,
 } from "./ui-place-list.js";
 import { openEditPlaceSheet, openSoftPointSheet } from "./ui-place-sheets.js";
+import { createMediathekSession } from "./mediathek-session.js";
 import { openTripDayCalendar } from "./ui-trip-day-calendar.js";
 import { mountTripFooter } from "./ui-trip-footer.js";
 import { escapeHtml, todayIso } from "./utils.js";
@@ -35,6 +36,13 @@ export function clearTripUiState(vacationId) {
   const state = tripUiState.get(vacationId);
   if (state?.thumbUrls) revokeThumbUrls(state.thumbUrls);
   tripUiState.delete(vacationId);
+}
+
+export function setTripSelection(vacationId, day, placeId) {
+  const state = tripUiState.get(vacationId);
+  if (!state) return;
+  state.activeDay = day;
+  state.selectedByDay[day] = placeId;
 }
 
 function getState(id, vacation) {
@@ -84,6 +92,7 @@ export async function renderUrlaubDetail(appEl, id) {
     <main class="trip-content trip-content--places" data-role="day-content" data-testid="trip-content"></main>
     <input type="file" accept="image/*" capture="environment" hidden data-role="photo-input" />
     <input type="file" accept="video/*" capture="environment" hidden data-role="video-input" />
+    <input type="file" accept="image/*,video/*" multiple hidden data-role="gallery-input" />
     <div data-role="footer-mount"></div>
   `;
 
@@ -92,6 +101,7 @@ export async function renderUrlaubDetail(appEl, id) {
   const footerMount = appEl.querySelector('[data-role="footer-mount"]');
   const photoInput = appEl.querySelector('[data-role="photo-input"]');
   const videoInput = appEl.querySelector('[data-role="video-input"]');
+  const galleryInput = appEl.querySelector('[data-role="gallery-input"]');
 
   function renderChips() {
     const total = days.length;
@@ -349,10 +359,28 @@ export async function renderUrlaubDetail(appEl, id) {
 
   renderChips();
   await refreshDayList();
+  function openGalleryPicker() {
+    galleryInput.click();
+  }
+
+  galleryInput.addEventListener("change", () => {
+    const files = [...(galleryInput.files || [])];
+    galleryInput.value = "";
+    if (!files.length) return;
+    createMediathekSession({
+      vacationId: id,
+      day: state.activeDay,
+      selectedPlaceId: state.selectedByDay[state.activeDay],
+      files,
+    });
+    navigate({ name: "urlaub-mediathek", id });
+  });
+
   mountTripFooter(footerMount, {
     onRememberPlace,
     onCamera: openCameraSheet,
     onNote: onNoteFooter,
+    onGallery: openGalleryPicker,
   });
 
   appEl.querySelector('[data-action="back"]').addEventListener("click", () => {
