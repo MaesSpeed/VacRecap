@@ -1,3 +1,5 @@
+import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
+
 let busy = false;
 
 export function openCameraChoiceSheet({ onPhoto, onVideo }) {
@@ -22,21 +24,21 @@ export function openCameraChoiceSheet({ onPhoto, onVideo }) {
     busy = false;
   };
 
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) close();
-  });
+  bindOverlay(overlay, close);
 
-  overlay.querySelector('[data-action="cancel"]').addEventListener("click", close);
+  overlay.querySelector('[data-action="cancel"]').addEventListener("click", () =>
+    closeOverlayHistory(close)
+  );
   overlay.querySelector('[data-action="photo"]').addEventListener("click", () => {
     if (busy) return;
     busy = true;
-    close();
+    closeOverlayHistory(close);
     onPhoto?.();
   });
   overlay.querySelector('[data-action="video"]').addEventListener("click", () => {
     if (busy) return;
     busy = true;
-    close();
+    closeOverlayHistory(close);
     onVideo?.();
   });
 }

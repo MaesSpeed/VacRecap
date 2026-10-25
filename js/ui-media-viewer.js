@@ -1,4 +1,5 @@
 import { deleteMedia } from "./db.js";
+import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { formatMediaDuration } from "./media-process.js";
 import { showToast } from "./toast.js";
 
@@ -26,11 +27,19 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
   const overlay = document.getElementById("overlay-root");
   overlay.hidden = false;
 
+  const close = () => {
+    revokeAll();
+    overlay.innerHTML = "";
+    overlay.hidden = true;
+  };
+
+  bindOverlay(overlay, close);
+
   const render = () => {
     revokeAll();
     const item = sorted[index];
     if (!item) {
-      close();
+      closeOverlayHistory(close);
       return;
     }
     const url = mediaUrl(item);
@@ -55,7 +64,9 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
       </div>
     `;
 
-    overlay.querySelector('[data-action="close"]').addEventListener("click", close);
+    overlay.querySelector('[data-action="close"]').addEventListener("click", () =>
+      closeOverlayHistory(close)
+    );
     overlay.querySelector('[data-action="delete"]').addEventListener("click", () => {
       const label = isVideo ? "Video löschen?" : "Foto löschen?";
       if (!window.confirm(label)) return;
@@ -63,7 +74,7 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
         showToast(isVideo ? "Video gelöscht" : "Foto gelöscht");
         sorted.splice(index, 1);
         if (!sorted.length) {
-          close();
+          closeOverlayHistory(close);
           onChanged?.();
           return;
         }
@@ -85,12 +96,6 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
         render();
       }
     });
-  };
-
-  const close = () => {
-    revokeAll();
-    overlay.innerHTML = "";
-    overlay.hidden = true;
   };
 
   render();

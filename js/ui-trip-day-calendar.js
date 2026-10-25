@@ -1,4 +1,6 @@
 import { isDayInVacation, vacationDays } from "./days.js";
+import { ICON_CLOSE } from "./icons.js";
+import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { dismissActiveToast } from "./toast.js";
 import { formatIsoDate, parseIsoDate } from "./utils.js";
 
@@ -53,9 +55,12 @@ export function openTripDayCalendar({ vacation, activeDay, onSelect }) {
   const sheet = document.createElement("div");
   sheet.className = "sheet sheet--trip-calendar";
   sheet.innerHTML = `
-    <header class="sheet__header">
-      <h2 class="sheet__title">Kalender</h2>
-      <p class="sheet__subtitle" data-role="subtitle"></p>
+    <header class="sheet__header sheet__header--row">
+      <div>
+        <h2 class="sheet__title">Kalender</h2>
+        <p class="sheet__subtitle" data-role="subtitle"></p>
+      </div>
+      <button type="button" class="sheet__icon-close" data-action="close" aria-label="Schließen">${ICON_CLOSE}</button>
     </header>
     <div class="calendar-scroll" data-role="months"></div>
   `;
@@ -100,10 +105,16 @@ export function openTripDayCalendar({ vacation, activeDay, onSelect }) {
     monthsEl.appendChild(section);
   });
 
-  function close() {
+  const close = () => {
     overlay.hidden = true;
     overlay.innerHTML = "";
-  }
+  };
+
+  bindOverlay(overlay, close);
+
+  sheet.querySelector('[data-action="close"]').addEventListener("click", () => {
+    closeOverlayHistory(close);
+  });
 
   sheet.addEventListener("click", (e) => {
     const day = e.target.closest(".calendar-day[data-date]");
@@ -111,10 +122,6 @@ export function openTripDayCalendar({ vacation, activeDay, onSelect }) {
     const iso = day.dataset.date;
     if (!isDayInVacation(vacation, iso)) return;
     onSelect(iso);
-    close();
-  });
-
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) close();
+    closeOverlayHistory(close);
   });
 }

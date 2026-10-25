@@ -14,6 +14,19 @@ export function parseIsoDate(iso) {
   return new Date(y, m - 1, d);
 }
 
+function utcDayIndex(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return Math.floor(Date.UTC(y, m - 1, d) / 86400000);
+}
+
+function isoFromUtcDayIndex(index) {
+  const d = new Date(index * 86400000);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 export function formatIsoDate(date) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
@@ -42,11 +55,20 @@ export function formatDatePart(iso, withYear = true) {
 
 export function formatDateRangeCard(startIso, endIso) {
   const days = dayCountInclusive(startIso, endIso);
+  if (days === 1) {
+    return `${formatDatePart(startIso, true)} · 1 Tag`;
+  }
   return `${formatDatePart(startIso, false)} – ${formatDatePart(endIso, true)} · ${days} Tage`;
 }
 
 export function formatDateRangeOverlay(startIso, endIso) {
-  return `${formatDatePart(startIso, false)} – ${formatDatePart(endIso, true)}`;
+  const sy = parseIsoDate(startIso).getFullYear();
+  const ey = parseIsoDate(endIso).getFullYear();
+  const startWithYear = sy !== ey;
+  if (dayCountInclusive(startIso, endIso) === 1) {
+    return formatDatePart(startIso, true);
+  }
+  return `${formatDatePart(startIso, startWithYear)} – ${formatDatePart(endIso, true)}`;
 }
 
 export function formatDateRange(startIso, endIso) {
@@ -54,19 +76,16 @@ export function formatDateRange(startIso, endIso) {
 }
 
 export function dayCountInclusive(startIso, endIso) {
-  const start = parseIsoDate(startIso);
-  const end = parseIsoDate(endIso);
-  const ms = end.getTime() - start.getTime();
-  return Math.floor(ms / 86400000) + 1;
+  return utcDayIndex(endIso) - utcDayIndex(startIso) + 1;
 }
 
 export function enumerateDays(startIso, endIso) {
   const days = [];
-  const cur = parseIsoDate(startIso);
-  const end = parseIsoDate(endIso);
-  while (cur <= end) {
-    days.push(formatIsoDate(cur));
-    cur.setDate(cur.getDate() + 1);
+  let i = utcDayIndex(startIso);
+  const end = utcDayIndex(endIso);
+  while (i <= end) {
+    days.push(isoFromUtcDayIndex(i));
+    i += 1;
   }
   return days;
 }
@@ -108,7 +127,7 @@ export function escapeHtml(text) {
 
 export function initialsFromNames(names) {
   const colors = ["#0066B3", "#e67e22", "#2e7d32", "#8e44ad", "#c0392b"];
-  return names.slice(0, 4).map((name, i) => ({
+  return names.slice(0, 3).map((name, i) => ({
     label: name.trim().charAt(0).toUpperCase() || "?",
     color: colors[i % colors.length],
   }));

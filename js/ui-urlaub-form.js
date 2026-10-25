@@ -131,7 +131,13 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
 
   appEl.querySelector('[data-action="cancel"]').addEventListener("click", () => {
     if (customObjectUrl) URL.revokeObjectURL(customObjectUrl);
-    navigate({ name: "urlaube" });
+    const raw = sessionStorage.getItem("vacrecap-form-return");
+    sessionStorage.removeItem("vacrecap-form-return");
+    if (raw) {
+      navigate(JSON.parse(raw));
+    } else {
+      navigate({ name: "urlaube" });
+    }
   });
 
   appEl.querySelector('[data-action="pick-dates"]').addEventListener("click", () => {
@@ -142,7 +148,8 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
         vacation.startDate = startDate;
         vacation.endDate = endDate;
         dateLabel.textContent = formatDateRange(startDate, endDate);
-        dateSub.textContent = `${dayCountInclusive(startDate, endDate)} Tage`;
+        const n = dayCountInclusive(startDate, endDate);
+        dateSub.textContent = n === 1 ? "1 Tag" : `${n} Tage`;
         syncMeta();
       },
     });
@@ -212,6 +219,7 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
     e.preventDefault();
     const title = titleInput.value.trim();
     if (!title) {
+      showToast("Bitte Titel eingeben");
       titleInput.focus();
       return;
     }
@@ -235,20 +243,21 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
     await putVacation(vacation);
     if (customObjectUrl) URL.revokeObjectURL(customObjectUrl);
 
+    sessionStorage.removeItem("vacrecap-form-return");
     if (isEdit) {
       showToast(formatDateRange(vacation.startDate, vacation.endDate), {
         title: `«${title}» gespeichert`,
       });
       window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
       clearTripUiState(vacation.id);
-      navigate({ name: "urlaub-detail", id: vacation.id });
+      navigate({ name: "urlaub-detail", id: vacation.id }, { replace: true });
     } else {
       showToast(formatDateRange(vacation.startDate, vacation.endDate), {
         title: `Urlaub «${title}» angelegt`,
       });
       window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
       clearTripUiState(vacation.id);
-      navigate({ name: "urlaub-detail", id: vacation.id });
+      navigate({ name: "urlaub-detail", id: vacation.id }, { replace: true });
     }
   });
 
