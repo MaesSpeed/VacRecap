@@ -1,7 +1,8 @@
 import { resolveCoverSrc } from "./covers.js";
 import { getBlob } from "./db.js";
 import { armPointerSuppression } from "./gesture-guard.js";
-import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
+import { bindOverlay, closeOverlayHistory, releaseOverlayHistory } from "./overlay-stack.js";
+import { computeVacationStats, formatVacationStatsLine } from "./vacation-stats.js";
 import { navigate } from "./router.js";
 import { clearTripUiState } from "./ui-urlaub-detail.js";
 import { avatarListForVacation } from "./vacation.js";
@@ -21,6 +22,9 @@ const LONG_PRESS_MS = 550;
 const CHEVRON_SVG = `<svg width="8" height="14" viewBox="0 0 8 14" fill="none" aria-hidden="true"><path d="M1 1l6 6-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 export async function renderUrlaubeScreen(appEl, vacations) {
+  for (const v of vacations) {
+    v.stats = await computeVacationStats(v.id);
+  }
   const grouped = { current: [], upcoming: [], past: [] };
   vacations
     .slice()
@@ -133,7 +137,7 @@ function cardCurrent(v) {
         </div>
       </div>
       <div class="card--hero__footer">
-        <span>${v.stats.places} Orte · ${v.stats.photos} Fotos · ${v.stats.notes} Notizen</span>
+        <span>${formatVacationStatsLine(v.stats)}</span>
         <div class="avatars">${avatars}</div>
       </div>
     </article>
@@ -145,7 +149,7 @@ function cardCompact(v, kind) {
   const meta =
     kind === "upcoming"
       ? `<span class="card-compact__countdown">${formatCountdown(daysUntilStart(v.startDate))}</span>`
-      : `<span class="card-compact__stats">${v.stats.places} Orte · ${v.stats.photos} Fotos</span>`;
+      : `<span class="card-compact__stats">${formatVacationStatsLine(v.stats)}</span>`;
   return `
     <article class="card card--compact" data-vacation-id="${v.id}" tabindex="0">
       <div class="card-compact__thumb">
@@ -243,7 +247,7 @@ function showCardMenu(id, vacations) {
     closeOverlayHistory(close)
   );
   overlay.querySelector('[data-action="edit"]').addEventListener("click", () => {
-    closeOverlayHistory(close);
+    releaseOverlayHistory(close);
     navigate({ name: "urlaub-form", mode: "edit", id });
   });
   overlay.querySelector('[data-action="delete"]').addEventListener("click", () => {

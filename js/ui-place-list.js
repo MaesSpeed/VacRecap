@@ -1,7 +1,7 @@
 import { getMediaForPlace, getNotesForPlace } from "./db.js";
 import { formatMediaDuration } from "./media-process.js";
 import { buildPlaceMetaLine } from "./place-stats.js";
-import { softPointLabel } from "./place-service.js";
+import { filterSoftPointsHidden, softPointLabel } from "./place-service.js";
 import { sortPlacesChronologicalDesc } from "./places.js";
 import { escapeHtml } from "./utils.js";
 
@@ -16,7 +16,7 @@ const PLAY_SVG = `<svg class="tile__play" width="14" height="14" viewBox="0 0 24
 export async function loadDayPlacesEnriched(vacationId, day) {
   const { getPlacesForDay } = await import("./db.js");
   const places = sortPlacesChronologicalDesc(await getPlacesForDay(vacationId, day));
-  return Promise.all(
+  const enriched = await Promise.all(
     places.map(async (p) => {
       if (p.soft) return { place: p, photos: 0, videos: 0, notes: [], media: [] };
       const [media, notes] = await Promise.all([
@@ -29,6 +29,7 @@ export async function loadDayPlacesEnriched(vacationId, day) {
       return { place: p, photos, videos, notes, media: sortedMedia };
     })
   );
+  return filterSoftPointsHidden(enriched, vacationId, day);
 }
 
 export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrls = {} }) {
@@ -48,7 +49,7 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
 
       const selected = place.id === selectedId;
       const dim = selectedId && !selected;
-      const meta = buildPlaceMetaLine(place.ts, {
+      const meta = buildPlaceMetaLine(place, {
         photos,
         videos,
         notes: notes.length,
@@ -97,7 +98,7 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
                 .join("")}
               ${
                 !expanded && hiddenCount > 0
-                  ? `<button type="button" class="notes-more" data-action="expand-notes">+${hiddenCount} weitere Notizen ⌄</button>`
+                  ? `<button type="button" class="notes-more" data-action="expand-notes">+${hiddenCount} weitere ${hiddenCount === 1 ? "Notiz" : "Notizen"} ⌄</button>`
                   : ""
               }
               ${

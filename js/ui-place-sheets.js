@@ -5,8 +5,19 @@ import {
 } from "./db.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { promoteSoftPlace, updatePlaceName } from "./place-service.js";
+import { openConfirmDialog } from "./ui-confirm.js";
 import { showToast } from "./toast.js";
 import { escapeHtml } from "./utils.js";
+
+function mediaCountLabel(count) {
+  if (count === 1) return "1 Medium";
+  return `${count} Medien`;
+}
+
+function noteCountLabel(count) {
+  if (count === 1) return "1 Notiz";
+  return `${count} Notizen`;
+}
 
 export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
   const overlay = document.getElementById("overlay-root");
@@ -21,7 +32,7 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
         <input type="text" data-role="name" value="${escapeHtml(place.name)}" />
       </label>
       <div class="sheet-actions">
-        <button type="button" class="btn btn-emaille btn-emaille--block" data-action="save">Speichern</button>
+        <button type="button" class="btn btn-emaille btn-emaille--block" data-action="save" disabled>Speichern</button>
         <button type="button" class="link-btn" data-action="cancel">Abbrechen</button>
         <button type="button" class="settings-link settings-link--danger" data-action="delete">Ort löschen</button>
       </div>
@@ -36,10 +47,18 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
   bindOverlay(overlay, close);
 
   const input = overlay.querySelector('[data-role="name"]');
+  const saveBtn = overlay.querySelector('[data-action="save"]');
+  const syncSave = () => {
+    saveBtn.disabled = !input.value.trim();
+  };
+  input.addEventListener("input", syncSave);
+  syncSave();
+
   overlay.querySelector('[data-action="cancel"]').addEventListener("click", () =>
     closeOverlayHistory(close)
   );
   overlay.querySelector('[data-action="save"]').addEventListener("click", async () => {
+    if (saveBtn.disabled) return;
     const updated = await updatePlaceName(place, input.value);
     closeOverlayHistory(close);
     showToast("Gespeichert");
@@ -52,11 +71,15 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
     ]);
     const mCount = media.length;
     const nCount = notes.length;
-    const hint =
-      mCount || nCount
-        ? ` Enthält ${mCount} Medien und ${nCount} Notizen.`
-        : "";
-    if (!window.confirm(`Ort wirklich löschen?${hint}`)) return;
+    let detail = "";
+    if (mCount) detail += ` ${mediaCountLabel(mCount)}`;
+    if (nCount) detail += `${detail ? " und" : ""} ${noteCountLabel(nCount)}`;
+    const ok = await openConfirmDialog({
+      title: "Ort löschen?",
+      message: `«${place.name}» wird gelöscht.${detail ? ` Enthält${detail}.` : ""}`,
+      testId: "confirm-delete-place",
+    });
+    if (!ok) return;
     await deletePlaceCascade(place.id);
     closeOverlayHistory(close);
     showToast("Ort gelöscht");
@@ -64,7 +87,7 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
   });
 }
 
-export function openSoftPointSheet(place, { onPromoted, onDiscarded }) {
+export function openSoftPointSheet(place, { vacationId, day, onPromoted, onDiscarded }) {
   const overlay = document.getElementById("overlay-root");
   overlay.hidden = false;
   overlay.innerHTML = `
@@ -75,7 +98,7 @@ export function openSoftPointSheet(place, { onPromoted, onDiscarded }) {
       <p class="soft-sheet__text">${escapeHtml(place.name || "Unbekannt")}</p>
       <div class="sheet-actions">
         <button type="button" class="btn btn-emaille btn-emaille--block" data-action="promote">Als Ort merken</button>
-        <button type="button" class="settings-link settings-link--danger" data-action="discard">Verwerfen</button>
+        <button type="button" class="soft-sheet__discard" data-action="discard">Verwerfen</button>
         <button type="button" class="link-btn" data-action="cancel">Abbrechen</button>
       </div>
     </div>
@@ -92,10 +115,9 @@ export function openSoftPointSheet(place, { onPromoted, onDiscarded }) {
     closeOverlayHistory(close)
   );
   overlay.querySelector('[data-action="promote"]').addEventListener("click", async () => {
-    const updated = await promoteSoftPlace(place);
+    const result = await promoteSoftPlace(place, { vacationId, day });
     closeOverlayHistory(close);
-    showToast("Ort gemerkt");
-    onPromoted?.(updated);
+    onPromoted?.(result.place, result.duplicate);
   });
   overlay.querySelector('[data-action="discard"]').addEventListener("click", async () => {
     const { discardSoftPlace } = await import("./place-service.js");

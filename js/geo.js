@@ -11,6 +11,14 @@ export function haversineMeters(lat1, lon1, lat2, lon2) {
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
+export function getCapturePosition() {
+  return getCurrentPosition({
+    enableHighAccuracy: false,
+    timeout: 4000,
+    maximumAge: 30000,
+  });
+}
+
 export function getCurrentPosition(options = {}) {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {

@@ -64,7 +64,7 @@ export async function renderUrlaubSettings(appEl, id) {
             <span class="settings-item__icon">${ICON_CROSSHAIR}</span>
             <div class="settings-item__text">
               <span class="settings-item__title">Standort beim Öffnen merken</span>
-              <span class="settings-item__sub">Setzt beim Öffnen einen weichen Punkt</span>
+              <span class="settings-item__sub">Setzt beim Öffnen einen Punkt</span>
             </div>
             ${switchHtml("remember-location", remember, "Standort beim Öffnen merken")}
           </div>
@@ -128,7 +128,11 @@ export async function renderUrlaubSettings(appEl, id) {
   `;
 
   appEl.querySelector('[data-action="back"]').addEventListener("click", () => {
-    navigate({ name: "urlaub-detail", id });
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    navigate({ name: "urlaub-detail", id }, { replace: true });
   });
 
   const rememberBtn = appEl.querySelector('[data-testid="remember-location"]');

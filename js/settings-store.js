@@ -5,7 +5,7 @@ const KEY_SAME_PLACE_RADIUS = "samePlaceRadiusM";
 const KEY_REMEMBER_CAPTURE = "rememberCaptureLocation";
 const KEY_LAST_BACKUP = "lastBackupByVacation";
 
-const RADIUS_OPTIONS = [50, 100, 150, 300, 500];
+const RADIUS_OPTIONS = [50, 100, 150, 200, 300];
 
 export function samePlaceRadiusOptions() {
   return RADIUS_OPTIONS;
@@ -24,14 +24,16 @@ export async function setRememberLocationOnOpen(enabled) {
 export async function getSamePlaceRadiusM() {
   const value = await getSetting(KEY_SAME_PLACE_RADIUS);
   const n = Number(value);
+  if (n === 500) return 300;
   if (RADIUS_OPTIONS.includes(n)) return n;
   return 150;
 }
 
 export async function setSamePlaceRadiusM(meters) {
   const n = Number(meters);
-  if (!RADIUS_OPTIONS.includes(n)) return;
-  await putSetting(KEY_SAME_PLACE_RADIUS, n);
+  const normalized = n === 500 ? 300 : n;
+  if (!RADIUS_OPTIONS.includes(normalized)) return;
+  await putSetting(KEY_SAME_PLACE_RADIUS, normalized);
 }
 
 export async function getRememberCaptureLocation() {

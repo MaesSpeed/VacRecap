@@ -63,11 +63,31 @@ export function dismissOverlayOnly() {
   closeStack.length = 0;
 }
 
+/** Menü schließen ohne history.back(), damit eine folgende Navigation nicht rückgängig wird. */
+export function releaseOverlayHistory(closeFn) {
+  if (activeClose === closeFn) {
+    activeClose = closeStack.pop() ?? null;
+  } else {
+    closeStack.length = 0;
+    activeClose = null;
+  }
+  closeFn();
+  if (history.state?.vacrecapOverlay) {
+    const next = { ...history.state };
+    delete next.vacrecapOverlay;
+    history.replaceState(Object.keys(next).length ? next : null, "");
+  }
+}
+
 export function hasActiveOverlay() {
   return Boolean(activeClose);
 }
 
 export function bindOverlay(overlay, closeFn) {
   openOverlayHistory(closeFn);
-  bindBackdropDismiss(overlay, () => closeOverlayHistory(closeFn));
+  const openedAt = Date.now();
+  bindBackdropDismiss(overlay, () => {
+    if (Date.now() - openedAt < 300) return;
+    closeOverlayHistory(closeFn);
+  });
 }
