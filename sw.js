@@ -1,4 +1,4 @@
-const CACHE_VERSION = "vacrecap-v2";
+const CACHE_VERSION = "vacrecap-v4";
 const ASSETS = [
   "./",
   "./index.html",
@@ -12,9 +12,16 @@ const ASSETS = [
   "./js/vacation.js",
   "./js/covers.js",
   "./js/toast.js",
+  "./js/days.js",
+  "./js/settings-store.js",
+  "./js/places.js",
+  "./js/icons.js",
   "./js/ui-urlaube.js",
   "./js/ui-urlaub-form.js",
   "./js/ui-urlaub-detail.js",
+  "./js/ui-urlaub-settings.js",
+  "./js/ui-trip-footer.js",
+  "./js/ui-trip-day-calendar.js",
   "./js/ui-calendar.js",
   "./icons/icon-192.png",
   "./icons/icon-512.png",

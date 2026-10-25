@@ -1,6 +1,7 @@
 import { COVER_PRESETS, presetUrl, resolveCoverSrc } from "./covers.js";
 import { deleteBlob, getBlob, getVacation, putBlob, putVacation } from "./db.js";
 import { navigate } from "./router.js";
+import { clearTripUiState } from "./ui-urlaub-detail.js";
 import { showToast } from "./toast.js";
 import { COMPANION_TAGS, createEmptyVacation, normalizeVacation } from "./vacation.js";
 import {
@@ -239,12 +240,14 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
         title: `«${title}» gespeichert`,
       });
       window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+      clearTripUiState(vacation.id);
       navigate({ name: "urlaub-detail", id: vacation.id });
     } else {
       showToast(formatDateRange(vacation.startDate, vacation.endDate), {
         title: `Urlaub «${title}» angelegt`,
       });
       window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+      clearTripUiState(vacation.id);
       navigate({ name: "urlaub-detail", id: vacation.id });
     }
   });

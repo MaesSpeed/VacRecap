@@ -1,6 +1,7 @@
 import { resolveCoverSrc } from "./covers.js";
 import { getBlob } from "./db.js";
 import { navigate } from "./router.js";
+import { clearTripUiState } from "./ui-urlaub-detail.js";
 import { avatarListForVacation } from "./vacation.js";
 import {
   currentDayIndex,
@@ -199,6 +200,7 @@ function bindCardInteractions(card, vacations) {
       e.preventDefault();
       return;
     }
+    clearTripUiState(id);
     navigate({ name: "urlaub-detail", id });
   });
 }
@@ -259,11 +261,13 @@ function confirmDelete(id, title) {
 
   overlay.querySelector('[data-action="cancel"]').addEventListener("click", close);
   overlay.querySelector('[data-action="confirm"]').addEventListener("click", async () => {
-    const { deleteVacation, getVacation, deleteBlob } = await import("./db.js");
+    const { deleteVacation, getVacation, deleteBlob, deletePlacesForVacation } =
+      await import("./db.js");
     const v = await getVacation(id);
     if (v?.cover?.type === "custom" && v.cover.blobId) {
       await deleteBlob(v.cover.blobId);
     }
+    await deletePlacesForVacation(id);
     await deleteVacation(id);
     close();
     const { showToast } = await import("./toast.js");

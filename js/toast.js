@@ -1,25 +1,51 @@
-const TOAST_MS = 3200;
+import { escapeHtml } from "./utils.js";
+
+const TOAST_MS = 2500;
+
+let hideTimer = null;
+let activeToast = null;
+
+function dismissToast({ immediate = false } = {}) {
+  if (hideTimer) {
+    clearTimeout(hideTimer);
+    hideTimer = null;
+  }
+  if (!activeToast) return;
+  const el = activeToast;
+  activeToast = null;
+  if (immediate) {
+    el.remove();
+    return;
+  }
+  el.classList.remove("toast--visible");
+  const remove = () => el.remove();
+  el.addEventListener("transitionend", remove, { once: true });
+  setTimeout(remove, 400);
+}
 
 export function showToast(message, { title } = {}) {
   const root = document.getElementById("toast-root");
   if (!root) return;
 
+  dismissToast({ immediate: true });
+
   const el = document.createElement("div");
   el.className = "toast";
+  el.setAttribute("data-testid", "app-toast");
   el.innerHTML = `
     <span class="toast__icon" aria-hidden="true">✓</span>
     <div class="toast__text">
-      ${title ? `<strong>${title}</strong>` : ""}
-      <span>${message}</span>
+      ${title ? `<strong>${escapeHtml(title)}</strong>` : ""}
+      <span>${escapeHtml(message)}</span>
     </div>
   `;
   root.appendChild(el);
+  activeToast = el;
   requestAnimationFrame(() => el.classList.add("toast--visible"));
 
-  const remove = () => {
-    el.classList.remove("toast--visible");
-    el.addEventListener("transitionend", () => el.remove(), { once: true });
-    setTimeout(() => el.remove(), 400);
-  };
-  setTimeout(remove, TOAST_MS);
+  hideTimer = setTimeout(() => dismissToast(), TOAST_MS);
+}
+
+export function dismissActiveToast() {
+  dismissToast({ immediate: true });
 }
