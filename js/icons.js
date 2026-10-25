@@ -1,46 +1,15 @@
-export const ICON_MAP = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-  <path d="M4 6.5 9 4l7 3.5V18l-5 2.5L4 18V6.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
-  <path d="M9 4v16M16 7.5v12.5" stroke="currentColor" stroke-width="1.6"/>
-  <circle cx="12" cy="11" r="2.2" fill="currentColor"/>
-</svg>`;
+/** Draft v13 – exakte SVG-Motive (viewBox 0 0 32 32, fill="none"). */
 
-export const ICON_GEAR = `<svg class="icon-gear" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-  <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>`;
+export const ICON_MAP = `<svg width="26" height="26" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M3.5 8.4l8-3 9 3 8-3v18.8l-8 3-9-3-8 3z" fill="#9fb3cc"/><path d="M11.5 5.4v18.8M20.5 8.4v18.8" stroke="#fff" stroke-width="1.4" opacity=".8"/><path d="M21 5.6c-3.1 0-5.4 2.3-5.4 5.2 0 3.8 5.4 8.6 5.4 8.6s5.4-4.8 5.4-8.6c0-2.9-2.3-5.2-5.4-5.2z" fill="#d4523e" stroke="#fff" stroke-width="1.3"/><circle cx="21" cy="10.8" r="2" fill="#fff"/></svg>`;
 
-export const ICON_CALENDAR = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-  <rect x="4" y="5" width="16" height="15" rx="2" stroke="currentColor" stroke-width="1.6"/>
-  <path d="M8 3v4M16 3v4M4 10h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-  <path d="M8 14h2M14 14h2M8 17h2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-</svg>`;
+export const ICON_GEAR = `<svg class="icon-gear-trip" width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true" stroke="#163a78" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>`;
 
-export const FOOTER_PIN = `<svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
-  <path d="M16 28s9-8.2 9-14a9 9 0 1 0-18 0c0 5.8 9 14 9 14Z" stroke="#d4523e" stroke-width="2" fill="#fff"/>
-  <circle cx="16" cy="14" r="3" fill="#d4523e"/>
-</svg>`;
+export const ICON_CALENDAR = `<svg width="24" height="24" viewBox="0 0 32 32" fill="none" aria-hidden="true"><defs><linearGradient id="vac-g1h" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0066B3"/><stop offset="1" stop-color="#005291"/></linearGradient><linearGradient id="vac-g1b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#d3e8f8"/></linearGradient></defs><rect x="4" y="6" width="24" height="22" rx="5" fill="url(#vac-g1b)" stroke="#005291" stroke-width="1.6"/><path d="M4 12.5V11a5 5 0 0 1 5-5h14a5 5 0 0 1 5 5v1.5z" fill="url(#vac-g1h)"/><rect x="9.5" y="3" width="3" height="7" rx="1.5" fill="#005291" stroke="#fff" stroke-width="1"/><rect x="19.5" y="3" width="3" height="7" rx="1.5" fill="#005291" stroke="#fff" stroke-width="1"/><g fill="#0066B3" opacity=".55"><circle cx="10" cy="17.5" r="1.4"/><circle cx="16" cy="17.5" r="1.4"/><circle cx="22" cy="17.5" r="1.4"/><circle cx="10" cy="23" r="1.4"/><circle cx="22" cy="23" r="1.4"/></g><circle cx="16" cy="23" r="3.3" fill="url(#vac-g1h)"/><circle cx="16" cy="23" r="1.2" fill="#fff"/></svg>`;
 
-export const FOOTER_NOTE = `<svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
-  <path d="M9 6h14a2 2 0 0 1 2 2v16l-4-3H9a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z" stroke="#c9a227" stroke-width="2" fill="#fff8e7"/>
-  <path d="M11 12h10M11 16h7" stroke="#c9a227" stroke-width="1.8" stroke-linecap="round"/>
-</svg>`;
+export const FOOTER_PIN = `<svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M16 2.8c-5.8 0-10 4.3-10 9.7 0 6.9 10 15.7 10 15.7s10-8.8 10-15.7c0-5.4-4.2-9.7-10-9.7z" fill="#d4523e"/><circle cx="16" cy="12.6" r="4" fill="#fff"/></svg>`;
 
-export const FOOTER_CAMERA = `<svg viewBox="0 0 40 40" fill="none" aria-hidden="true">
-  <defs>
-    <linearGradient id="cam-g" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#3d9ae8"/>
-      <stop offset="100%" stop-color="#0066B3"/>
-    </linearGradient>
-  </defs>
-  <rect x="4" y="10" width="32" height="24" rx="4" fill="url(#cam-g)" stroke="#163a78" stroke-width="1.2"/>
-  <path d="M14 10l2-4h8l2 4" stroke="#163a78" stroke-width="1.2" fill="#2a8fd4"/>
-  <circle cx="20" cy="22" r="7" fill="#0d3d6b" stroke="#fff" stroke-width="1.5" opacity="0.9"/>
-  <ellipse cx="20" cy="14" rx="10" ry="3" fill="#fff" opacity="0.2"/>
-</svg>`;
+export const FOOTER_NOTE = `<svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M7 3.5h12.6L26 9.9V26a2.6 2.6 0 0 1-2.6 2.6H7A2.6 2.6 0 0 1 4.4 26V6.1A2.6 2.6 0 0 1 7 3.5z" fill="#c09a45"/><path d="M19.6 3.5v4.6a1.8 1.8 0 0 0 1.8 1.8H26z" fill="#fff" opacity=".55"/><path d="M9 14h11M9 18.5h11M9 23h7" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>`;
 
-export const FOOTER_GALLERY = `<svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
-  <rect x="4" y="8" width="18" height="14" rx="2" stroke="#0d6b6e" stroke-width="2" fill="#e8f6f6"/>
-  <path d="M4 18l5-5 4 4 3-3 6 6" stroke="#0d6b6e" stroke-width="1.6" stroke-linejoin="round"/>
-  <rect x="12" y="12" width="16" height="14" rx="2" stroke="#0d6b6e" stroke-width="2" fill="#fff"/>
-  <circle cx="22" cy="17" r="2" fill="#0d6b6e"/>
-</svg>`;
+export const FOOTER_CAMERA = `<svg width="40" height="40" viewBox="0 0 32 32" fill="none" aria-hidden="true"><defs><linearGradient id="vac-c1b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2f66c0"/><stop offset="1" stop-color="#1f4fa0"/></linearGradient><radialGradient id="vac-c1l" cx=".38" cy=".32" r=".8"><stop offset="0" stop-color="#7fb0ea"/><stop offset="1" stop-color="#1f4fa0"/></radialGradient></defs><path d="M6 9h4l2-3.4a1.8 1.8 0 0 1 1.6-.9h4.8a1.8 1.8 0 0 1 1.6.9L22 9h4a3.2 3.2 0 0 1 3.2 3.2v11.6A3.2 3.2 0 0 1 26 27H6a3.2 3.2 0 0 1-3.2-3.2V12.2A3.2 3.2 0 0 1 6 9z" fill="url(#vac-c1b)"/><path d="M5.2 11.2h21.6" stroke="#fff" stroke-width="1" opacity=".28" stroke-linecap="round"/><circle cx="16" cy="17.6" r="6.2" fill="#fff"/><circle cx="16" cy="17.6" r="4.2" fill="url(#vac-c1l)"/><path d="M13.4 15.6a3.2 3.2 0 0 1 2.4-1.6" stroke="#fff" stroke-width="1.3" stroke-linecap="round" opacity=".9"/><circle cx="24.8" cy="12.8" r="1.3" fill="#fff" opacity=".9"/></svg>`;
+
+export const FOOTER_GALLERY = `<svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect x="9.5" y="3.5" width="19" height="15.5" rx="3" fill="#1f7a80" opacity=".45" transform="rotate(8 19 11)"/><rect x="3.5" y="9" width="21" height="18" rx="3.4" fill="#1f7a80"/><path d="M6 25l5.6-6.6 3.8 4.1 2.7-2.8 4.6 5.3z" fill="#fff"/><circle cx="18.4" cy="14.4" r="2.3" fill="#fff"/></svg>`;

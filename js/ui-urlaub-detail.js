@@ -42,12 +42,14 @@ export async function renderUrlaubDetail(appEl, id) {
       <button type="button" class="link-btn link-btn--back" data-action="back">‹ Urlaube</button>
       <h1 class="trip-header__title">${escapeHtml(vacation.title)}</h1>
       <div class="trip-header__actions">
-        <button type="button" class="icon-btn" data-action="map" aria-label="Karte">${ICON_MAP}</button>
-        <button type="button" class="icon-btn" data-action="settings" aria-label="Einstellungen">${ICON_GEAR}</button>
+        <button type="button" class="icon-btn icon-btn--map-draft" data-action="map" aria-label="Karte">${ICON_MAP}</button>
+        <button type="button" class="icon-btn icon-btn--gear-draft" data-action="settings" aria-label="Einstellungen">${ICON_GEAR}</button>
       </div>
     </header>
     <div class="day-nav">
-      <div class="day-chips" data-role="chips" role="tablist"></div>
+      <div class="day-chips-wrap">
+        <div class="day-chips" data-role="chips" role="tablist"></div>
+      </div>
       <button type="button" class="day-calendar-btn" data-action="calendar" aria-label="Kalender">${ICON_CALENDAR}</button>
     </div>
     <main class="trip-content" data-role="day-content" data-testid="trip-content"></main>

@@ -111,6 +111,12 @@ async function main() {
   await page.waitForSelector('[data-testid="trip-empty"]');
   await waitForNoToast(page);
   await page.screenshot({ path: path.join(screenshotsDir, "03-urlaub-ansicht.png"), fullPage: true });
+  await page.screenshot({
+    path: path.join(screenshotsDir, "08-draft-v13-urlaub.png"),
+    fullPage: true,
+  });
+  const mapFill = await page.locator(".icon-btn--map-draft path").first().getAttribute("fill");
+  if (mapFill !== "#9fb3cc") throw new Error("draft map icon fill mismatch");
 
   await page.click('[data-day="2026-11-07"]');
   await page.waitForSelector('[data-testid="trip-content"][data-active-day="2026-11-07"]');
