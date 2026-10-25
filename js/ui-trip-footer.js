@@ -10,7 +10,7 @@ const ACTIONS = [
   { id: "gallery", label: "Mediathek", html: FOOTER_GALLERY, className: "trip-footer__btn--gallery" },
 ];
 
-export function mountTripFooter(container) {
+export function mountTripFooter(container, handlers = {}) {
   const bar = document.createElement("footer");
   bar.className = "trip-footer";
   bar.setAttribute("role", "toolbar");
@@ -57,7 +57,11 @@ export function mountTripFooter(container) {
       })
     );
 
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
+      if (action.id === "pin" && handlers.onRememberPlace) {
+        await handlers.onRememberPlace();
+        return;
+      }
       showToast("Kommt im nächsten Schritt");
     });
   });

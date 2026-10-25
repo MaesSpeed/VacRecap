@@ -88,7 +88,16 @@ async function main() {
   const iPhone = devices["iPhone 8"];
   const browser = await chromium.launch();
   const context = await browser.newContext({ ...iPhone, baseURL: baseUrl });
+  await context.grantPermissions(["geolocation"], { origin: baseUrl });
+  await context.setGeolocation({ latitude: 48.8566, longitude: 2.3522 });
   const page = await context.newPage();
+  await page.route("**/nominatim.openstreetmap.org/**", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ name: "Paris", address: { road: "Rue de Rivoli" } }),
+    })
+  );
 
   await page.goto("./");
   await page.waitForSelector("h1.top-bar__title");

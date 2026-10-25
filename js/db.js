@@ -1,5 +1,5 @@
 const DB_NAME = "vacrecap";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 let dbPromise = null;
 
@@ -11,6 +11,7 @@ function openDb() {
       req.onsuccess = () => resolve(req.result);
       req.onupgradeneeded = (event) => {
         const db = event.target.result;
+        const tx = event.target.transaction;
         if (!db.objectStoreNames.contains("vacations")) {
           const store = db.createObjectStore("vacations", { keyPath: "id" });
           store.createIndex("startDate", "startDate", { unique: false });
@@ -38,6 +39,22 @@ function openDb() {
           const notes = db.createObjectStore("notes", { keyPath: "id" });
           notes.createIndex("placeId", "placeId", { unique: false });
           notes.createIndex("vacationId", "vacationId", { unique: false });
+        }
+
+        if (event.oldVersion < 3 && db.objectStoreNames.contains("places")) {
+          const store = tx.objectStore("places");
+          store.openCursor().onsuccess = (e) => {
+            const cursor = e.target.result;
+            if (!cursor) return;
+            const v = cursor.value;
+            if (v.dayDate && !v.day) {
+              v.day = v.dayDate;
+            }
+            if (!v.ts) v.ts = v.createdAt ?? Date.now();
+            if (v.title && !v.name) v.name = v.title;
+            cursor.update(v);
+            cursor.continue();
+          };
         }
       };
     });
@@ -160,7 +177,73 @@ export async function getPlacesForDay(vacationId, dayDate) {
     req.onsuccess = () => {
       const all = req.result ?? [];
       resolve(
-        all.filter((p) => p.vacationId === vacationId && p.dayDate === dayDate)
+        all.filter(
+          (p) =>
+            p.vacationId === vacationId &&
+            (p.day === dayDate || p.dayDate === dayDate)
+        )
+      );
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function getPlace(id) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("places", "readonly");
+    const req = tx.objectStore("places").get(id);
+    req.onsuccess = () => resolve(req.result ?? null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function deletePlace(id) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("places", "readwrite");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.objectStore("places").delete(id);
+  });
+}
+
+export async function getMediaForPlace(placeId) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("media", "readonly");
+    const store = tx.objectStore("media");
+    let req;
+    try {
+      req = store.index("placeId").getAll(placeId);
+    } catch {
+      req = store.getAll();
+    }
+    req.onsuccess = () => {
+      const all = req.result ?? [];
+      resolve(all.filter((m) => m.placeId === placeId));
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function getNotesForPlace(placeId) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("notes", "readonly");
+    const store = tx.objectStore("notes");
+    let req;
+    try {
+      req = store.index("placeId").getAll(placeId);
+    } catch {
+      req = store.getAll();
+    }
+    req.onsuccess = () => {
+      const all = req.result ?? [];
+      resolve(
+        all
+          .filter((n) => n.placeId === placeId)
+          .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
       );
     };
     req.onerror = () => reject(req.error);
@@ -168,12 +251,20 @@ export async function getPlacesForDay(vacationId, dayDate) {
 }
 
 export async function putPlace(place) {
+  const day = place.day || place.dayDate;
+  const record = {
+    ...place,
+    day,
+    dayDate: day,
+    name: place.name ?? place.title ?? "",
+    title: place.name ?? place.title ?? "",
+  };
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction("places", "readwrite");
-    tx.oncomplete = () => resolve(place);
+    tx.oncomplete = () => resolve(record);
     tx.onerror = () => reject(tx.error);
-    tx.objectStore("places").put(place);
+    tx.objectStore("places").put(record);
   });
 }
 

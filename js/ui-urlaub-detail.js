@@ -5,19 +5,41 @@ import {
   defaultActiveDay,
   vacationDays,
 } from "./days.js";
-import { getPlacesForDay, getVacation } from "./db.js";
+import { getVacation } from "./db.js";
 import { ICON_CALENDAR, ICON_GEAR, ICON_MAP } from "./icons.js";
+import { rememberPlaceFromGps, trySoftPointOnOpen } from "./place-service.js";
+import { newestHardPlace } from "./places.js";
 import { navigate } from "./router.js";
+import { getRememberLocationOnOpen } from "./settings-store.js";
 import { showToast } from "./toast.js";
+import {
+  loadDayPlacesEnriched,
+  renderPlaceListHtml,
+  wrapPlaceList,
+} from "./ui-place-list.js";
+import { openEditPlaceSheet, openSoftPointSheet } from "./ui-place-sheets.js";
 import { openTripDayCalendar } from "./ui-trip-day-calendar.js";
 import { mountTripFooter } from "./ui-trip-footer.js";
-import { escapeHtml } from "./utils.js";
+import { escapeHtml, todayIso } from "./utils.js";
 
-/** Aktiver Tag pro Urlaub (Session), wird beim Verlassen zurückgesetzt. */
 const tripUiState = new Map();
 
 export function clearTripUiState(vacationId) {
   tripUiState.delete(vacationId);
+}
+
+function getState(id, vacation) {
+  let state = tripUiState.get(id);
+  if (!state) {
+    state = {
+      activeDay: defaultActiveDay(vacation),
+      selectedByDay: {},
+      notesExpanded: new Set(),
+      openGeoDone: new Set(),
+    };
+    tripUiState.set(id, state);
+  }
+  return state;
 }
 
 export async function renderUrlaubDetail(appEl, id) {
@@ -28,11 +50,7 @@ export async function renderUrlaubDetail(appEl, id) {
   }
 
   const days = vacationDays(vacation);
-  let state = tripUiState.get(id);
-  if (!state) {
-    state = { activeDay: defaultActiveDay(vacation) };
-    tripUiState.set(id, state);
-  }
+  const state = getState(id, vacation);
 
   appEl.className = "screen screen--trip";
   appEl.dataset.vacationId = id;
@@ -52,7 +70,7 @@ export async function renderUrlaubDetail(appEl, id) {
       </div>
       <button type="button" class="day-calendar-btn" data-action="calendar" aria-label="Kalender">${ICON_CALENDAR}</button>
     </div>
-    <main class="trip-content" data-role="day-content" data-testid="trip-content"></main>
+    <main class="trip-content trip-content--places" data-role="day-content" data-testid="trip-content"></main>
     <div data-role="footer-mount"></div>
   `;
 
@@ -81,18 +99,46 @@ export async function renderUrlaubDetail(appEl, id) {
     });
   }
 
-  async function renderDayContent() {
-    const list = await getPlacesForDay(id, state.activeDay);
-    if (list.length === 0) {
+  async function ensureSelectedForDay(items) {
+    const day = state.activeDay;
+    if (state.selectedByDay[day]) return state.selectedByDay[day];
+    const hard = items.map((i) => i.place).filter((p) => !p.soft);
+    const newest = newestHardPlace(hard);
+    if (newest) state.selectedByDay[day] = newest.id;
+    return state.selectedByDay[day] ?? null;
+  }
+
+  async function maybeSoftOnOpen() {
+    const day = state.activeDay;
+    if (state.openGeoDone.has(day)) return;
+    state.openGeoDone.add(day);
+    const remember = await getRememberLocationOnOpen();
+    if (!remember || day !== todayIso()) return;
+    await trySoftPointOnOpen({
+      vacationId: id,
+      day,
+      isToday: true,
+    });
+  }
+
+  async function refreshDayList() {
+    await maybeSoftOnOpen();
+    const items = await loadDayPlacesEnriched(id, state.activeDay);
+    const selectedId = await ensureSelectedForDay(items);
+
+    if (items.length === 0) {
       contentEl.innerHTML = `
         <div class="trip-empty" data-testid="trip-empty">
           <p class="trip-empty__title">Noch keine Orte heute</p>
           <p class="trip-empty__hint">Ort merken, Foto machen oder Notiz schreiben.</p>
         </div>`;
     } else {
-      contentEl.innerHTML = `<ul class="place-list">${list
-        .map((p) => `<li>${escapeHtml(p.title)}</li>`)
-        .join("")}</ul>`;
+      contentEl.innerHTML = wrapPlaceList(
+        renderPlaceListHtml(items, {
+          selectedId,
+          notesExpanded: state.notesExpanded,
+        })
+      );
     }
     contentEl.dataset.activeDay = state.activeDay;
   }
@@ -101,7 +147,7 @@ export async function renderUrlaubDetail(appEl, id) {
     if (!days.includes(dayIso) || dayIso === state.activeDay) return;
     state.activeDay = dayIso;
     renderChips();
-    await renderDayContent();
+    await refreshDayList();
   }
 
   function shiftDay(direction) {
@@ -109,9 +155,78 @@ export async function renderUrlaubDetail(appEl, id) {
     if (next !== state.activeDay) setActiveDay(next);
   }
 
+  async function onRememberPlace() {
+    const result = await rememberPlaceFromGps({
+      vacationId: id,
+      day: state.activeDay,
+    });
+    if (!result) return;
+    if (result.duplicate) {
+      state.selectedByDay[state.activeDay] = result.place.id;
+      showToast(`Schon gemerkt: ${result.place.name}`);
+    } else {
+      state.selectedByDay[state.activeDay] = result.place.id;
+      showToast("Ort gemerkt");
+    }
+    await refreshDayList();
+  }
+
+  contentEl.addEventListener("click", async (e) => {
+    const editBtn = e.target.closest('[data-action="edit-place"]');
+    const camBtn = e.target.closest('[data-action="camera-place"]');
+    const expandBtn = e.target.closest('[data-action="expand-notes"]');
+    if (editBtn || camBtn || expandBtn) {
+      const host = e.target.closest(".oc[data-place-id]");
+      if (!host) return;
+      const placeId = host.dataset.placeId;
+      const items = await loadDayPlacesEnriched(id, state.activeDay);
+      const item = items.find((i) => i.place.id === placeId);
+      if (!item) return;
+      if (editBtn) {
+        openEditPlaceSheet(item.place, {
+          onSaved: async () => refreshDayList(),
+          onDeleted: async (pid) => {
+            if (state.selectedByDay[state.activeDay] === pid) {
+              delete state.selectedByDay[state.activeDay];
+            }
+            await refreshDayList();
+          },
+        });
+      } else if (camBtn) {
+        showToast("Kommt im nächsten Schritt");
+      } else if (expandBtn) {
+        state.notesExpanded.add(placeId);
+        await refreshDayList();
+      }
+      return;
+    }
+
+    const soft = e.target.closest(".soft[data-place-id]");
+    if (soft) {
+      const placeId = soft.dataset.placeId;
+      const items = await loadDayPlacesEnriched(id, state.activeDay);
+      const item = items.find((i) => i.place.id === placeId);
+      if (!item) return;
+      openSoftPointSheet(item.place, {
+        onPromoted: async (p) => {
+          state.selectedByDay[state.activeDay] = p.id;
+          await refreshDayList();
+        },
+        onDiscarded: async () => refreshDayList(),
+      });
+      return;
+    }
+
+    const card = e.target.closest(".oc[data-place-id]");
+    if (card && !card.classList.contains("oc--selected")) {
+      state.selectedByDay[state.activeDay] = card.dataset.placeId;
+      await refreshDayList();
+    }
+  });
+
   renderChips();
-  await renderDayContent();
-  mountTripFooter(footerMount);
+  await refreshDayList();
+  mountTripFooter(footerMount, { onRememberPlace });
 
   appEl.querySelector('[data-action="back"]').addEventListener("click", () => {
     clearTripUiState(id);
