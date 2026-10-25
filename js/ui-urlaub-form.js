@@ -200,6 +200,25 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
     chip.setAttribute("aria-pressed", String(set.has(tag)));
   });
 
+  const scrollNameIntoView = () => {
+    requestAnimationFrame(() => {
+      nameInput.scrollIntoView({ block: "center", behavior: "instant" });
+      const footer = appEl.querySelector(".form-footer");
+      const footerH = footer?.getBoundingClientRect().height ?? 76;
+      const kb =
+        parseInt(getComputedStyle(document.documentElement).getPropertyValue("--kb"), 10) || 0;
+      const rect = nameInput.getBoundingClientRect();
+      const visibleBottom = window.innerHeight - kb - footerH - 12;
+      if (rect.bottom > visibleBottom) {
+        window.scrollBy({ top: rect.bottom - visibleBottom, behavior: "instant" });
+      }
+    });
+  };
+  nameInput.addEventListener("focus", scrollNameIntoView);
+  window.visualViewport?.addEventListener("resize", () => {
+    if (document.activeElement === nameInput) scrollNameIntoView();
+  });
+
   nameInput.addEventListener("keydown", (e) => {
     if (e.key !== "Enter") return;
     e.preventDefault();

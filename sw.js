@@ -1,4 +1,4 @@
-const CACHE_VERSION = "vacrecap-v19";
+const CACHE_VERSION = "vacrecap-v20";
 const ASSETS = [
   "./",
   "./index.html",
@@ -71,6 +71,11 @@ const ASSETS = [
   "./assets/covers/winter.jpg",
   "./assets/covers/winter-thumb.jpg",
   "./js/ui-cover-credits.js",
+  "./js/backup-service.js",
+  "./js/ui-backup-sheet.js",
+  "./js/zip-builder.js",
+  "./js/storage-format.js",
+  "./js/media-file-meta.js",
 ];
 
 self.addEventListener("install", (event) => {

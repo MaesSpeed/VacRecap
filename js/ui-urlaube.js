@@ -39,7 +39,7 @@ export async function renderUrlaubeScreen(appEl, vacations) {
   delete appEl.dataset.vacationId;
   appEl.innerHTML = `
     <header class="top-bar">
-      <h1 class="top-bar__title">Übersicht</h1>
+      <h1 class="top-bar__title">Reisen</h1>
       <div class="top-bar__actions">
         <button type="button" class="icon-btn" data-action="settings" aria-label="Einstellungen">
           <svg class="icon-gear" viewBox="0 0 24 24" fill="none" aria-hidden="true">

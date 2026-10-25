@@ -1,4 +1,4 @@
-import { deleteMedia } from "./db.js";
+import { deleteMedia, putMedia } from "./db.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { formatMediaDuration } from "./media-process.js";
 import { ICON_BACK_CHEVRON_WHITE } from "./icons.js";
@@ -77,9 +77,28 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
         testId: "confirm-delete-media",
       });
       if (!ok) return;
+      const removedIndex = index;
+      const snapshot = { ...item };
       deleteMedia(item.id).then(() => {
-        showToast(isVideo ? "Video gelöscht" : "Foto gelöscht", { icon: "trash" });
         sorted.splice(index, 1);
+        const msg = isVideo ? "Video gelöscht" : "Foto gelöscht";
+        const viewerOpen = () =>
+          !overlay.hidden && overlay.querySelector('[data-testid="media-viewer"]');
+        showToast(msg, {
+          icon: "trash",
+          undoLabel: "Rückgängig",
+          onUndo: async () => {
+            await putMedia(snapshot);
+            sorted.splice(removedIndex, 0, snapshot);
+            onChanged?.();
+            if (viewerOpen()) {
+              index = removedIndex;
+              render();
+            } else {
+              openMediaViewer(sorted, snapshot.id, { onChanged });
+            }
+          },
+        });
         if (!sorted.length) {
           closeOverlayHistory(activeClose);
           onChanged?.();
