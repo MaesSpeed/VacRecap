@@ -78,7 +78,7 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
       });
       if (!ok) return;
       deleteMedia(item.id).then(() => {
-        showToast(isVideo ? "Video gelöscht" : "Foto gelöscht");
+        showToast(isVideo ? "Video gelöscht" : "Foto gelöscht", { icon: "trash" });
         sorted.splice(index, 1);
         if (!sorted.length) {
           closeOverlayHistory(activeClose);

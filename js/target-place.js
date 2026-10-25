@@ -58,8 +58,21 @@ async function fallbackPlace({ vacationId, day, selectedPlaceId }) {
 }
 
 async function resolveWithGps({ vacationId, day }) {
-  const pos = await getCapturePosition();
-  const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+  const { consumePrefetchedCaptureGps } = await import("./capture-gps-prefetch.js");
+  const prefetched = await consumePrefetchedCaptureGps();
+  let lat;
+  let lng;
+  let accuracy;
+  if (prefetched) {
+    lat = prefetched.latitude;
+    lng = prefetched.longitude;
+    accuracy = prefetched.accuracy;
+  } else {
+    const pos = await getCapturePosition();
+    lat = pos.coords.latitude;
+    lng = pos.coords.longitude;
+    accuracy = pos.coords.accuracy;
+  }
   const dedupM = await getSamePlaceRadiusM();
   const all = await getPlacesForDay(vacationId, day);
   const hard = all.filter((p) => !p.soft);

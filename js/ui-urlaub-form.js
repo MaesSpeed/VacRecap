@@ -148,6 +148,7 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
     openDateRangePicker({
       startDate: vacation.startDate,
       endDate: vacation.endDate,
+      tripStartDate: isEdit ? vacation.startDate : "",
       onApply: ({ startDate, endDate }) => {
         vacation.startDate = startDate;
         vacation.endDate = endDate;

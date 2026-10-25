@@ -81,6 +81,15 @@ export function openNoteSheet({
     </div>
   `;
 
+  const syncNoteSheetTop = () => {
+    const chips = document.querySelector(".day-chips-wrap");
+    if (!chips) return;
+    const bottom = chips.getBoundingClientRect().bottom;
+    document.documentElement.style.setProperty("--note-sheet-top", `${bottom + 20}px`);
+  };
+  syncNoteSheetTop();
+  requestAnimationFrame(syncNoteSheetTop);
+
   const textarea = overlay.querySelector('[data-role="text"]');
   const saveBtn = overlay.querySelector('[data-action="save"]');
   const placeNameEl = overlay.querySelector('[data-role="place-name"]');
