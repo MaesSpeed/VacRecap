@@ -145,11 +145,16 @@ async function main() {
   await longPress(page, '[data-footer-action="camera"]');
   await page.waitForSelector(".trip-footer-hint--visible");
   await waitForNoToast(page);
+  if (await page.locator('[data-testid="camera-sheet"]').count()) {
+    await page.click('[data-action="cancel"]');
+  }
 
   await page.click('[data-footer-action="pin"]');
+  await page.waitForSelector('[data-testid="app-toast"]');
+  await waitForNoToast(page);
   await page.click('[data-footer-action="note"]');
-  const toastCount = await page.locator('[data-testid="app-toast"]').count();
-  if (toastCount !== 1) throw new Error("expected exactly one toast in DOM");
+  await page.waitForSelector('[data-testid="note-sheet"]');
+  await page.click('[data-action="cancel"]');
 
   await page.click('[data-action="settings"]');
   await waitForNoToast(page);

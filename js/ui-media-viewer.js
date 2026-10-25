@@ -42,7 +42,7 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
     overlay.innerHTML = `
       <div class="media-viewer" data-testid="media-viewer">
         <header class="media-viewer__bar">
-          <button type="button" class="media-viewer__back" data-action="close">‹ Zurück</button>
+          <button type="button" class="media-viewer__back" data-action="close" data-testid="media-viewer-close">‹ Zurück</button>
           <button type="button" class="media-viewer__delete" data-action="delete" aria-label="Löschen">🗑</button>
         </header>
         <div class="media-viewer__stage" data-role="stage">
@@ -85,13 +85,9 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
 
   const close = () => {
     revokeAll();
-    overlay.hidden = true;
     overlay.innerHTML = "";
+    overlay.hidden = true;
   };
-
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) close();
-  });
 
   render();
 }
