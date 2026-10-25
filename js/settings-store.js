@@ -4,6 +4,7 @@ const KEY_REMEMBER_LOCATION = "rememberLocationOnOpen";
 const KEY_SAME_PLACE_RADIUS = "samePlaceRadiusM";
 const KEY_REMEMBER_CAPTURE = "rememberCaptureLocation";
 const KEY_LAST_BACKUP = "lastBackupByVacation";
+const KEY_MAP_ROUTES = "mapRoutesEnabled";
 
 const RADIUS_OPTIONS = [50, 100, 150, 200, 300];
 
@@ -57,4 +58,14 @@ export async function setLastBackupTs(vacationId, ts) {
   const all = (await getSetting(KEY_LAST_BACKUP)) || {};
   all[vacationId] = ts;
   await putSetting(KEY_LAST_BACKUP, all);
+}
+
+export async function getMapRoutesEnabled() {
+  const value = await getSetting(KEY_MAP_ROUTES);
+  if (value === undefined || value === null) return true;
+  return Boolean(value);
+}
+
+export async function setMapRoutesEnabled(enabled) {
+  await putSetting(KEY_MAP_ROUTES, enabled);
 }

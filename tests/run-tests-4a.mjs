@@ -112,8 +112,8 @@ async function runViewportTests(browser, baseUrl, label, viewport, hasTouch) {
   if (await page.locator('[data-action="calendar"]').count()) {
     throw new Error("Kalender-Icon soll entfernt sein");
   }
-  await page.click('[data-day="2026-10-25"]');
-  await page.waitForSelector('[data-testid="trip-content"][data-active-day="2026-10-25"]');
+  await page.click('[data-day="2026-11-07"]');
+  await page.waitForSelector('[data-testid="trip-content"][data-active-day="2026-11-07"]');
 
   await context.close();
 }

@@ -158,7 +158,6 @@ async function main() {
   await page.screenshot({ path: path.join(screenshotsDir, "07-einstellungen.png"), fullPage: true });
 
   const toggle = page.locator('[role="switch"][data-testid="remember-location"]');
-  const settingsUrl = page.url();
   await Promise.all([
     page.evaluate(
       () =>
@@ -171,7 +170,7 @@ async function main() {
   if ((await toggle.getAttribute("aria-checked")) !== "false") {
     throw new Error("switch should be off after click");
   }
-  await page.goto(settingsUrl);
+  await page.reload();
   await page.waitForSelector('[data-testid="remember-location"]');
   if ((await toggle.getAttribute("aria-checked")) !== "false") {
     throw new Error("remember-location should stay off after reload");
@@ -185,7 +184,7 @@ async function main() {
     ),
     toggle.click(),
   ]);
-  await page.goto(settingsUrl);
+  await page.reload();
   await page.waitForSelector('[data-testid="remember-location"]');
   if ((await toggle.getAttribute("aria-checked")) !== "true") {
     throw new Error("remember-location should stay on after reload");

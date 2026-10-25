@@ -1,5 +1,5 @@
 const DB_NAME = "vacrecap";
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 let dbPromise = null;
 
@@ -42,6 +42,9 @@ function openDb() {
           const notes = db.createObjectStore("notes", { keyPath: "id" });
           notes.createIndex("placeId", "placeId", { unique: false });
           notes.createIndex("vacationId", "vacationId", { unique: false });
+        }
+        if (!db.objectStoreNames.contains("routeCache")) {
+          db.createObjectStore("routeCache", { keyPath: "key" });
         }
 
         if (db.objectStoreNames.contains("media")) {
@@ -171,6 +174,26 @@ export async function putSetting(key, value) {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
     tx.objectStore("settings").put({ key, value });
+  });
+}
+
+export async function getRouteCacheRecord(key) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("routeCache", "readonly");
+    const req = tx.objectStore("routeCache").get(key);
+    req.onsuccess = () => resolve(req.result ?? null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function putRouteCacheRecord(entry) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("routeCache", "readwrite");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.objectStore("routeCache").put(entry);
   });
 }
 
