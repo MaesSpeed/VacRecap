@@ -12,7 +12,7 @@ import { savePhotoForPlace, saveVideoForPlace } from "./media-service.js";
 import { leaveMapScreen, returnToTripFromMap } from "./map-nav.js";
 import { queuePendingFooter } from "./pending-footer.js";
 import { navigate } from "./router.js";
-import { resolveCaptureTarget } from "./target-place.js";
+import { resolveFooterCaptureTarget } from "./target-place.js";
 import { loadTripSelection } from "./trip-selection-store.js";
 import { storeTripSelection, setTripSelection } from "./ui-urlaub-detail.js";
 import { mountTripFooter } from "./ui-trip-footer.js";
@@ -121,7 +121,8 @@ export async function renderMapScreen(appEl, vacationId) {
       <p class="map-empty-hint" data-role="empty-hint" hidden>Noch keine Orte mit Position</p>
     </div>
     <div class="map-legend" data-role="legend"></div>
-    <input type="file" accept="image/*,video/*" capture hidden data-role="capture-input" data-testid="map-capture-input" />
+    <input type="file" accept="image/*" capture="environment" hidden data-role="capture-photo-input" data-testid="map-capture-photo-input" />
+    <input type="file" accept="video/*" capture="environment" hidden data-role="capture-video-input" data-testid="map-capture-video-input" />
     <div data-role="footer-mount"></div>
   `;
 
@@ -129,8 +130,10 @@ export async function renderMapScreen(appEl, vacationId) {
     leaveMapScreen(vacationId);
   });
 
-  const captureInput = appEl.querySelector('[data-role="capture-input"]');
+  const capturePhotoInput = appEl.querySelector('[data-role="capture-photo-input"]');
+  const captureVideoInput = appEl.querySelector('[data-role="capture-video-input"]');
   let captureBusy = false;
+  const VIDEO_LONGPRESS_HINT_KEY = "vacrecap-video-longpress-hint";
 
   const mapEl = appEl.querySelector('[data-role="map"]');
   const offlineHint = appEl.querySelector('[data-role="offline-hint"]');
@@ -388,41 +391,48 @@ export async function renderMapScreen(appEl, vacationId) {
     return { day: activeDay, selectedPlaceId };
   }
 
-  captureInput.addEventListener("change", () => {
-    const file = captureInput.files?.[0];
-    captureInput.value = "";
+  async function saveMapCapture(file, kind) {
     if (!file || captureBusy) return;
-    const kind = file.type.startsWith("video/") ? "video" : "photo";
     captureBusy = true;
     showToast("Wird gespeichert…", { sticky: true, icon: "none" });
-    void (async () => {
-      try {
-        const { day, selectedPlaceId } = await resolveMapCaptureDayPlace();
-        const r = await resolveCaptureTarget({
-          vacationId,
-          day,
-          selectedPlaceId,
-          mediaKind: kind,
-        });
-        if (kind === "video") {
-          await saveVideoForPlace({ file, place: r.place, vacationId, day });
-        } else {
-          await savePhotoForPlace({ file, place: r.place, vacationId, day });
-        }
-        dismissActiveToast();
-        if (r.toast?.line) {
-          showTwoLineToast(r.toast.title || "Foto gespeichert", r.toast.line);
-        } else {
-          showToast(kind === "video" ? "Video gespeichert" : "Foto gespeichert");
-        }
-      } catch {
-        dismissActiveToast();
-        showToast("Speichern fehlgeschlagen");
-      } finally {
-        captureBusy = false;
-        returnToTripFromMap(vacationId);
+    try {
+      const { day, selectedPlaceId } = await resolveMapCaptureDayPlace();
+      const r = await resolveFooterCaptureTarget({
+        vacationId,
+        day,
+        selectedPlaceId,
+        mediaKind: kind,
+      });
+      if (kind === "video") {
+        await saveVideoForPlace({ file, place: r.place, vacationId, day });
+      } else {
+        await savePhotoForPlace({ file, place: r.place, vacationId, day });
       }
-    })();
+      dismissActiveToast();
+      if (r.toast?.line) {
+        showTwoLineToast(r.toast.title || (kind === "video" ? "Video gespeichert" : "Foto gespeichert"), r.toast.line);
+      } else {
+        showToast(kind === "video" ? "Video gespeichert" : "Foto gespeichert");
+      }
+      returnToTripFromMap(vacationId);
+    } catch {
+      dismissActiveToast();
+      showToast("Speichern fehlgeschlagen");
+    } finally {
+      captureBusy = false;
+    }
+  }
+
+  capturePhotoInput.addEventListener("change", () => {
+    const file = capturePhotoInput.files?.[0];
+    capturePhotoInput.value = "";
+    void saveMapCapture(file, "photo");
+  });
+
+  captureVideoInput.addEventListener("change", () => {
+    const file = captureVideoInput.files?.[0];
+    captureVideoInput.value = "";
+    void saveMapCapture(file, "video");
   });
 
   mountTripFooter(appEl.querySelector('[data-role="footer-mount"]'), {
@@ -440,7 +450,18 @@ export async function renderMapScreen(appEl, vacationId) {
       setTripSelection(vacationId, day, null);
       void storeTripSelection(vacationId, day, null);
       prefetchCaptureGps();
-      if (captureInput) captureInput.click();
+      capturePhotoInput?.click();
+    },
+    onCameraVideo: () => {
+      const day = dayForFooter();
+      setTripSelection(vacationId, day, null);
+      void storeTripSelection(vacationId, day, null);
+      if (!localStorage.getItem(VIDEO_LONGPRESS_HINT_KEY)) {
+        localStorage.setItem(VIDEO_LONGPRESS_HINT_KEY, "1");
+        showToast("Lange drücken = Video");
+      }
+      prefetchCaptureGps();
+      captureVideoInput?.click();
     },
     onNote: () => {
       const day = dayForFooter();

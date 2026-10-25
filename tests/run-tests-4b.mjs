@@ -116,7 +116,7 @@ async function runSuite(deviceName, contextOptions) {
 
   await ctx.setGeolocation({ latitude: 48.8587, longitude: 2.2948 });
   const buf = await makeJpeg(page, 1);
-  await page.locator('[data-role="capture-input"]').setInputFiles({
+  await page.locator('[data-role="capture-photo-input"]').setInputFiles({
     name: "near.jpg",
     mimeType: "image/jpeg",
     buffer: buf,
@@ -137,7 +137,7 @@ async function runSuite(deviceName, contextOptions) {
   await page.reload();
   await page.waitForSelector('[data-testid="place-list"]');
   const buf2 = await makeJpeg(page, 2);
-  await page.locator('[data-role="capture-input"]').setInputFiles({
+  await page.locator('[data-role="capture-photo-input"]').setInputFiles({
     name: "far.jpg",
     mimeType: "image/jpeg",
     buffer: buf2,
@@ -156,7 +156,7 @@ async function runSuite(deviceName, contextOptions) {
 
   await ctx.setGeolocation(null);
   const buf3 = await makeJpeg(page, 3);
-  await page.locator('[data-role="capture-input"]').setInputFiles({
+  await page.locator('[data-role="capture-photo-input"]').setInputFiles({
     name: "denied.jpg",
     mimeType: "image/jpeg",
     buffer: buf3,

@@ -53,7 +53,15 @@ export function mountTripFooter(container, handlers = {}) {
     btn.addEventListener("pointerdown", () => {
       longPressShown = false;
       btn.classList.add("trip-footer__btn--pressed");
-      pressTimer = setTimeout(showHint, LONG_PRESS_MS);
+      if (action.id === "camera" && handlers.onCameraVideo) {
+        pressTimer = setTimeout(() => {
+          longPressShown = true;
+          armPointerSuppression();
+          handlers.onCameraVideo();
+        }, LONG_PRESS_MS);
+      } else {
+        pressTimer = setTimeout(showHint, LONG_PRESS_MS);
+      }
     });
     ["pointerup", "pointerleave", "pointercancel"].forEach((ev) =>
       btn.addEventListener(ev, () => {

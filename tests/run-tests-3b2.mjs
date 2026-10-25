@@ -239,7 +239,7 @@ async function runBackupFlow(page, { captureScreenshots, label }) {
   await page.locator(".oc[data-place-id]").first().tap();
   await page.evaluate(
     async (bytes) => {
-      const input = document.querySelector('[data-role="capture-input"]');
+      const input = document.querySelector('[data-role="capture-photo-input"]');
       const file = new File([new Uint8Array(bytes)], "original-test.jpg", {
         type: "image/jpeg",
         lastModified: 1_800_000_000_000,

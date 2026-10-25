@@ -11,12 +11,24 @@ export function haversineMeters(lat1, lon1, lat2, lon2) {
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
+let capturePositionFlight = null;
+
+export function resetCapturePositionCache() {
+  capturePositionFlight = null;
+}
+
+/** Ein laufender Capture-GPS-Request (Prefetch + Speichern teilen sich das Ergebnis). */
 export function getCapturePosition() {
-  return getCurrentPosition({
-    enableHighAccuracy: false,
-    timeout: 4000,
-    maximumAge: 5000,
-  });
+  if (!capturePositionFlight) {
+    capturePositionFlight = getCurrentPosition({
+      enableHighAccuracy: false,
+      timeout: 4000,
+      maximumAge: 5000,
+    }).finally(() => {
+      capturePositionFlight = null;
+    });
+  }
+  return capturePositionFlight;
 }
 
 export function getCurrentPosition(options = {}) {

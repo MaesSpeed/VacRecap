@@ -132,7 +132,7 @@ async function assertToastPill(page, label) {
 async function assertNativeCamera(page, label) {
   await page.evaluate(() => {
     window.__captureOpens = 0;
-    document.querySelector('[data-role="capture-input"]')?.addEventListener("click", () => {
+    document.querySelector('[data-role="capture-photo-input"]')?.addEventListener("click", () => {
       window.__captureOpens = (window.__captureOpens || 0) + 1;
     });
   });
