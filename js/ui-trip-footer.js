@@ -62,6 +62,14 @@ export function mountTripFooter(container, handlers = {}) {
         await handlers.onRememberPlace();
         return;
       }
+      if (action.id === "camera" && handlers.onCamera) {
+        handlers.onCamera();
+        return;
+      }
+      if (action.id === "note" && handlers.onNote) {
+        await handlers.onNote();
+        return;
+      }
       showToast("Kommt im nächsten Schritt");
     });
   });

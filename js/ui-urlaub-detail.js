@@ -7,14 +7,21 @@ import {
 } from "./days.js";
 import { getVacation } from "./db.js";
 import { ICON_CALENDAR, ICON_GEAR, ICON_MAP } from "./icons.js";
+import { savePhotoForPlace, saveVideoForPlace } from "./media-service.js";
 import { rememberPlaceFromGps, trySoftPointOnOpen } from "./place-service.js";
 import { newestHardPlace } from "./places.js";
 import { navigate } from "./router.js";
 import { getRememberLocationOnOpen } from "./settings-store.js";
-import { showToast } from "./toast.js";
+import { ensureTargetPlace } from "./target-place.js";
+import { dismissActiveToast, showToast } from "./toast.js";
+import { openCameraChoiceSheet } from "./ui-camera-sheet.js";
+import { openMediaViewer } from "./ui-media-viewer.js";
+import { openNoteSheet } from "./ui-note-sheet.js";
 import {
+  buildThumbUrlMap,
   loadDayPlacesEnriched,
   renderPlaceListHtml,
+  revokeThumbUrls,
   wrapPlaceList,
 } from "./ui-place-list.js";
 import { openEditPlaceSheet, openSoftPointSheet } from "./ui-place-sheets.js";
@@ -25,6 +32,8 @@ import { escapeHtml, todayIso } from "./utils.js";
 const tripUiState = new Map();
 
 export function clearTripUiState(vacationId) {
+  const state = tripUiState.get(vacationId);
+  if (state?.thumbUrls) revokeThumbUrls(state.thumbUrls);
   tripUiState.delete(vacationId);
 }
 
@@ -36,6 +45,8 @@ function getState(id, vacation) {
       selectedByDay: {},
       notesExpanded: new Set(),
       openGeoDone: new Set(),
+      thumbUrls: {},
+      captureBusy: false,
     };
     tripUiState.set(id, state);
   }
@@ -71,12 +82,16 @@ export async function renderUrlaubDetail(appEl, id) {
       <button type="button" class="day-calendar-btn" data-action="calendar" aria-label="Kalender">${ICON_CALENDAR}</button>
     </div>
     <main class="trip-content trip-content--places" data-role="day-content" data-testid="trip-content"></main>
+    <input type="file" accept="image/*" capture="environment" hidden data-role="photo-input" />
+    <input type="file" accept="video/*" capture="environment" hidden data-role="video-input" />
     <div data-role="footer-mount"></div>
   `;
 
   const chipsEl = appEl.querySelector('[data-role="chips"]');
   const contentEl = appEl.querySelector('[data-role="day-content"]');
   const footerMount = appEl.querySelector('[data-role="footer-mount"]');
+  const photoInput = appEl.querySelector('[data-role="photo-input"]');
+  const videoInput = appEl.querySelector('[data-role="video-input"]');
 
   function renderChips() {
     const total = days.length;
@@ -126,6 +141,10 @@ export async function renderUrlaubDetail(appEl, id) {
     const items = await loadDayPlacesEnriched(id, state.activeDay);
     const selectedId = await ensureSelectedForDay(items);
 
+    revokeThumbUrls(state.thumbUrls);
+    const allMedia = items.flatMap((i) => i.media);
+    state.thumbUrls = buildThumbUrlMap(allMedia);
+
     if (items.length === 0) {
       contentEl.innerHTML = `
         <div class="trip-empty" data-testid="trip-empty">
@@ -137,6 +156,7 @@ export async function renderUrlaubDetail(appEl, id) {
         renderPlaceListHtml(items, {
           selectedId,
           notesExpanded: state.notesExpanded,
+          thumbUrls: state.thumbUrls,
         })
       );
     }
@@ -171,11 +191,110 @@ export async function renderUrlaubDetail(appEl, id) {
     await refreshDayList();
   }
 
+  async function resolveTargetPlace() {
+    const { place, createdOhneOrt } = await ensureTargetPlace({
+      vacationId: id,
+      day: state.activeDay,
+      selectedPlaceId: state.selectedByDay[state.activeDay],
+    });
+    state.selectedByDay[state.activeDay] = place.id;
+    if (createdOhneOrt) await refreshDayList();
+    return place;
+  }
+
+  function openCameraSheet() {
+    openCameraChoiceSheet({
+      onPhoto: () => photoInput.click(),
+      onVideo: () => videoInput.click(),
+    });
+  }
+
+  async function handleMediaFile(file, kind) {
+    if (!file || state.captureBusy) return;
+    state.captureBusy = true;
+    showToast("Wird gespeichert…", { sticky: true });
+    try {
+      const place = await resolveTargetPlace();
+      const save =
+        kind === "video"
+          ? () => saveVideoForPlace({ file, place, vacationId: id, day: state.activeDay })
+          : () => savePhotoForPlace({ file, place, vacationId: id, day: state.activeDay });
+      await save();
+      dismissActiveToast();
+      showToast(kind === "video" ? "Video gespeichert" : "Foto gespeichert");
+      await refreshDayList();
+    } catch (err) {
+      dismissActiveToast();
+      if (err?.quota) {
+        showToast("Speicher voll – nichts gespeichert");
+      } else {
+        showToast("Speichern fehlgeschlagen");
+      }
+    } finally {
+      state.captureBusy = false;
+      photoInput.value = "";
+      videoInput.value = "";
+    }
+  }
+
+  photoInput.addEventListener("change", () => {
+    const file = photoInput.files?.[0];
+    handleMediaFile(file, "photo");
+  });
+  videoInput.addEventListener("change", () => {
+    const file = videoInput.files?.[0];
+    handleMediaFile(file, "video");
+  });
+
+  async function onNoteFooter() {
+    if (state.captureBusy) return;
+    const place = await resolveTargetPlace();
+    openNoteSheet({
+      place,
+      vacationId: id,
+      day: state.activeDay,
+      onSaved: () => refreshDayList(),
+    });
+  }
+
   contentEl.addEventListener("click", async (e) => {
+    const tile = e.target.closest(".tile[data-media-id]");
+    if (tile) {
+      const placeId = e.target.closest(".oc[data-place-id]")?.dataset.placeId;
+      if (!placeId) return;
+      const items = await loadDayPlacesEnriched(id, state.activeDay);
+      const item = items.find((i) => i.place.id === placeId);
+      if (!item) return;
+      openMediaViewer(item.media, tile.dataset.mediaId, {
+        onChanged: () => refreshDayList(),
+      });
+      return;
+    }
+
+    const editNoteBtn = e.target.closest('[data-action="edit-note"]');
+    if (editNoteBtn) {
+      const noteRow = editNoteBtn.closest("[data-note-id]");
+      const placeHost = e.target.closest(".oc[data-place-id]");
+      if (!noteRow || !placeHost) return;
+      const items = await loadDayPlacesEnriched(id, state.activeDay);
+      const item = items.find((i) => i.place.id === placeHost.dataset.placeId);
+      const note = item?.notes.find((n) => n.id === noteRow.dataset.noteId);
+      if (!note || !item) return;
+      openNoteSheet({
+        place: item.place,
+        vacationId: id,
+        day: state.activeDay,
+        note,
+        onSaved: () => refreshDayList(),
+      });
+      return;
+    }
+
     const editBtn = e.target.closest('[data-action="edit-place"]');
     const camBtn = e.target.closest('[data-action="camera-place"]');
     const expandBtn = e.target.closest('[data-action="expand-notes"]');
-    if (editBtn || camBtn || expandBtn) {
+    const collapseBtn = e.target.closest('[data-action="collapse-notes"]');
+    if (editBtn || camBtn || expandBtn || collapseBtn) {
       const host = e.target.closest(".oc[data-place-id]");
       if (!host) return;
       const placeId = host.dataset.placeId;
@@ -193,9 +312,13 @@ export async function renderUrlaubDetail(appEl, id) {
           },
         });
       } else if (camBtn) {
-        showToast("Kommt im nächsten Schritt");
+        state.selectedByDay[state.activeDay] = placeId;
+        openCameraSheet();
       } else if (expandBtn) {
         state.notesExpanded.add(placeId);
+        await refreshDayList();
+      } else if (collapseBtn) {
+        state.notesExpanded.delete(placeId);
         await refreshDayList();
       }
       return;
@@ -226,7 +349,11 @@ export async function renderUrlaubDetail(appEl, id) {
 
   renderChips();
   await refreshDayList();
-  mountTripFooter(footerMount, { onRememberPlace });
+  mountTripFooter(footerMount, {
+    onRememberPlace,
+    onCamera: openCameraSheet,
+    onNote: onNoteFooter,
+  });
 
   appEl.querySelector('[data-action="back"]').addEventListener("click", () => {
     clearTripUiState(id);

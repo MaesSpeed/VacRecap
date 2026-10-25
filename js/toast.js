@@ -23,7 +23,7 @@ function dismissToast({ immediate = false } = {}) {
   setTimeout(remove, 400);
 }
 
-export function showToast(message, { title } = {}) {
+export function showToast(message, { title, duration = TOAST_MS, sticky = false } = {}) {
   const root = document.getElementById("toast-root");
   if (!root) return;
 
@@ -43,7 +43,9 @@ export function showToast(message, { title } = {}) {
   activeToast = el;
   requestAnimationFrame(() => el.classList.add("toast--visible"));
 
-  hideTimer = setTimeout(() => dismissToast(), TOAST_MS);
+  if (!sticky) {
+    hideTimer = setTimeout(() => dismissToast(), duration);
+  }
 }
 
 export function dismissActiveToast() {

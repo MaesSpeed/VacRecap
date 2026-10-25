@@ -1,4 +1,4 @@
-import { deleteBlob, deletePlacesForVacation, deleteVacation, getVacation } from "./db.js";
+import { deleteBlob, deleteVacation, deleteVacationData, getVacation } from "./db.js";
 import { navigate } from "./router.js";
 import {
   getRememberLocationOnOpen,
@@ -123,7 +123,7 @@ function confirmDeleteVacation(vacation) {
     if (vacation.cover?.type === "custom" && vacation.cover.blobId) {
       await deleteBlob(vacation.cover.blobId);
     }
-    await deletePlacesForVacation(vacation.id);
+    await deleteVacationData(vacation.id);
     await deleteVacation(vacation.id);
     close();
     showToast("Urlaub gelöscht");

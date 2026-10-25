@@ -1,4 +1,8 @@
-import { deletePlace } from "./db.js";
+import {
+  deletePlaceCascade,
+  getMediaForPlace,
+  getNotesForPlace,
+} from "./db.js";
 import { promoteSoftPlace, updatePlaceName } from "./place-service.js";
 import { showToast } from "./toast.js";
 import { escapeHtml } from "./utils.js";
@@ -41,7 +45,18 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
     onSaved?.(updated);
   });
   overlay.querySelector('[data-action="delete"]').addEventListener("click", async () => {
-    await deletePlace(place.id);
+    const [media, notes] = await Promise.all([
+      getMediaForPlace(place.id),
+      getNotesForPlace(place.id),
+    ]);
+    const mCount = media.length;
+    const nCount = notes.length;
+    const hint =
+      mCount || nCount
+        ? ` Enthält ${mCount} Medien und ${nCount} Notizen.`
+        : "";
+    if (!window.confirm(`Ort wirklich löschen?${hint}`)) return;
+    await deletePlaceCascade(place.id);
     close();
     showToast("Ort gelöscht");
     onDeleted?.(place.id);
