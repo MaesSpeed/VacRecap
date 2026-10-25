@@ -115,7 +115,16 @@ export async function resolveCaptureTarget({
       if (gps.toast) gps.toast.title = title;
       return { ...gps, needsRefresh: true };
     } catch {
-      /* fallback */
+      const fb = await fallbackPlace({ vacationId, day, selectedPlaceId });
+      return {
+        ...fb,
+        needsRefresh: fb.createdOhneOrt,
+        toast: {
+          title,
+          line: "Ohne Position (Standort nicht verfügbar)",
+          variant: "warn",
+        },
+      };
     }
   }
 

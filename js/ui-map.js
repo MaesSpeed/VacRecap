@@ -5,7 +5,6 @@ import { getMediaForPlace, getNotesForPlace, getPlacesForVacation, getVacation }
 import { formatTimeFromTs, getCurrentPosition } from "./geo.js";
 import { ICON_BACK_CHEVRON } from "./icons.js";
 import { getMapSegment, setMapSegment } from "./map-session.js";
-import { abandonOverlayHistory, closeOverlayHistory, openOverlayHistory } from "./overlay-stack.js";
 import { navigate } from "./router.js";
 import { setTripSelection } from "./ui-urlaub-detail.js";
 import { mountTripFooter } from "./ui-trip-footer.js";
@@ -101,13 +100,6 @@ export async function renderMapScreen(appEl, vacationId) {
   appEl.dataset.testid = "map-screen";
   appEl.dataset.vacationId = vacationId;
 
-  const closeScreen = () => {
-    abandonOverlayHistory();
-    navigate({ name: "urlaub-detail", id: vacationId });
-  };
-
-  openOverlayHistory(closeScreen);
-
   appEl.innerHTML = `
     <header class="map-header">
       <button type="button" class="map-header__back" data-action="back">${ICON_BACK_CHEVRON}<span class="map-header__trip">${escapeHtml(vacation.title)}</span></button>
@@ -126,9 +118,13 @@ export async function renderMapScreen(appEl, vacationId) {
     <div data-role="footer-mount"></div>
   `;
 
-  appEl.querySelector('[data-action="back"]').addEventListener("click", () =>
-    closeOverlayHistory(closeScreen)
-  );
+  appEl.querySelector('[data-action="back"]').addEventListener("click", () => {
+    if (window.history.length > 1) {
+      history.back();
+    } else {
+      navigate({ name: "urlaub-detail", id: vacationId }, { replace: true });
+    }
+  });
 
   const mapEl = appEl.querySelector('[data-role="map"]');
   const offlineHint = appEl.querySelector('[data-role="offline-hint"]');
@@ -267,7 +263,6 @@ export async function renderMapScreen(appEl, vacationId) {
         const root = marker.getPopup().getElement();
         const btn = root?.querySelector(".map-popup__btn");
         btn?.addEventListener("click", () => {
-          abandonOverlayHistory();
           setTripSelection(vacationId, dayIso, place.id);
           navigate({ name: "urlaub-detail", id: vacationId });
           map.closePopup();
