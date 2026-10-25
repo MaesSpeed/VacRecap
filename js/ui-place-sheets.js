@@ -90,6 +90,7 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
 export function openSoftPointSheet(place, { vacationId, day, onPromoted, onDiscarded }) {
   const overlay = document.getElementById("overlay-root");
   overlay.hidden = false;
+  overlay.classList.add("overlay-root--bleed");
   overlay.innerHTML = `
     <div class="sheet sheet--soft-point">
       <header class="sheet__header">
@@ -105,6 +106,7 @@ export function openSoftPointSheet(place, { vacationId, day, onPromoted, onDisca
   `;
 
   const close = () => {
+    overlay.classList.remove("overlay-root--bleed");
     overlay.hidden = true;
     overlay.innerHTML = "";
   };

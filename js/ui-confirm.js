@@ -1,6 +1,6 @@
 import { escapeHtml } from "./utils.js";
 
-/** Bestätigung über dem bestehenden Sheet — ersetzt overlay.innerHTML nicht. */
+/** Bestätigung über allen Overlays (auch Media-Viewer). */
 export function openConfirmDialog({
   title,
   message,
@@ -10,21 +10,9 @@ export function openConfirmDialog({
   testId,
 }) {
   return new Promise((resolve) => {
-    const overlay = document.getElementById("overlay-root");
-    if (!overlay) {
-      resolve(false);
-      return;
-    }
-    overlay.hidden = false;
-
-    let layer = overlay.querySelector("[data-confirm-layer]");
-    if (!layer) {
-      layer = document.createElement("div");
-      layer.className = "overlay-confirm-layer";
-      layer.dataset.confirmLayer = "1";
-      overlay.appendChild(layer);
-    }
-
+    const layer = document.createElement("div");
+    layer.className = "overlay-confirm-layer overlay-confirm-layer--top";
+    layer.dataset.confirmLayer = "1";
     layer.innerHTML = `
       <div class="confirm-dialog" role="alertdialog" ${testId ? `data-testid="${testId}"` : ""}>
         <h2>${escapeHtml(title)}</h2>
@@ -35,20 +23,16 @@ export function openConfirmDialog({
         </div>
       </div>
     `;
+    document.body.appendChild(layer);
 
     const finish = (value) => {
-      layer.innerHTML = "";
       layer.remove();
       resolve(value);
     };
 
-    layer.addEventListener(
-      "click",
-      (e) => {
-        if (e.target === layer) finish(false);
-      },
-      { once: true }
-    );
+    layer.addEventListener("click", (e) => {
+      if (e.target === layer) finish(false);
+    });
 
     const dialog = layer.querySelector(".confirm-dialog");
     dialog?.addEventListener("click", (e) => e.stopPropagation());
