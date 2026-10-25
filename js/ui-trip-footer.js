@@ -18,7 +18,7 @@ export function mountTripFooter(container, handlers = {}) {
   bar.innerHTML = ACTIONS.map(
     (a) => `
     <button type="button" class="trip-footer__btn ${a.className}" data-footer-action="${a.id}" aria-label="${a.label}">
-      ${a.html}
+      <span class="trip-footer__icon" data-testid="footer-icon">${a.html}</span>
     </button>`
   ).join("");
 

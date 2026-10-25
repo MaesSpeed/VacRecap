@@ -1,4 +1,5 @@
-import { COVER_PRESETS, presetUrl, resolveCoverSrc } from "./covers.js";
+import { COVER_PRESETS, presetThumbUrl, presetUrl, resolveCoverSrc } from "./covers.js";
+import { ICON_COVER_CUSTOM } from "./icons.js";
 import { deleteBlob, getBlob, getVacation, putBlob, putVacation } from "./db.js";
 import { navigate } from "./router.js";
 import { clearTripUiState } from "./ui-urlaub-detail.js";
@@ -60,15 +61,16 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
             <span data-role="cover-dates">${vacation.startDate && vacation.endDate ? formatDateRangeOverlay(vacation.startDate, vacation.endDate) : ""}</span>
           </div>
         </div>
-        <div class="cover-picker" role="list">
+        <div class="cover-picker" role="list" data-testid="cover-picker">
           <button type="button" class="cover-thumb cover-thumb--custom" data-preset="custom">
-            <span>Eigenes Foto</span>
+            <span class="cover-thumb__img cover-thumb__img--custom">${ICON_COVER_CUSTOM}</span>
+            <span class="cover-thumb__label">Eigenes Foto</span>
           </button>
           ${COVER_PRESETS.map(
             (p) => `
             <button type="button" class="cover-thumb" data-preset="${p.id}">
-              <img src="${presetUrl(p.id)}" alt="" />
-              <span>${p.label}</span>
+              <img class="cover-thumb__img" src="${presetThumbUrl(p.id)}" alt="" />
+              <span class="cover-thumb__label">${p.label}</span>
             </button>`
           ).join("")}
         </div>

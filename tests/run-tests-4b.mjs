@@ -188,7 +188,48 @@ async function runSuite(deviceName, contextOptions) {
   await page.click('[data-action="back"]');
   await page.waitForSelector(".trip-header__title");
 
+  await assertFooterIconsAligned(page, deviceName);
+
   await ctx.close();
+}
+
+async function assertFooterIconsAligned(page, deviceName) {
+  const icons = await page.locator('[data-testid="footer-icon"]').evaluateAll((nodes) =>
+    nodes.map((el) => {
+      const r = el.getBoundingClientRect();
+      const svg = el.querySelector("svg");
+      const sr = svg?.getBoundingClientRect();
+      return {
+        w: r.width,
+        h: r.height,
+        top: r.top,
+        svgW: sr?.width ?? 0,
+        svgH: sr?.height ?? 0,
+        svgTop: sr?.top ?? 0,
+        cy: r.top + r.height / 2,
+      };
+    })
+  );
+  if (icons.length !== 4) {
+    throw new Error(`${deviceName}: Footer erwartet 4 Icons, hat ${icons.length}`);
+  }
+  const tol = 0.5;
+  const w0 = icons[0].w;
+  const h0 = icons[0].h;
+  for (const m of icons) {
+    if (Math.abs(m.w - w0) > tol || Math.abs(m.h - h0) > tol) {
+      throw new Error(`${deviceName}: Icon-Box ungleich ${JSON.stringify(icons)}`);
+    }
+    if (Math.abs(m.top - icons[0].top) > tol) {
+      throw new Error(`${deviceName}: Icon top nicht fluchtend ${JSON.stringify(icons)}`);
+    }
+    if (Math.abs(m.svgW - 26) > 1 || Math.abs(m.svgH - 26) > 1) {
+      throw new Error(`${deviceName}: SVG nicht 26×26: ${m.svgW}×${m.svgH}`);
+    }
+    if (Math.abs(m.cy - icons[0].cy) > tol) {
+      throw new Error(`${deviceName}: Icon-Mitte nicht auf einer Linie`);
+    }
+  }
 }
 
 async function main() {
@@ -240,11 +281,59 @@ async function main() {
     fullPage: true,
   });
   await page.goto("./#/urlaube");
-  await page.waitForSelector(".card--hero");
+  await page.waitForSelector("[data-vacation-id]");
   await page.screenshot({
     path: path.join(screenshotsDir, "29-uebersicht-hero-390.png"),
     fullPage: true,
   });
+
+  await page.goto(`./#/urlaub/${vacationId}`);
+  await page.waitForSelector(".trip-footer");
+  await page.screenshot({
+    path: path.join(screenshotsDir, "30-footer-ausgerichtet.png"),
+    fullPage: false,
+  });
+
+  await page.goto("./#/urlaub/neu");
+  await page.fill('[name="title"]', "Strandurlaub");
+  await page.click('[data-action="pick-dates"]');
+  await page.waitForSelector(".calendar-day[data-date='2026-10-24']");
+  await page.click('.calendar-day[data-date="2026-10-24"]');
+  await page.click('.calendar-day[data-date="2026-10-26"]');
+  await page.waitForFunction(() => {
+    const btn = document.querySelector('button[data-action="apply"]');
+    return btn && !btn.disabled;
+  });
+  await page.click('button[data-action="apply"]');
+  await page.click('[data-preset="strand"]');
+  await page.waitForSelector(".cover-thumb--active[data-preset='strand']");
+  await page.screenshot({
+    path: path.join(screenshotsDir, "31-titelbild-auswahl.png"),
+    fullPage: true,
+  });
+
+  await page.evaluate(async () => {
+    const { putVacation } = await import("./js/db.js");
+    const { createEmptyVacation } = await import("./js/vacation.js");
+    for (const [title, presetId] of [
+      ["Alpen", "berge"],
+      ["Route 66", "roadtrip"],
+    ]) {
+      const v = createEmptyVacation();
+      v.title = title;
+      v.startDate = "2026-12-01";
+      v.endDate = "2026-12-05";
+      v.cover = { type: "preset", presetId };
+      await putVacation(v);
+    }
+  });
+  await page.goto("./#/urlaube");
+  await page.waitForSelector("[data-vacation-id]");
+  await page.screenshot({
+    path: path.join(screenshotsDir, "32-uebersicht-titelbilder.png"),
+    fullPage: true,
+  });
+
   await ctx.close();
 
   await browser.close();
