@@ -1,9 +1,11 @@
 import { deleteBlob, deleteVacation, deleteVacationData, getVacation } from "./db.js";
+import { ICON_BACK_CHEVRON } from "./icons.js";
 import { navigate } from "./router.js";
 import {
   getRememberLocationOnOpen,
   setRememberLocationOnOpen,
 } from "./settings-store.js";
+import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { showToast } from "./toast.js";
 import { escapeHtml } from "./utils.js";
 
@@ -19,7 +21,7 @@ export async function renderUrlaubSettings(appEl, id) {
   appEl.className = "screen screen--settings";
   appEl.innerHTML = `
     <header class="trip-header">
-      <button type="button" class="link-btn link-btn--back" data-action="back">‹ ${escapeHtml(vacation.title)}</button>
+      <button type="button" class="link-btn link-btn--back" data-action="back">${ICON_BACK_CHEVRON}<span>Zurück</span></button>
       <h1 class="trip-header__title">Einstellungen</h1>
       <span class="trip-header__actions"></span>
     </header>
@@ -91,6 +93,10 @@ export async function renderUrlaubSettings(appEl, id) {
   });
 
   appEl.querySelector('[data-action="edit"]').addEventListener("click", () => {
+    sessionStorage.setItem(
+      "vacrecap-form-return",
+      JSON.stringify({ name: "urlaub-settings", id })
+    );
     navigate({ name: "urlaub-form", mode: "edit", id });
   });
 
@@ -118,16 +124,20 @@ function confirmDeleteVacation(vacation) {
     overlay.innerHTML = "";
   };
 
-  overlay.querySelector('[data-action="cancel"]').addEventListener("click", close);
+  bindOverlay(overlay, close);
+
+  overlay.querySelector('[data-action="cancel"]').addEventListener("click", () =>
+    closeOverlayHistory(close)
+  );
   overlay.querySelector('[data-action="confirm"]').addEventListener("click", async () => {
     if (vacation.cover?.type === "custom" && vacation.cover.blobId) {
       await deleteBlob(vacation.cover.blobId);
     }
     await deleteVacationData(vacation.id);
     await deleteVacation(vacation.id);
-    close();
+    closeOverlayHistory(close);
     showToast("Urlaub gelöscht");
     window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
-    navigate({ name: "urlaube" });
+    navigate({ name: "urlaube" }, { replace: true });
   });
 }

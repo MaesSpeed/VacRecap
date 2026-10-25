@@ -1,3 +1,4 @@
+import { armPointerSuppression } from "./gesture-guard.js";
 import { FOOTER_CAMERA, FOOTER_GALLERY, FOOTER_NOTE, FOOTER_PIN } from "./icons.js";
 import { showToast } from "./toast.js";
 
@@ -35,8 +36,11 @@ export function mountTripFooter(container, handlers = {}) {
 
   bar.querySelectorAll("[data-footer-action]").forEach((btn) => {
     const action = ACTIONS.find((a) => a.id === btn.dataset.footerAction);
+    let longPressShown = false;
 
     const showHint = () => {
+      longPressShown = true;
+      armPointerSuppression();
       hintEl = document.createElement("div");
       hintEl.className = "trip-footer-hint";
       hintEl.textContent = action.label;
@@ -46,6 +50,7 @@ export function mountTripFooter(container, handlers = {}) {
     };
 
     btn.addEventListener("pointerdown", () => {
+      longPressShown = false;
       btn.classList.add("trip-footer__btn--pressed");
       pressTimer = setTimeout(showHint, LONG_PRESS_MS);
     });
@@ -57,7 +62,12 @@ export function mountTripFooter(container, handlers = {}) {
       })
     );
 
-    btn.addEventListener("click", async () => {
+    btn.addEventListener("click", async (e) => {
+      if (longPressShown) {
+        longPressShown = false;
+        e.preventDefault();
+        return;
+      }
       if (action.id === "pin" && handlers.onRememberPlace) {
         await handlers.onRememberPlace();
         return;

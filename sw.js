@@ -1,9 +1,15 @@
-const CACHE_VERSION = "vacrecap-v8";
+const CACHE_VERSION = "vacrecap-v9";
 const ASSETS = [
   "./",
   "./index.html",
   "./manifest.webmanifest",
+  "./css/fonts.css",
   "./css/styles.css",
+  "./fonts/nunito-sans-latin-400-normal.woff2",
+  "./fonts/nunito-sans-latin-600-normal.woff2",
+  "./fonts/nunito-sans-latin-700-normal.woff2",
+  "./fonts/nunito-sans-latin-800-normal.woff2",
+  "./fonts/nunito-sans-latin-900-normal.woff2",
   "./js/app.js",
   "./js/config.js",
   "./js/db.js",
@@ -19,6 +25,8 @@ const ASSETS = [
   "./js/place-service.js",
   "./js/place-stats.js",
   "./js/icons.js",
+  "./js/gesture-guard.js",
+  "./js/overlay-stack.js",
   "./js/ui-urlaube.js",
   "./js/ui-urlaub-form.js",
   "./js/ui-urlaub-detail.js",
@@ -65,6 +73,16 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
+
+  if (request.mode === "navigate") {
+    event.respondWith(
+      caches.match("./index.html", { ignoreSearch: true }).then((cached) => {
+        if (cached) return cached;
+        return fetch(request).catch(() => caches.match("./index.html", { ignoreSearch: true }));
+      })
+    );
+    return;
+  }
 
   event.respondWith(
     caches.match(request).then((cached) => {

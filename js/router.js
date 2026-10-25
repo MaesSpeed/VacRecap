@@ -27,7 +27,7 @@ export function getRoute() {
   return { name: "urlaube" };
 }
 
-export function navigate(route) {
+export function navigate(route, { replace = false } = {}) {
   let hash = "#/urlaube";
   switch (route.name) {
     case "urlaube":
@@ -48,11 +48,20 @@ export function navigate(route) {
     default:
       break;
   }
-  if (window.location.hash !== hash) {
-    window.location.hash = hash;
-  } else {
+  const apply = () => {
+    if (window.location.hash !== hash) {
+      window.location.hash = hash;
+    } else {
+      notify();
+    }
+  };
+  if (replace) {
+    const url = `${window.location.pathname}${window.location.search}${hash}`;
+    history.replaceState(null, "", url);
     notify();
+    return;
   }
+  apply();
 }
 
 function notify() {

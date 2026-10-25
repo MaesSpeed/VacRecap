@@ -1,5 +1,7 @@
 import { resolveCoverSrc } from "./covers.js";
 import { getBlob } from "./db.js";
+import { armPointerSuppression } from "./gesture-guard.js";
+import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { navigate } from "./router.js";
 import { clearTripUiState } from "./ui-urlaub-detail.js";
 import { avatarListForVacation } from "./vacation.js";
@@ -16,9 +18,9 @@ import {
 } from "./utils.js";
 
 const LONG_PRESS_MS = 550;
+const CHEVRON_SVG = `<svg width="8" height="14" viewBox="0 0 8 14" fill="none" aria-hidden="true"><path d="M1 1l6 6-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 export async function renderUrlaubeScreen(appEl, vacations) {
-  const today = new Date();
   const grouped = { current: [], upcoming: [], past: [] };
   vacations
     .slice()
@@ -30,6 +32,7 @@ export async function renderUrlaubeScreen(appEl, vacations) {
   grouped.past.sort((a, b) => b.endDate.localeCompare(a.endDate));
 
   appEl.className = "screen screen--urlaube";
+  delete appEl.dataset.vacationId;
   appEl.innerHTML = `
     <header class="top-bar">
       <h1 class="top-bar__title">Urlaube</h1>
@@ -87,7 +90,7 @@ export async function renderUrlaubeScreen(appEl, vacations) {
 
   appEl.querySelector('[data-action="settings"]')?.addEventListener("click", () => {
     import("./toast.js").then(({ showToast }) =>
-      showToast("Einstellungen kommen in Paket 1b.")
+      showToast("Kommt im nächsten Schritt")
     );
   });
 
@@ -118,11 +121,12 @@ function cardCurrent(v) {
   const total = dayCountInclusive(v.startDate, v.endDate);
   const day = currentDayIndex(v.startDate, v.endDate);
   const avatars = renderAvatars(v);
+  const dayLabel = total === 1 ? "1 Tag" : `Tag ${day} von ${total}`;
   return `
     <article class="card card--hero" data-vacation-id="${v.id}" tabindex="0">
       <div class="card--hero__media">
         <img data-cover-img alt="" />
-        <span class="badge badge--day">Tag ${day} von ${total}</span>
+        <span class="badge badge--day">${dayLabel}</span>
         <div class="card--hero__overlay">
           <h3 class="card--hero__title">${escapeHtml(v.title)}</h3>
           <p class="card--hero__dates">${formatDateRangeOverlay(v.startDate, v.endDate)}</p>
@@ -155,7 +159,7 @@ function cardCompact(v, kind) {
           <div class="avatars">${avatars}</div>
         </div>
       </div>
-      <span class="card-compact__chevron" aria-hidden="true">›</span>
+      <span class="card-compact__chevron" aria-hidden="true">${CHEVRON_SVG}</span>
     </article>
   `;
 }
@@ -163,7 +167,8 @@ function cardCompact(v, kind) {
 function renderAvatars(v) {
   const names = avatarListForVacation(v);
   const items = initialsFromNames(names);
-  const extra = names.length > 4 ? `<span class="avatar avatar--more">+${names.length - 4}</span>` : "";
+  const extra =
+    names.length > 3 ? `<span class="avatar avatar--more">+${names.length - 3}</span>` : "";
   return (
     items
       .map(
@@ -178,17 +183,22 @@ function bindCardInteractions(card, vacations) {
   const id = card.dataset.vacationId;
   let pressTimer = null;
   let longPressed = false;
+  let blockClickUntil = 0;
 
   const clearPress = () => {
     if (pressTimer) clearTimeout(pressTimer);
     pressTimer = null;
   };
 
+  card.addEventListener("contextmenu", (e) => e.preventDefault());
+
   card.addEventListener("pointerdown", () => {
     longPressed = false;
     pressTimer = setTimeout(() => {
       longPressed = true;
-      showCardMenu(card, id, vacations);
+      blockClickUntil = Date.now() + 450;
+      armPointerSuppression(400, card);
+      showCardMenu(id, vacations);
     }, LONG_PRESS_MS);
   });
   ["pointerup", "pointerleave", "pointercancel"].forEach((ev) =>
@@ -196,23 +206,25 @@ function bindCardInteractions(card, vacations) {
   );
 
   card.addEventListener("click", (e) => {
-    if (longPressed) {
+    if (Date.now() < blockClickUntil) {
       e.preventDefault();
+      e.stopPropagation();
       return;
     }
+    longPressed = false;
     clearTripUiState(id);
     navigate({ name: "urlaub-detail", id });
   });
 }
 
-function showCardMenu(anchor, id, vacations) {
+function showCardMenu(id, vacations) {
   const vacation = vacations.find((v) => v.id === id);
   if (!vacation) return;
 
   const overlay = document.getElementById("overlay-root");
   overlay.hidden = false;
   overlay.innerHTML = `
-    <div class="action-sheet" role="dialog" aria-label="Urlaub-Aktionen">
+    <div class="action-sheet" role="dialog" aria-label="Urlaub-Aktionen" data-testid="vacation-action-sheet">
       <p class="action-sheet__title">${escapeHtml(vacation.title)}</p>
       <button type="button" data-action="edit">Bearbeiten</button>
       <button type="button" data-action="delete" class="danger">Löschen</button>
@@ -225,17 +237,17 @@ function showCardMenu(anchor, id, vacations) {
     overlay.innerHTML = "";
   };
 
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) close();
-  });
+  bindOverlay(overlay, close);
 
-  overlay.querySelector('[data-action="cancel"]').addEventListener("click", close);
+  overlay.querySelector('[data-action="cancel"]').addEventListener("click", () =>
+    closeOverlayHistory(close)
+  );
   overlay.querySelector('[data-action="edit"]').addEventListener("click", () => {
-    close();
+    closeOverlayHistory(close);
     navigate({ name: "urlaub-form", mode: "edit", id });
   });
   overlay.querySelector('[data-action="delete"]').addEventListener("click", () => {
-    close();
+    closeOverlayHistory(close);
     confirmDelete(id, vacation.title);
   });
 }
@@ -259,7 +271,11 @@ function confirmDelete(id, title) {
     overlay.innerHTML = "";
   };
 
-  overlay.querySelector('[data-action="cancel"]').addEventListener("click", close);
+  bindOverlay(overlay, close);
+
+  overlay.querySelector('[data-action="cancel"]').addEventListener("click", () =>
+    closeOverlayHistory(close)
+  );
   overlay.querySelector('[data-action="confirm"]').addEventListener("click", async () => {
     const { deleteVacation, getVacation, deleteBlob, deleteVacationData } =
       await import("./db.js");
@@ -269,9 +285,10 @@ function confirmDelete(id, title) {
     }
     await deleteVacationData(id);
     await deleteVacation(id);
-    close();
+    closeOverlayHistory(close);
     const { showToast } = await import("./toast.js");
     showToast("Urlaub gelöscht");
     window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+    navigate({ name: "urlaube" }, { replace: true });
   });
 }

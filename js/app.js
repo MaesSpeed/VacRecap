@@ -5,6 +5,8 @@ import { renderUrlaubDetail } from "./ui-urlaub-detail.js";
 import { renderUrlaubSettings } from "./ui-urlaub-settings.js";
 import { renderUrlaubForm } from "./ui-urlaub-form.js";
 import { renderUrlaubeScreen } from "./ui-urlaube.js";
+import { installGestureGuards } from "./gesture-guard.js";
+import { dismissOverlayOnly, initOverlayHistory } from "./overlay-stack.js";
 
 const appEl = document.getElementById("app");
 
@@ -38,9 +40,14 @@ function registerServiceWorker() {
 }
 
 async function boot() {
+  installGestureGuards();
+  initOverlayHistory();
   await requestPersistentStorage();
   registerServiceWorker();
-  onRouteChange(render);
+  onRouteChange(() => {
+    dismissOverlayOnly();
+    void render();
+  });
   startRouter();
   window.addEventListener("vacrecap:data-changed", render);
 }

@@ -3,6 +3,7 @@ import {
   getMediaForPlace,
   getNotesForPlace,
 } from "./db.js";
+import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { promoteSoftPlace, updatePlaceName } from "./place-service.js";
 import { showToast } from "./toast.js";
 import { escapeHtml } from "./utils.js";
@@ -32,15 +33,15 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
     overlay.innerHTML = "";
   };
 
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) close();
-  });
+  bindOverlay(overlay, close);
 
   const input = overlay.querySelector('[data-role="name"]');
-  overlay.querySelector('[data-action="cancel"]').addEventListener("click", close);
+  overlay.querySelector('[data-action="cancel"]').addEventListener("click", () =>
+    closeOverlayHistory(close)
+  );
   overlay.querySelector('[data-action="save"]').addEventListener("click", async () => {
     const updated = await updatePlaceName(place, input.value);
-    close();
+    closeOverlayHistory(close);
     showToast("Gespeichert");
     onSaved?.(updated);
   });
@@ -57,7 +58,7 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
         : "";
     if (!window.confirm(`Ort wirklich löschen?${hint}`)) return;
     await deletePlaceCascade(place.id);
-    close();
+    closeOverlayHistory(close);
     showToast("Ort gelöscht");
     onDeleted?.(place.id);
   });
@@ -85,21 +86,21 @@ export function openSoftPointSheet(place, { onPromoted, onDiscarded }) {
     overlay.innerHTML = "";
   };
 
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) close();
-  });
+  bindOverlay(overlay, close);
 
-  overlay.querySelector('[data-action="cancel"]').addEventListener("click", close);
+  overlay.querySelector('[data-action="cancel"]').addEventListener("click", () =>
+    closeOverlayHistory(close)
+  );
   overlay.querySelector('[data-action="promote"]').addEventListener("click", async () => {
     const updated = await promoteSoftPlace(place);
-    close();
+    closeOverlayHistory(close);
     showToast("Ort gemerkt");
     onPromoted?.(updated);
   });
   overlay.querySelector('[data-action="discard"]').addEventListener("click", async () => {
     const { discardSoftPlace } = await import("./place-service.js");
     await discardSoftPlace(place.id);
-    close();
+    closeOverlayHistory(close);
     onDiscarded?.(place.id);
   });
 }

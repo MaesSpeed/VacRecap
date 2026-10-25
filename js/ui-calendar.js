@@ -1,3 +1,4 @@
+import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import {
   dayCountInclusive,
   formatDateShort,
@@ -53,8 +54,9 @@ export function openDateRangePicker({ startDate, endDate, onApply }) {
   const sheet = document.createElement("div");
   sheet.className = "sheet sheet--calendar";
   sheet.innerHTML = `
-    <header class="sheet__header">
+    <header class="sheet__header sheet__header--row">
       <h2 class="sheet__title">Zeitraum</h2>
+      <button type="button" class="sheet__close" data-action="cancel" aria-label="Schließen">Abbrechen</button>
     </header>
     <div class="range-summary">
       <div class="range-box" data-role="start-box">
@@ -80,10 +82,10 @@ export function openDateRangePicker({ startDate, endDate, onApply }) {
   const startLabel = sheet.querySelector('[data-role="start-label"]');
   const endLabel = sheet.querySelector('[data-role="end-label"]');
 
-  const base = draftStart ? parseIsoDate(draftStart) : new Date();
+  const today = new Date();
   const monthStarts = [];
-  for (let i = -1; i <= 14; i++) {
-    const d = new Date(base.getFullYear(), base.getMonth() + i, 1);
+  for (let i = -12; i <= 14; i++) {
+    const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
     monthStarts.push(d);
   }
 
@@ -95,8 +97,6 @@ export function openDateRangePicker({ startDate, endDate, onApply }) {
     section.innerHTML = `<h3 class="calendar-month__title">${MONTH_NAMES[m]} ${y}</h3>`;
     const grid = document.createElement("div");
     grid.className = "calendar-grid";
-    grid.dataset.year = String(y);
-    grid.dataset.month = String(m);
     const weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
     weekdays.forEach((wd) => {
       const h = document.createElement("span");
@@ -127,11 +127,15 @@ export function openDateRangePicker({ startDate, endDate, onApply }) {
     endLabel.textContent = draftEnd ? formatDateShort(draftEnd) : "–";
     const valid = draftStart && draftEnd && draftEnd >= draftStart;
     applyBtn.disabled = !valid;
+    const days = valid ? dayCountInclusive(draftStart, draftEnd) : 0;
     hintEl.textContent = valid
       ? dayLabelsForRange(draftStart, draftEnd)
       : pickingEnd
         ? "Enddatum wählen"
         : "Startdatum wählen";
+    if (valid && days === 1) {
+      hintEl.textContent = "1 Tag";
+    }
 
     sheet.querySelectorAll(".calendar-day[data-date]").forEach((btn) => {
       const iso = btn.dataset.date;
@@ -167,24 +171,22 @@ export function openDateRangePicker({ startDate, endDate, onApply }) {
     refresh();
   });
 
+  const close = () => {
+    overlay.hidden = true;
+    overlay.innerHTML = "";
+  };
+
+  bindOverlay(overlay, close);
+
   applyBtn.addEventListener("click", () => {
     if (!draftStart || !draftEnd) return;
     onApply({ startDate: draftStart, endDate: draftEnd });
-    close();
+    closeOverlayHistory(close);
   });
 
-  function close() {
-    overlay.hidden = true;
-    overlay.innerHTML = "";
-  }
-
-  overlay.addEventListener(
-    "click",
-    (e) => {
-      if (e.target === overlay) close();
-    },
-    { once: true }
-  );
+  sheet.querySelector('[data-action="cancel"]').addEventListener("click", () => {
+    closeOverlayHistory(close);
+  });
 
   refresh();
 }

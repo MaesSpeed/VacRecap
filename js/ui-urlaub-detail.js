@@ -6,7 +6,7 @@ import {
   vacationDays,
 } from "./days.js";
 import { getVacation } from "./db.js";
-import { ICON_CALENDAR, ICON_GEAR, ICON_MAP } from "./icons.js";
+import { ICON_BACK_CHEVRON, ICON_CALENDAR, ICON_GEAR, ICON_MAP } from "./icons.js";
 import { savePhotoForPlace, saveVideoForPlace } from "./media-service.js";
 import { rememberPlaceFromGps, trySoftPointOnOpen } from "./place-service.js";
 import { newestHardPlace } from "./places.js";
@@ -68,7 +68,7 @@ export async function renderUrlaubDetail(appEl, id) {
 
   appEl.innerHTML = `
     <header class="trip-header">
-      <button type="button" class="link-btn link-btn--back" data-action="back">‹ Urlaube</button>
+      <button type="button" class="link-btn link-btn--back" data-action="back">${ICON_BACK_CHEVRON}<span>Urlaube</span></button>
       <h1 class="trip-header__title">${escapeHtml(vacation.title)}</h1>
       <div class="trip-header__actions">
         <button type="button" class="icon-btn icon-btn--map-draft" data-action="map" aria-label="Karte">${ICON_MAP}</button>
@@ -361,7 +361,7 @@ export async function renderUrlaubDetail(appEl, id) {
   });
 
   appEl.querySelector('[data-action="map"]').addEventListener("click", () => {
-    showToast("Kartenansicht kommt in Paket 3b.");
+    showToast("Kommt im nächsten Schritt");
   });
 
   appEl.querySelector('[data-action="settings"]').addEventListener("click", () => {

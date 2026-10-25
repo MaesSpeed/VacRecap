@@ -1,3 +1,4 @@
+import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { createNote, removeNote, updateNoteText } from "./note-service.js";
 import { showToast } from "./toast.js";
 
@@ -29,9 +30,7 @@ export function openNoteSheet({ place, vacationId, day, note, onSaved }) {
     saving = false;
   };
 
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) close();
-  });
+  bindOverlay(overlay, close);
 
   const textarea = overlay.querySelector('[data-role="text"]');
   const saveBtn = overlay.querySelector('[data-action="save"]');
@@ -44,7 +43,9 @@ export function openNoteSheet({ place, vacationId, day, note, onSaved }) {
   textarea.addEventListener("input", syncSave);
   syncSave();
 
-  overlay.querySelector('[data-action="cancel"]').addEventListener("click", close);
+  overlay.querySelector('[data-action="cancel"]').addEventListener("click", () =>
+    closeOverlayHistory(close)
+  );
 
   saveBtn.addEventListener("click", async () => {
     if (saving || saveBtn.disabled) return;
@@ -57,7 +58,7 @@ export function openNoteSheet({ place, vacationId, day, note, onSaved }) {
       await createNote({ place, vacationId, day, text });
       showToast("Notiz gespeichert");
     }
-    close();
+    closeOverlayHistory(close);
     onSaved?.();
   });
 
@@ -68,7 +69,7 @@ export function openNoteSheet({ place, vacationId, day, note, onSaved }) {
       if (!window.confirm("Notiz löschen?")) return;
       saving = true;
       await removeNote(note.id);
-      close();
+      closeOverlayHistory(close);
       showToast("Notiz gelöscht");
       onSaved?.();
     });
