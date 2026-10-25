@@ -162,7 +162,7 @@ async function runSuite(deviceName, viewport, { baseUrl, browser }) {
   }
 
   const buf = await galleryFileBuffer(page);
-  await page.locator('[data-role="photo-input"]').setInputFiles({
+  await page.locator('[data-role="capture-input"]').setInputFiles({
     name: "p.jpg",
     mimeType: "image/jpeg",
     buffer: Buffer.from(buf),
@@ -187,22 +187,29 @@ async function runSuite(deviceName, viewport, { baseUrl, browser }) {
   await page.click('[data-testid="media-viewer-close"]');
   await page.waitForSelector('[data-testid="media-viewer"]', { state: "hidden" });
 
+  await page.evaluate(() => {
+    const input = document.querySelector('[data-role="capture-input"]');
+    window.__captureInputOpens = 0;
+    input?.addEventListener("click", () => {
+      window.__captureInputOpens = (window.__captureInputOpens || 0) + 1;
+    });
+  });
   for (const ms of [80, 150, 250, 350]) {
+    await page.evaluate(() => {
+      window.__captureInputOpens = 0;
+    });
     const cam = page.locator('[data-footer-action="camera"]');
     await cam.click();
-    await page.waitForSelector('[data-testid="camera-sheet"]');
     await page.waitForTimeout(ms);
     const box = await cam.boundingBox();
     if (box) {
       await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     }
-    const stillOpen = await page.locator('[data-testid="camera-sheet"]').isVisible();
-    if (!stillOpen) {
-      throw new Error(`${deviceName}: Kamera-Doppeltipp ${ms}ms schloss Sheet`);
+    const opens = await page.evaluate(() => window.__captureInputOpens ?? 0);
+    if (opens > 1) {
+      throw new Error(`${deviceName}: Kamera-Doppeltipp ${ms}ms öffnete Input mehrfach (${opens})`);
     }
     await page.waitForTimeout(Math.max(0, 460 - ms));
-    await page.locator('[data-testid="camera-sheet"] [data-action="cancel"]').click();
-    await page.waitForFunction(() => document.getElementById("overlay-root")?.hidden);
   }
 
   await ctx.close();

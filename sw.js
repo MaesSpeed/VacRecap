@@ -1,4 +1,4 @@
-const CACHE_VERSION = "vacrecap-v18";
+const CACHE_VERSION = "vacrecap-v19";
 const ASSETS = [
   "./",
   "./index.html",
@@ -48,7 +48,7 @@ const ASSETS = [
   "./js/vacation-stats.js",
   "./js/trip-selection-store.js",
   "./js/ui-confirm.js",
-  "./js/ui-camera-sheet.js",
+  "./js/capture-gps-prefetch.js",
   "./js/ui-note-sheet.js",
   "./js/media-source.js",
   "./js/mediathek-session.js",

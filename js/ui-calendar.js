@@ -42,7 +42,34 @@ function buildMonthGrid(year, month) {
   return cells;
 }
 
-export function openDateRangePicker({ startDate, endDate, onApply }) {
+function monthStartFromIso(iso) {
+  const d = parseIsoDate(iso);
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+function buildMonthList(today, tripStartDate) {
+  const todayMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  let anchor = todayMonth;
+  if (tripStartDate) {
+    const tripMonth = monthStartFromIso(tripStartDate);
+    if (tripMonth < todayMonth) anchor = tripMonth;
+  }
+  const endMonth = new Date(today.getFullYear(), today.getMonth() + 15, 1);
+  const monthStarts = [];
+  let y = anchor.getFullYear();
+  let m = anchor.getMonth();
+  while (y < endMonth.getFullYear() || (y === endMonth.getFullYear() && m <= endMonth.getMonth())) {
+    monthStarts.push(new Date(y, m, 1));
+    m += 1;
+    if (m > 11) {
+      m = 0;
+      y += 1;
+    }
+  }
+  return monthStarts;
+}
+
+export function openDateRangePicker({ startDate, endDate, tripStartDate = "", onApply }) {
   const overlay = document.getElementById("overlay-root");
   overlay.hidden = false;
   overlay.innerHTML = "";
@@ -83,11 +110,8 @@ export function openDateRangePicker({ startDate, endDate, onApply }) {
   const endLabel = sheet.querySelector('[data-role="end-label"]');
 
   const today = new Date();
-  const monthStarts = [];
-  for (let i = -12; i <= 14; i++) {
-    const d = new Date(today.getFullYear(), today.getMonth() + i, 1);
-    monthStarts.push(d);
-  }
+  const todayIso = formatIsoDate(today);
+  const monthStarts = buildMonthList(today, tripStartDate);
 
   monthStarts.forEach((monthDate) => {
     const y = monthDate.getFullYear();
@@ -115,7 +139,12 @@ export function openDateRangePicker({ startDate, endDate, onApply }) {
         btn.tabIndex = -1;
       } else {
         btn.dataset.date = iso;
-        btn.textContent = String(parseIsoDate(iso).getDate());
+        const dayNum = parseIsoDate(iso).getDate();
+        btn.innerHTML = `<span class="calendar-day__num">${dayNum}</span>`;
+        if (iso === todayIso) {
+          btn.classList.add("calendar-day--today");
+          btn.innerHTML += `<span class="calendar-day__heute">heute</span>`;
+        }
       }
       grid.appendChild(btn);
     });
@@ -191,13 +220,17 @@ export function openDateRangePicker({ startDate, endDate, onApply }) {
 
   refresh();
 
-  const scrollIso = draftStart || formatIsoDate(today);
-  const scrollDate = parseIsoDate(scrollIso);
-  const ym = `${scrollDate.getFullYear()}-${String(scrollDate.getMonth() + 1).padStart(2, "0")}`;
-  requestAnimationFrame(() => {
+  function jumpToScrollMonth() {
+    const scrollIso = draftStart || todayIso;
+    const scrollDate = parseIsoDate(scrollIso);
+    const ym = `${scrollDate.getFullYear()}-${String(scrollDate.getMonth() + 1).padStart(2, "0")}`;
     const target = monthsEl.querySelector(`[data-year-month="${ym}"]`);
     target?.scrollIntoView({ block: "start", behavior: "instant" });
-  });
+  }
+
+  jumpToScrollMonth();
+  requestAnimationFrame(jumpToScrollMonth);
+  setTimeout(jumpToScrollMonth, 350);
 }
 
 export function formatRangeSummary(startIso, endIso) {

@@ -15,8 +15,9 @@ import { navigate } from "./router.js";
 import { getRememberLocationOnOpen } from "./settings-store.js";
 import { previewNoteCaptureTarget, resolveCaptureTarget } from "./target-place.js";
 import { loadTripSelection, saveTripSelection } from "./trip-selection-store.js";
+import { prefetchCaptureGps } from "./capture-gps-prefetch.js";
+import { blockTripFooter, isTripFooterBlocked, SHEET_INPUT_BLOCK_MS } from "./overlay-stack.js";
 import { dismissActiveToast, showToast, showTwoLineToast, showWarnToast } from "./toast.js";
-import { openCameraChoiceSheet } from "./ui-camera-sheet.js";
 import { openMediaViewer } from "./ui-media-viewer.js";
 import { openNoteSheet } from "./ui-note-sheet.js";
 import {
@@ -98,8 +99,7 @@ export async function renderUrlaubDetail(appEl, id) {
       </div>
     </div>
     <main class="trip-content trip-content--places" data-role="day-content" data-testid="trip-content"></main>
-    <input type="file" accept="image/*" capture="environment" hidden data-role="photo-input" />
-    <input type="file" accept="video/*" capture="environment" hidden data-role="video-input" />
+    <input type="file" accept="image/*,video/*" capture hidden data-role="capture-input" data-testid="capture-input" />
     <input type="file" accept="image/*,video/*" multiple hidden data-role="gallery-input" />
     <div data-role="footer-mount"></div>
   `;
@@ -107,8 +107,7 @@ export async function renderUrlaubDetail(appEl, id) {
   const chipsEl = appEl.querySelector('[data-role="chips"]');
   const contentEl = appEl.querySelector('[data-role="day-content"]');
   const footerMount = appEl.querySelector('[data-role="footer-mount"]');
-  const photoInput = appEl.querySelector('[data-role="photo-input"]');
-  const videoInput = appEl.querySelector('[data-role="video-input"]');
+  const captureInput = appEl.querySelector('[data-role="capture-input"]');
   const galleryInput = appEl.querySelector('[data-role="gallery-input"]');
 
   function renderChips() {
@@ -239,17 +238,17 @@ export async function renderUrlaubDetail(appEl, id) {
     }
   }
 
-  function openCameraSheet() {
-    openCameraChoiceSheet({
-      onPhoto: () => photoInput.click(),
-      onVideo: () => videoInput.click(),
-    });
+  function openNativeCamera() {
+    if (state.captureBusy || isTripFooterBlocked()) return;
+    blockTripFooter(SHEET_INPUT_BLOCK_MS);
+    prefetchCaptureGps();
+    captureInput.click();
   }
 
   async function handleMediaFile(file, kind) {
     if (!file || state.captureBusy) return;
     state.captureBusy = true;
-    showToast("Wird gespeichert…", { sticky: true });
+    showToast("Wird gespeichert…", { sticky: true, icon: "none" });
     try {
       const r = await resolveTargetPlace(kind);
       const place = r.place;
@@ -270,18 +269,15 @@ export async function renderUrlaubDetail(appEl, id) {
       }
     } finally {
       state.captureBusy = false;
-      photoInput.value = "";
-      videoInput.value = "";
+      captureInput.value = "";
     }
   }
 
-  photoInput.addEventListener("change", () => {
-    const file = photoInput.files?.[0];
-    handleMediaFile(file, "photo");
-  });
-  videoInput.addEventListener("change", () => {
-    const file = videoInput.files?.[0];
-    handleMediaFile(file, "video");
+  captureInput.addEventListener("change", () => {
+    const file = captureInput.files?.[0];
+    if (!file) return;
+    const kind = file.type.startsWith("video/") ? "video" : "photo";
+    handleMediaFile(file, kind);
   });
 
   async function onNoteFooter() {
@@ -481,7 +477,7 @@ export async function renderUrlaubDetail(appEl, id) {
 
   mountTripFooter(footerMount, {
     onRememberPlace,
-    onCamera: openCameraSheet,
+    onCamera: openNativeCamera,
     onNote: onNoteFooter,
     onGallery: openGalleryPicker,
   });

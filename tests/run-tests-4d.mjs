@@ -215,29 +215,31 @@ async function runSuite(deviceName, { baseUrl, browser }) {
     throw new Error(`${deviceName}: GPS legte trotz Ändern neue Karte an`);
   }
 
+  await page.evaluate(() => {
+    const input = document.querySelector('[data-role="capture-input"]');
+    window.__captureInputOpens = 0;
+    input?.addEventListener("click", () => {
+      window.__captureInputOpens = (window.__captureInputOpens || 0) + 1;
+    });
+  });
   for (const ms of [80, 150, 250, 350]) {
+    await page.evaluate(() => {
+      window.__captureInputOpens = 0;
+    });
     const cam = page.locator('[data-footer-action="camera"]');
     await cam.click();
-    await page.waitForSelector('[data-testid="camera-sheet"]');
     await page.waitForTimeout(ms);
     await page.evaluate(() => {
       document.querySelector('[data-footer-action="camera"]')?.click();
     });
-    const stillOpen = await page.locator('[data-testid="camera-sheet"]').isVisible();
-    if (!stillOpen) {
-      throw new Error(`${deviceName}: Doppeltipp ${ms}ms schloss Kamera-Sheet`);
+    const opens = await page.evaluate(() => window.__captureInputOpens ?? 0);
+    if (opens > 1) {
+      throw new Error(`${deviceName}: Doppeltipp ${ms}ms öffnete Kamera-Input mehrfach (${opens})`);
+    }
+    if (await page.locator('[data-testid="camera-sheet"]').count()) {
+      throw new Error(`${deviceName}: Kamera-Sheet soll entfernt sein`);
     }
     await page.waitForTimeout(Math.max(0, 460 - ms));
-    for (let n = 0; n < 3 && (await page.locator("[data-confirm-layer]").count()); n++) {
-      await page.locator("[data-confirm-layer] [data-action='cancel']").first().click();
-      await page.waitForTimeout(40);
-    }
-    await page.evaluate(() => {
-      document.querySelector('[data-testid="camera-sheet"] [data-action="cancel"]')?.click();
-    });
-    await page.waitForFunction(() => document.getElementById("overlay-root")?.hidden, null, {
-      timeout: 10000,
-    });
   }
 
   const buf = await page.evaluate(async () => {
@@ -250,7 +252,7 @@ async function runSuite(deviceName, { baseUrl, browser }) {
     const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.9));
     return Array.from(new Uint8Array(await blob.arrayBuffer()));
   });
-  await page.locator('[data-role="photo-input"]').setInputFiles({
+  await page.locator('[data-role="capture-input"]').setInputFiles({
     name: "v.jpg",
     mimeType: "image/jpeg",
     buffer: Buffer.from(buf),
@@ -327,7 +329,7 @@ async function main() {
     const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.9));
     return Array.from(new Uint8Array(await blob.arrayBuffer()));
   });
-  await page.locator('[data-role="photo-input"]').setInputFiles({
+  await page.locator('[data-role="capture-input"]').setInputFiles({
     name: "s.jpg",
     mimeType: "image/jpeg",
     buffer: Buffer.from(buf),
