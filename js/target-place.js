@@ -96,6 +96,40 @@ async function resolveWithGps({ vacationId, day }) {
   };
 }
 
+/** Nur Anzeige in der Notiz-Ortsbox – legt keine Karte an. */
+export async function previewNoteCaptureTarget({ vacationId, day, selectedPlaceId }) {
+  const all = await getPlacesForDay(vacationId, day);
+  const hard = all.filter((p) => !p.soft);
+
+  if (selectedPlaceId) {
+    const selected = hard.find((p) => p.id === selectedPlaceId);
+    if (selected) return { label: selected.name, kind: "selected" };
+  }
+
+  if (await getRememberCaptureLocation()) {
+    try {
+      const pos = await getCapturePosition();
+      const { latitude: lat, longitude: lng } = pos.coords;
+      const dedupM = await getSamePlaceRadiusM();
+      const near = findPlaceWithinMeters(hard, lat, lng, dedupM);
+      if (near) return { label: near.name, kind: "gps-match" };
+      return { label: "Neuer Ort", kind: "gps-new" };
+    } catch {
+      const newest = newestHardPlace(hard);
+      if (newest) return { label: newest.name, kind: "fallback" };
+      const existing = findOhneOrt(hard);
+      if (existing) return { label: existing.name, kind: "fallback" };
+      return { label: OHNE_ORT, kind: "fallback" };
+    }
+  }
+
+  const newest = newestHardPlace(hard);
+  if (newest) return { label: newest.name, kind: "fallback" };
+  const existing = findOhneOrt(hard);
+  if (existing) return { label: existing.name, kind: "fallback" };
+  return { label: OHNE_ORT, kind: "fallback" };
+}
+
 export async function resolveCaptureTarget({
   vacationId,
   day,

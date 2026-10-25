@@ -1,13 +1,20 @@
-import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
+import {
+  bindOverlay,
+  blockTripFooter,
+  closeOverlayHistory,
+  SHEET_INPUT_BLOCK_MS,
+} from "./overlay-stack.js";
 
 let busy = false;
 let openBlockedUntil = 0;
 
 export function openCameraChoiceSheet({ onPhoto, onVideo }) {
   if (Date.now() < openBlockedUntil) return;
-  openBlockedUntil = Date.now() + 400;
+  openBlockedUntil = Date.now() + SHEET_INPUT_BLOCK_MS;
+  blockTripFooter(SHEET_INPUT_BLOCK_MS);
   const overlay = document.getElementById("overlay-root");
   overlay.hidden = false;
+  overlay.classList.add("overlay-root--bleed");
   overlay.innerHTML = `
     <div class="sheet sheet--camera" data-testid="camera-sheet">
       <header class="sheet__header">
@@ -22,6 +29,7 @@ export function openCameraChoiceSheet({ onPhoto, onVideo }) {
   `;
 
   const close = () => {
+    overlay.classList.remove("overlay-root--bleed");
     overlay.hidden = true;
     overlay.innerHTML = "";
     busy = false;

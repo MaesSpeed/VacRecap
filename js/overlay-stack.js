@@ -4,11 +4,28 @@ let activeClose = null;
 const closeStack = [];
 let closingFromPop = false;
 let ignoreNextPop = false;
+let overlayDismissHandler = null;
+
+export const SHEET_INPUT_BLOCK_MS = 450;
+
+let footerBlockedUntil = 0;
+
+export function blockTripFooter(ms = SHEET_INPUT_BLOCK_MS) {
+  footerBlockedUntil = Date.now() + ms;
+}
+
+export function isTripFooterBlocked() {
+  return Date.now() < footerBlockedUntil;
+}
 
 export function initOverlayHistory() {
   window.addEventListener("popstate", () => {
     if (ignoreNextPop) {
       ignoreNextPop = false;
+      return;
+    }
+    if (overlayDismissHandler) {
+      void overlayDismissHandler();
       return;
     }
     if (!activeClose) return;
@@ -36,6 +53,7 @@ export function closeOverlayHistory(closeFn) {
   if (activeClose === closeFn) {
     const parent = closeStack.pop() ?? null;
     activeClose = null;
+    overlayDismissHandler = null;
     if (history.state?.vacrecapOverlay) {
       ignoreNextPop = true;
       history.back();
@@ -47,6 +65,7 @@ export function closeOverlayHistory(closeFn) {
 
 export function abandonOverlayHistory() {
   activeClose = null;
+  overlayDismissHandler = null;
   closeStack.length = 0;
   if (history.state?.vacrecapOverlay) {
     ignoreNextPop = true;
@@ -61,9 +80,9 @@ export function dismissOverlayOnly() {
     fn();
   }
   closeStack.length = 0;
+  overlayDismissHandler = null;
 }
 
-/** Menü schließen ohne history.back(), damit eine folgende Navigation nicht rückgängig wird. */
 export function releaseOverlayHistory(closeFn) {
   if (activeClose === closeFn) {
     activeClose = closeStack.pop() ?? null;
@@ -71,6 +90,7 @@ export function releaseOverlayHistory(closeFn) {
     closeStack.length = 0;
     activeClose = null;
   }
+  overlayDismissHandler = null;
   closeFn();
   if (history.state?.vacrecapOverlay) {
     const next = { ...history.state };
@@ -83,10 +103,14 @@ export function hasActiveOverlay() {
   return Boolean(activeClose);
 }
 
-const SHEET_INPUT_BLOCK_MS = 400;
-
-export function bindOverlay(overlay, closeFn) {
-  openOverlayHistory(closeFn);
+/**
+ * @param {HTMLElement} overlay
+ * @param {() => void} domClose – synchrones Aufräumen (immer activeClose)
+ * @param {() => void | Promise<void>} [dismissHandler] – optional Dirty-Check vor closeOverlayHistory(domClose)
+ */
+export function bindOverlay(overlay, domClose, dismissHandler) {
+  overlayDismissHandler = dismissHandler ?? null;
+  openOverlayHistory(domClose);
   const openedAt = Date.now();
   const sheet = overlay.querySelector(".sheet");
   if (sheet) {
@@ -95,6 +119,7 @@ export function bindOverlay(overlay, closeFn) {
   }
   bindBackdropDismiss(overlay, () => {
     if (Date.now() - openedAt < SHEET_INPUT_BLOCK_MS) return;
-    closeOverlayHistory(closeFn);
+    if (dismissHandler) void dismissHandler();
+    else closeOverlayHistory(domClose);
   });
 }

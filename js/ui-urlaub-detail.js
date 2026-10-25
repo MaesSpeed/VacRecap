@@ -13,7 +13,7 @@ import { rememberPlaceFromGps, trySoftPointOnOpen } from "./place-service.js";
 import { newestHardPlace } from "./places.js";
 import { navigate } from "./router.js";
 import { getRememberLocationOnOpen } from "./settings-store.js";
-import { resolveCaptureTarget } from "./target-place.js";
+import { previewNoteCaptureTarget, resolveCaptureTarget } from "./target-place.js";
 import { loadTripSelection, saveTripSelection } from "./trip-selection-store.js";
 import { dismissActiveToast, showToast, showTwoLineToast, showWarnToast } from "./toast.js";
 import { openCameraChoiceSheet } from "./ui-camera-sheet.js";
@@ -288,12 +288,11 @@ export async function renderUrlaubDetail(appEl, id) {
 
   async function onNoteFooter() {
     if (state.captureBusy) return;
-    const selectedId = state.selectedByDay[state.activeDay];
-    let initialPlace = null;
-    if (selectedId) {
-      const items = await loadDayPlacesEnriched(id, state.activeDay);
-      initialPlace = items.find((i) => i.place.id === selectedId)?.place ?? null;
-    }
+    const items = await loadDayPlacesEnriched(id, state.activeDay);
+    const selectedId = await ensureSelectedForDay(items);
+    const initialPlace = selectedId
+      ? items.find((i) => i.place.id === selectedId)?.place ?? null
+      : null;
     openNoteSheet({
       place: initialPlace,
       vacationId: id,
@@ -304,6 +303,12 @@ export async function renderUrlaubDetail(appEl, id) {
         const items = await loadDayPlacesEnriched(id, state.activeDay);
         return items.map((i) => i.place).filter((p) => !p.soft);
       },
+      previewPlaceLabel: () =>
+        previewNoteCaptureTarget({
+          vacationId: id,
+          day: state.activeDay,
+          selectedPlaceId: state.selectedByDay[state.activeDay],
+        }),
       resolvePlaceOnSave: async () => {
         const r = await resolveCaptureTarget({
           vacationId: id,

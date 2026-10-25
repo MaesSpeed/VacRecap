@@ -1,4 +1,5 @@
 import { armPointerSuppression } from "./gesture-guard.js";
+import { isTripFooterBlocked } from "./overlay-stack.js";
 import { FOOTER_CAMERA, FOOTER_GALLERY, FOOTER_NOTE, FOOTER_PIN } from "./icons.js";
 import { showToast } from "./toast.js";
 
@@ -63,6 +64,10 @@ export function mountTripFooter(container, handlers = {}) {
     );
 
     btn.addEventListener("click", async (e) => {
+      if (isTripFooterBlocked()) {
+        e.preventDefault();
+        return;
+      }
       if (longPressShown) {
         longPressShown = false;
         e.preventDefault();

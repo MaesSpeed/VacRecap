@@ -1,5 +1,5 @@
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
-import { createNote, removeNote, updateNoteText } from "./note-service.js";
+import { createNote, moveNoteToPlace, removeNote, updateNoteText } from "./note-service.js";
 import { dayRoleLabel, vacationDays } from "./days.js";
 import { openConfirmDialog } from "./ui-confirm.js";
 import { showToast } from "./toast.js";
@@ -20,6 +20,7 @@ export function openNoteSheet({
   placesForDay,
   note,
   resolvePlaceOnSave,
+  previewPlaceLabel,
   onSaved,
   onPlaceChange,
 }) {
@@ -27,8 +28,10 @@ export function openNoteSheet({
   const isEdit = Boolean(note);
   const overlay = document.getElementById("overlay-root");
   overlay.hidden = false;
+  overlay.classList.add("overlay-root--bleed");
 
-  const close = () => {
+  const domClose = () => {
+    overlay.classList.remove("overlay-root--bleed");
     overlay.hidden = true;
     overlay.innerHTML = "";
     saving = false;
@@ -40,7 +43,12 @@ export function openNoteSheet({
     return dayRoleLabel(dayIndex, total);
   }
 
-  const placeName = activePlace?.name ?? "Ort wird beim Speichern gewählt";
+  function placeSubtitle() {
+    if (isEdit) return `Notiz · ${dayRoleLine()}`;
+    return `Ausgewählte Karte · ${dayRoleLine()}`;
+  }
+
+  const initialPlaceName = activePlace?.name ?? "Ort wird beim Speichern gewählt";
 
   overlay.innerHTML = `
     <div class="sheet sheet--note-bottom" data-testid="note-sheet">
@@ -57,24 +65,27 @@ export function openNoteSheet({
       <div class="note-sheet__place" data-role="place-box">
         <span class="note-sheet__pin">${PIN_ICON}</span>
         <div class="note-sheet__place-text">
-          <strong data-role="place-name">${escapeHtml(placeName)}</strong>
-          <span>Ausgewählte Karte · ${escapeHtml(dayRoleLine())}</span>
+          <strong data-role="place-name">${escapeHtml(initialPlaceName)}</strong>
+          <span data-role="place-sub">${escapeHtml(placeSubtitle())}</span>
         </div>
         <button type="button" class="note-sheet__change" data-action="change-place">Ändern</button>
       </div>
-      <button type="button" class="note-sheet__dictate" data-action="focus-text">
-        ${MIC_ICON}
-        <span>Diktieren oder tippen</span>
-      </button>
       <label class="field note-sheet__field">
         <textarea data-role="text" rows="4" placeholder="Notiz schreiben…"></textarea>
       </label>
+      <button type="button" class="note-sheet__dictate" data-action="focus-text">
+        <span class="note-sheet__mic">${MIC_ICON}</span>
+        <span>Diktieren oder tippen</span>
+      </button>
       <button type="button" class="btn btn-emaille btn-emaille--block note-sheet__save-bottom" data-action="save" disabled>Speichern</button>
     </div>
   `;
 
   const textarea = overlay.querySelector('[data-role="text"]');
   const saveBtn = overlay.querySelector('[data-action="save"]');
+  const placeNameEl = overlay.querySelector('[data-role="place-name"]');
+  const placeSubEl = overlay.querySelector('[data-role="place-sub"]');
+
   if (note) textarea.value = note.text || "";
 
   const syncSave = () => {
@@ -83,10 +94,9 @@ export function openNoteSheet({
   textarea.addEventListener("input", syncSave);
   syncSave();
 
-  const isDirty = () =>
-    textarea.value.trim() !== (note?.text || "").trim();
+  const isDirty = () => textarea.value.trim() !== (note?.text || "").trim();
 
-  async function tryClose() {
+  async function dismissNoteSheet() {
     if (isDirty() && textarea.value.trim()) {
       const ok = await openConfirmDialog({
         title: "Verwerfen?",
@@ -97,18 +107,23 @@ export function openNoteSheet({
       });
       if (!ok) return;
     }
-    closeOverlayHistory(close);
+    closeOverlayHistory(domClose);
   }
 
-  bindOverlay(overlay, () => {
-    void tryClose();
-  });
+  bindOverlay(overlay, domClose, () => dismissNoteSheet());
 
-  overlay.querySelector('[data-action="cancel"]').addEventListener("click", () => void tryClose());
+  overlay.querySelector('[data-action="cancel"]').addEventListener("click", () => void dismissNoteSheet());
 
   overlay.querySelector('[data-action="focus-text"]').addEventListener("click", () => {
     textarea.focus();
   });
+
+  if (!isEdit && previewPlaceLabel && !activePlace) {
+    void previewPlaceLabel().then((preview) => {
+      if (!overlay.isConnected || activePlace) return;
+      if (preview?.label) placeNameEl.textContent = preview.label;
+    });
+  }
 
   overlay.querySelector('[data-action="change-place"]')?.addEventListener("click", async () => {
     const places = await placesForDay();
@@ -139,7 +154,10 @@ export function openNoteSheet({
         if (!picked) return;
         activePlace = picked;
         onPlaceChange?.(picked.id);
-        overlay.querySelector('[data-role="place-name"]').textContent = picked.name;
+        placeNameEl.textContent = picked.name;
+        if (!isEdit) {
+          placeSubEl.textContent = `Ausgewählte Karte · ${dayRoleLine()}`;
+        }
         pickLayer.remove();
       });
     });
@@ -151,10 +169,13 @@ export function openNoteSheet({
     const text = textarea.value.trim();
     let captureResult = null;
     let placeToUse = activePlace;
-    if (!isEdit && resolvePlaceOnSave) {
+
+    const useGpsResolve = !isEdit && resolvePlaceOnSave && !placeToUse;
+    if (useGpsResolve) {
       captureResult = await resolvePlaceOnSave();
       placeToUse = captureResult.place;
     }
+
     if (!placeToUse && isEdit) {
       placeToUse = activePlace;
     }
@@ -163,14 +184,18 @@ export function openNoteSheet({
       showToast("Kein Ort gewählt");
       return;
     }
+
     if (isEdit) {
       await updateNoteText(note, text);
+      if (placeToUse.id !== note.placeId) {
+        await moveNoteToPlace(note, placeToUse, { day, vacationId });
+      }
       showToast("Notiz gespeichert");
     } else {
       await createNote({ place: placeToUse, vacationId, day, text });
       showToast("Notiz gespeichert");
     }
-    closeOverlayHistory(close);
+    closeOverlayHistory(domClose);
     await onSaved?.(captureResult);
   });
 
@@ -186,7 +211,7 @@ export function openNoteSheet({
       if (!ok) return;
       saving = true;
       await removeNote(note.id);
-      closeOverlayHistory(close);
+      closeOverlayHistory(domClose);
       showToast("Notiz gelöscht");
       onSaved?.();
     });

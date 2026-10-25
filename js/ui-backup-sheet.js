@@ -37,6 +37,7 @@ function placeDaySummary(placeCount, dayCount) {
 export function openBackupSheet({ vacationId, onSaved }) {
   const overlay = document.getElementById("overlay-root");
   overlay.hidden = false;
+  overlay.classList.add("overlay-root--bleed");
 
   let preparedFile = null;
   let preparing = true;
@@ -46,6 +47,7 @@ export function openBackupSheet({ vacationId, onSaved }) {
 
   const close = () => {
     cancelled = true;
+    overlay.classList.remove("overlay-root--bleed");
     overlay.hidden = true;
     overlay.innerHTML = "";
   };
