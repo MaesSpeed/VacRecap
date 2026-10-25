@@ -1,0 +1,12 @@
+{
+  "name": "vacrecap-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node run-tests.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "playwright": "^1.49.0"
+  }
+}
