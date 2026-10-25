@@ -102,6 +102,7 @@ export async function renderMapScreen(appEl, vacationId) {
   appEl.dataset.vacationId = vacationId;
 
   const closeScreen = () => {
+    abandonOverlayHistory();
     navigate({ name: "urlaub-detail", id: vacationId });
   };
 
