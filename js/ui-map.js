@@ -3,6 +3,8 @@ import { dayColorFor, dayLegendLabel } from "./day-colors.js";
 import { vacationDays } from "./days.js";
 import { getMediaForPlace, getNotesForPlace, getPlacesForVacation, getVacation } from "./db.js";
 import { formatTimeFromTs, getCurrentPosition } from "./geo.js";
+import { peekRouteSegment, resolveRouteSegment } from "./route-service.js";
+import { getMapRoutesEnabled } from "./settings-store.js";
 import { ICON_BACK_CHEVRON } from "./icons.js";
 import { getMapSegment, setMapSegment } from "./map-session.js";
 import { navigate } from "./router.js";
@@ -156,6 +158,8 @@ export async function renderMapScreen(appEl, vacationId) {
 
   const layerGroup = L.layerGroup().addTo(map);
   let mapData = await loadMapPlaces(vacationId);
+  let drawGeneration = 0;
+  let lastFitPlaces = [];
 
   function renderSegments() {
     const items = [
@@ -203,7 +207,70 @@ export async function renderMapScreen(appEl, vacationId) {
     });
   }
 
+  function straightStyle(color) {
+    return {
+      color,
+      weight: 3,
+      opacity: 0.9,
+      lineCap: "round",
+      lineJoin: "round",
+      dashArray: "7 9",
+    };
+  }
+
+  function routedStyle(color) {
+    return {
+      color,
+      weight: 3.5,
+      opacity: 0.9,
+      lineCap: "round",
+      lineJoin: "round",
+    };
+  }
+
+  async function drawSegmentRoutes(sorted, dayIso, gen) {
+    if (sorted.length < 2) return;
+    const color = dayColorFor(vacation, dayIso);
+    const routesEnabled = await getMapRoutesEnabled();
+    const online = navigator.onLine;
+
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const from = sorted[i];
+      const to = sorted[i + 1];
+      const fallback = [[from.lat, from.lng], [to.lat, to.lng]];
+      let layer = L.polyline(fallback, straightStyle(color)).addTo(layerGroup);
+
+      if (!routesEnabled) continue;
+
+      const peek = await peekRouteSegment(
+        { lat: from.lat, lng: from.lng },
+        { lat: to.lat, lng: to.lng }
+      );
+      if (peek?.kind === "routed") {
+        layer.remove();
+        layer = L.polyline(peek.latlngs, routedStyle(color)).addTo(layerGroup);
+        continue;
+      }
+
+      if (!online || peek?.kind === "straight") continue;
+
+      void resolveRouteSegment(
+        { lat: from.lat, lng: from.lng },
+        { lat: to.lat, lng: to.lng },
+        { routesEnabled, online }
+      ).then((result) => {
+        if (gen !== drawGeneration) return;
+        if (!layerGroup.hasLayer(layer)) return;
+        layer.remove();
+        const style = result.kind === "routed" ? routedStyle(color) : straightStyle(color);
+        L.polyline(result.latlngs, style).addTo(layerGroup);
+      });
+    }
+  }
+
   function drawMarkers() {
+    drawGeneration += 1;
+    const gen = drawGeneration;
     layerGroup.clearLayers();
     const items = filteredPlaces();
     const hardItems = items.filter((e) => !e.place.soft);
@@ -215,16 +282,7 @@ export async function renderMapScreen(appEl, vacationId) {
     });
     byDay.forEach((places, dayIso) => {
       const sorted = places.slice().sort((a, b) => a.ts - b.ts);
-      const latlngs = sorted.map((p) => [p.lat, p.lng]);
-      if (latlngs.length >= 2) {
-        L.polyline(latlngs, {
-          color: dayColorFor(vacation, dayIso),
-          weight: 3.5,
-          opacity: 0.9,
-          lineCap: "round",
-          lineJoin: "round",
-        }).addTo(layerGroup);
-      }
+      void drawSegmentRoutes(sorted, dayIso, gen);
     });
 
     items.forEach((entry) => {
@@ -272,7 +330,21 @@ export async function renderMapScreen(appEl, vacationId) {
     });
 
     emptyHint.hidden = items.length > 0;
-    fitView(items.map((e) => e.place));
+    lastFitPlaces = items.map((e) => e.place);
+    scheduleFitView(lastFitPlaces);
+  }
+
+  function scheduleFitView(places) {
+    const run = () => fitView(places);
+    run();
+    requestAnimationFrame(() => {
+      map.invalidateSize();
+      run();
+    });
+    setTimeout(() => {
+      map.invalidateSize();
+      run();
+    }, 350);
   }
 
   function fitView(places) {
@@ -301,7 +373,6 @@ export async function renderMapScreen(appEl, vacationId) {
   renderSegments();
   renderLegend();
   drawMarkers();
-  requestAnimationFrame(() => map.invalidateSize());
 
   const dayForFooter = () => contextDay(vacationId, vacation, segment);
   mountTripFooter(appEl.querySelector('[data-role="footer-mount"]'), {

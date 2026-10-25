@@ -4,10 +4,12 @@ import { navigate } from "./router.js";
 import { requestPersistentStorage } from "./db.js";
 import {
   getLastBackupTs,
+  getMapRoutesEnabled,
   getRememberCaptureLocation,
   getRememberLocationOnOpen,
   getSamePlaceRadiusM,
   samePlaceRadiusOptions,
+  setMapRoutesEnabled,
   setRememberCaptureLocation,
   setRememberLocationOnOpen,
   setSamePlaceRadiusM,
@@ -23,6 +25,7 @@ const ICON_CROSSHAIR = `<svg width="20" height="20" viewBox="0 0 24 24" fill="no
 const ICON_RADIUS = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0066B3" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="7" stroke-dasharray="3 3"/><circle cx="12" cy="12" r="1.5" fill="#0066B3" stroke="none"/><path d="M12 8v2l2 1.5"/></svg>`;
 const ICON_CAMERA = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0066B3" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>`;
 const ICON_BACKUP = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0066B3" stroke-width="2" aria-hidden="true"><rect x="5" y="4" width="14" height="16" rx="2"/><path d="M9 11l3 3 3-3"/></svg>`;
+const ICON_MAP_ROUTE = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0066B3" stroke-width="2" aria-hidden="true"><path d="M4 18l4-8 4 4 4-10 4 6"/><circle cx="4" cy="18" r="1.5" fill="#0066B3"/></svg>`;
 const ICON_LOCK = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5B6B7A" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>`;
 const ICON_CHEVRON = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#B8C5D1" stroke-width="1.75" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>`;
 
@@ -38,10 +41,11 @@ export async function renderUrlaubSettings(appEl, id) {
   }
 
   void requestPersistentStorage();
-  const [remember, radiusM, captureLoc, lastBackup] = await Promise.all([
+  const [remember, radiusM, captureLoc, mapRoutes, lastBackup] = await Promise.all([
     getRememberLocationOnOpen(),
     getSamePlaceRadiusM(),
     getRememberCaptureLocation(),
+    getMapRoutesEnabled(),
     getLastBackupTs(id),
   ]);
   const backupSub = lastBackup
@@ -103,6 +107,20 @@ export async function renderUrlaubSettings(appEl, id) {
         </div>
       </section>
       <section class="settings-block">
+        <h2 class="settings-block__label">Karte</h2>
+        <div class="settings-card">
+          <div class="settings-item settings-item--switch" data-action="toggle-map-routes">
+            <span class="settings-item__icon">${ICON_MAP_ROUTE}</span>
+            <div class="settings-item__text">
+              <span class="settings-item__title">Routen auf Karte</span>
+              <span class="settings-item__sub">Straßen und Wege statt gerader Linien</span>
+            </div>
+            ${switchHtml("map-routes", mapRoutes, "Routen auf Karte")}
+          </div>
+        </div>
+        <p class="settings-privacy settings-privacy--map">Für Routen werden nur Koordinaten an den OpenStreetMap-Routing-Dienst gesendet – keine Namen, Fotos oder Notizen.</p>
+      </section>
+      <section class="settings-block">
         <h2 class="settings-block__label">Daten</h2>
         <div class="settings-card settings-card--tight">
           <button type="button" class="settings-item settings-item--link" data-action="backup">
@@ -149,6 +167,7 @@ export async function renderUrlaubSettings(appEl, id) {
 
   const rememberBtn = appEl.querySelector('[data-testid="remember-location"]');
   const captureBtn = appEl.querySelector('[data-testid="remember-capture"]');
+  const mapRoutesBtn = appEl.querySelector('[data-testid="map-routes"]');
   const radiusValue = appEl.querySelector('[data-role="radius-value"]');
 
   const setSwitch = (btn, on) => {
@@ -176,6 +195,7 @@ export async function renderUrlaubSettings(appEl, id) {
 
   wireSwitch(rememberBtn, "toggle-remember", setRememberLocationOnOpen);
   wireSwitch(captureBtn, "toggle-capture", setRememberCaptureLocation);
+  wireSwitch(mapRoutesBtn, "toggle-map-routes", setMapRoutesEnabled);
 
   appEl.querySelectorAll("[data-radius]").forEach((btn) => {
     btn.addEventListener("click", () => {

@@ -116,7 +116,7 @@ async function runSuite(deviceName, contextOptions) {
 
   await ctx.setGeolocation({ latitude: 48.8587, longitude: 2.2948 });
   const buf = await makeJpeg(page, 1);
-  await page.locator('[data-role="photo-input"]').setInputFiles({
+  await page.locator('[data-role="capture-input"]').setInputFiles({
     name: "near.jpg",
     mimeType: "image/jpeg",
     buffer: buf,
@@ -137,7 +137,7 @@ async function runSuite(deviceName, contextOptions) {
   await page.reload();
   await page.waitForSelector('[data-testid="place-list"]');
   const buf2 = await makeJpeg(page, 2);
-  await page.locator('[data-role="photo-input"]').setInputFiles({
+  await page.locator('[data-role="capture-input"]').setInputFiles({
     name: "far.jpg",
     mimeType: "image/jpeg",
     buffer: buf2,
@@ -156,7 +156,7 @@ async function runSuite(deviceName, contextOptions) {
 
   await ctx.setGeolocation(null);
   const buf3 = await makeJpeg(page, 3);
-  await page.locator('[data-role="photo-input"]').setInputFiles({
+  await page.locator('[data-role="capture-input"]').setInputFiles({
     name: "denied.jpg",
     mimeType: "image/jpeg",
     buffer: buf3,
@@ -223,8 +223,8 @@ async function assertFooterIconsAligned(page, deviceName) {
     if (Math.abs(m.top - icons[0].top) > tol) {
       throw new Error(`${deviceName}: Icon top nicht fluchtend ${JSON.stringify(icons)}`);
     }
-    if (Math.abs(m.svgW - 26) > 1 || Math.abs(m.svgH - 26) > 1) {
-      throw new Error(`${deviceName}: SVG nicht 26×26: ${m.svgW}×${m.svgH}`);
+    if (Math.abs(m.svgW - 32) > 1 || Math.abs(m.svgH - 32) > 1) {
+      throw new Error(`${deviceName}: SVG nicht 32×32: ${m.svgW}×${m.svgH}`);
     }
     if (Math.abs(m.cy - icons[0].cy) > tol) {
       throw new Error(`${deviceName}: Icon-Mitte nicht auf einer Linie`);

@@ -228,7 +228,7 @@ async function main() {
     };
   });
   console.log("Draft pixel check (2b):", JSON.stringify(draftStyles, null, 2));
-  if (draftStyles.meta.fontSize !== "11.5px" || draftStyles.meta.fontWeight !== "700") {
+  if (draftStyles.meta.fontSize !== "12px" || draftStyles.meta.fontWeight !== "800") {
     throw new Error(`meta style mismatch: ${JSON.stringify(draftStyles.meta)}`);
   }
   if (draftStyles.note.fontSize !== "12.8px") {
@@ -237,7 +237,7 @@ async function main() {
   if (parseFloat(draftStyles.note.lineHeight) < 17.2 || parseFloat(draftStyles.note.lineHeight) > 17.6) {
     throw new Error(`note line-height mismatch: ${draftStyles.note.lineHeight}`);
   }
-  if (draftStyles.nrGap !== "6px") {
+  if (draftStyles.nrGap !== "7px") {
     throw new Error(`nr gap mismatch: ${draftStyles.nrGap}`);
   }
 
@@ -254,13 +254,24 @@ async function main() {
   });
   await page.click('[data-action="cancel"]');
 
+  await page.evaluate(() => {
+    window.__captureOpens = 0;
+    document.querySelector('[data-role="capture-input"]')?.addEventListener("click", () => {
+      window.__captureOpens = (window.__captureOpens || 0) + 1;
+    });
+  });
+  const chooserPromise = page.waitForEvent("filechooser", { timeout: 3000 }).catch(() => null);
   await page.click('[data-footer-action="camera"]');
-  await page.waitForSelector('[data-testid="camera-sheet"]');
+  const chooser = await chooserPromise;
+  if (chooser) await chooser.setFiles([]);
+  const captureOpens = await page.evaluate(() => window.__captureOpens ?? 0);
+  if (captureOpens !== 1) {
+    throw new Error(`camera footer should open capture-input once, got ${captureOpens}`);
+  }
   await page.screenshot({
     path: path.join(screenshotsDir, "14-kamera-auswahl-sheet.png"),
     fullPage: true,
   });
-  await page.click('[data-action="cancel"]');
 
   await page.locator(".oc--selected .tile").first().click();
   await page.waitForSelector('[data-testid="media-viewer"]');
@@ -274,7 +285,7 @@ async function main() {
   const jpeg = await gradientJpegBuffer(page);
   await page.evaluate(
     async (bytes) => {
-      const input = document.querySelector('[data-role="photo-input"]');
+      const input = document.querySelector('[data-role="capture-input"]');
       const file = new File([new Uint8Array(bytes)], "gradient.jpg", { type: "image/jpeg" });
       const dt = new DataTransfer();
       dt.items.add(file);
