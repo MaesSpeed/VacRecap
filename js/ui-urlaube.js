@@ -8,7 +8,8 @@ import {
   daysUntilStart,
   escapeHtml,
   formatCountdown,
-  formatDateRange,
+  formatDateRangeCard,
+  formatDateRangeOverlay,
   initialsFromNames,
   tripStatus,
 } from "./utils.js";
@@ -33,7 +34,10 @@ export async function renderUrlaubeScreen(appEl, vacations) {
       <h1 class="top-bar__title">Urlaube</h1>
       <div class="top-bar__actions">
         <button type="button" class="icon-btn" data-action="settings" aria-label="Einstellungen">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm7.4-2.9.9-.7a.8.8 0 0 0 .2-1l-.9-1.5a.8.8 0 0 0-.9-.4l-1 .2a7.2 7.2 0 0 0-1.6-1l-.2-1.1a.8.8 0 0 0-.8-.7h-1.8a.8.8 0 0 0-.8.7l-.2 1.1a7.2 7.2 0 0 0-1.6 1l-1-.2a.8.8 0 0 0-.9.4l-.9 1.5a.8.8 0 0 0 .2 1l.9.7a6.5 6.5 0 0 0 0 2l-.9.7a.8.8 0 0 0-.2 1l.9 1.5c.2.3.6.4.9.3l1-.2c.5.5 1 .9 1.6 1.2l.2 1.1c.1.4.4.7.8.7h1.8c.4 0 .7-.3.8-.7l.2-1.1c.6-.3 1.1-.7 1.6-1.2l1 .2c.3.1.7 0 .9-.3l.9-1.5a.8.8 0 0 0-.2-1l-.9-.7a6.5 6.5 0 0 0 0-2Z" fill="currentColor"/></svg>
+          <svg class="icon-gear" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
         </button>
         <button type="button" class="icon-btn icon-btn--emaille" data-action="new" aria-label="Neuen Urlaub anlegen">
           <span aria-hidden="true">+</span>
@@ -120,7 +124,7 @@ function cardCurrent(v) {
         <span class="badge badge--day">Tag ${day} von ${total}</span>
         <div class="card--hero__overlay">
           <h3 class="card--hero__title">${escapeHtml(v.title)}</h3>
-          <p class="card--hero__dates">${formatDateRange(v.startDate, v.endDate)}</p>
+          <p class="card--hero__dates">${formatDateRangeOverlay(v.startDate, v.endDate)}</p>
         </div>
       </div>
       <div class="card--hero__footer">
@@ -137,7 +141,6 @@ function cardCompact(v, kind) {
     kind === "upcoming"
       ? `<span class="card-compact__countdown">${formatCountdown(daysUntilStart(v.startDate))}</span>`
       : `<span class="card-compact__stats">${v.stats.places} Orte · ${v.stats.photos} Fotos</span>`;
-  const days = dayCountInclusive(v.startDate, v.endDate);
   return `
     <article class="card card--compact" data-vacation-id="${v.id}" tabindex="0">
       <div class="card-compact__thumb">
@@ -145,7 +148,7 @@ function cardCompact(v, kind) {
       </div>
       <div class="card-compact__body">
         <h3 class="card-compact__title">${escapeHtml(v.title)}</h3>
-        <p class="card-compact__dates">${formatDateRange(v.startDate, v.endDate)} · ${days} Tage</p>
+        <p class="card-compact__dates">${formatDateRangeCard(v.startDate, v.endDate)}</p>
         <div class="card-compact__meta">
           ${meta}
           <div class="avatars">${avatars}</div>

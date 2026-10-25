@@ -56,7 +56,7 @@ async function main() {
   await page.screenshot({ path: path.join(screenshotsDir, "01-urlaube-leer.png"), fullPage: true });
 
   await page.click('[data-action="new"]');
-  await page.waitForSelector(".form-header__title");
+  await page.waitForSelector(".form-header--minimal");
   await page.fill('[name="title"]', "Paris");
   await page.click('[data-action="pick-dates"]');
   await page.click('.calendar-day[data-date="2026-11-06"]');

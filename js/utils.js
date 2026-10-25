@@ -30,8 +30,27 @@ export function formatDateShort(iso) {
   return `${wd} ${String(d).padStart(2, "0")}.${String(m).padStart(2, "0")}.${y}`;
 }
 
+/** Kartenzeile: Fr 06.11. – So 08.11.2026 · 3 Tage */
+export function formatDatePart(iso, withYear = true) {
+  const date = parseIsoDate(iso);
+  const wd = WEEKDAYS_SHORT[date.getDay()];
+  const d = String(date.getDate()).padStart(2, "0");
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  if (withYear) return `${wd} ${d}.${m}.${date.getFullYear()}`;
+  return `${wd} ${d}.${m}.`;
+}
+
+export function formatDateRangeCard(startIso, endIso) {
+  const days = dayCountInclusive(startIso, endIso);
+  return `${formatDatePart(startIso, false)} – ${formatDatePart(endIso, true)} · ${days} Tage`;
+}
+
+export function formatDateRangeOverlay(startIso, endIso) {
+  return `${formatDatePart(startIso, false)} – ${formatDatePart(endIso, true)}`;
+}
+
 export function formatDateRange(startIso, endIso) {
-  return `${formatDateShort(startIso)} – ${formatDateShort(endIso)}`;
+  return formatDateRangeOverlay(startIso, endIso);
 }
 
 export function dayCountInclusive(startIso, endIso) {

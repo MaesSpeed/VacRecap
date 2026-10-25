@@ -8,6 +8,7 @@ import {
   dayCountInclusive,
   escapeHtml,
   formatDateRange,
+  formatDateRangeOverlay,
   resizeImageFile,
 } from "./utils.js";
 import { openDateRangePicker } from "./ui-calendar.js";
@@ -29,10 +30,8 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
 
   appEl.className = "screen screen--form";
   appEl.innerHTML = `
-    <header class="form-header">
+    <header class="form-header form-header--minimal">
       <button type="button" class="link-btn" data-action="cancel">Abbrechen</button>
-      <h1 class="form-header__title">${isEdit ? "Urlaub bearbeiten" : "Neuer Urlaub"}</h1>
-      <span class="form-header__spacer"></span>
     </header>
     <form class="vacation-form" id="vacation-form">
       <label class="field">
@@ -57,9 +56,8 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
           <img src="${coverPreviewUrl}" alt="" />
           <div class="cover-preview__overlay">
             <strong data-role="cover-title">${escapeHtml(vacation.title || "Titel")}</strong>
-            <span data-role="cover-dates">${vacation.startDate && vacation.endDate ? formatDateRange(vacation.startDate, vacation.endDate) : ""}</span>
+            <span data-role="cover-dates">${vacation.startDate && vacation.endDate ? formatDateRangeOverlay(vacation.startDate, vacation.endDate) : ""}</span>
           </div>
-          <span class="cover-preview__badge" data-role="cover-badge"></span>
         </div>
         <div class="cover-picker" role="list">
           <button type="button" class="cover-thumb cover-thumb--custom" data-preset="custom">
@@ -103,20 +101,10 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
   const dateSub = appEl.querySelector('[data-role="date-sub"]');
   const coverTitle = appEl.querySelector('[data-role="cover-title"]');
   const coverDates = appEl.querySelector('[data-role="cover-dates"]');
-  const coverBadge = appEl.querySelector('[data-role="cover-badge"]');
   const coverImg = appEl.querySelector(".cover-preview img");
   const fileInput = appEl.querySelector('[data-role="file-input"]');
   const nameInput = appEl.querySelector('[data-role="name-input"]');
   const nameChipsEl = appEl.querySelector('[data-role="name-chips"]');
-
-  function refreshCoverBadge() {
-    if (vacation.cover.type === "preset") {
-      const p = COVER_PRESETS.find((x) => x.id === vacation.cover.presetId);
-      coverBadge.textContent = p ? `Standardbild · ${p.label}` : "";
-    } else {
-      coverBadge.textContent = "Eigenes Foto";
-    }
-  }
 
   function refreshNames() {
     nameChipsEl.innerHTML = vacation.companions.names
@@ -130,11 +118,13 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
   function syncMeta() {
     coverTitle.textContent = titleInput.value.trim() || "Titel";
     if (vacation.startDate && vacation.endDate) {
-      coverDates.textContent = formatDateRange(vacation.startDate, vacation.endDate);
+      coverDates.textContent = formatDateRangeOverlay(
+        vacation.startDate,
+        vacation.endDate
+      );
     }
   }
 
-  refreshCoverBadge();
   refreshNames();
   highlightPresetButtons();
 
@@ -169,7 +159,6 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
       vacation.cover = { type: "preset", presetId: preset };
       coverPreviewUrl = presetUrl(preset);
       coverImg.src = coverPreviewUrl;
-      refreshCoverBadge();
       highlightPresetButtons();
     });
   });
@@ -184,7 +173,6 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
     if (customObjectUrl) URL.revokeObjectURL(customObjectUrl);
     customObjectUrl = URL.createObjectURL(blob);
     coverImg.src = customObjectUrl;
-    refreshCoverBadge();
     highlightPresetButtons();
   });
 
