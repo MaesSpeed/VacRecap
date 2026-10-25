@@ -30,9 +30,17 @@ export function installGestureGuards() {
   });
 }
 
+const backdropUnbindByOverlay = new WeakMap();
+
+/** Ersetzt einen früheren Backdrop-Listener auf demselben Overlay (z. B. overlay-root). */
 export function bindBackdropDismiss(overlay, closeFn) {
-  overlay.addEventListener("click", (e) => {
+  backdropUnbindByOverlay.get(overlay)?.();
+  const handler = (e) => {
     if (isPointerSuppressed()) return;
     if (e.target === overlay) closeFn();
-  });
+  };
+  overlay.addEventListener("click", handler);
+  const unbind = () => overlay.removeEventListener("click", handler);
+  backdropUnbindByOverlay.set(overlay, unbind);
+  return unbind;
 }

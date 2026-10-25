@@ -64,7 +64,7 @@ export function openBackupSheet({ vacationId, onSaved }) {
     </div>
   `;
 
-  bindOverlay(overlay, close);
+  const activeClose = bindOverlay(overlay, close);
 
   const bodyEl = overlay.querySelector('[data-role="body"]');
   const saveBtn = () => overlay.querySelector('[data-action="save"]');
@@ -182,7 +182,7 @@ export function openBackupSheet({ vacationId, onSaved }) {
       const outcome = await deliverBackupFile(preparedFile);
       if (outcome.aborted) return;
       await setLastBackupTs(vacationId, Date.now());
-      closeOverlayHistory(close);
+      closeOverlayHistory(activeClose);
       const extra =
         outcome.method === "download"
           ? "Die Datei liegt in »Dateien« bzw. Downloads"
@@ -209,7 +209,7 @@ export function openBackupSheet({ vacationId, onSaved }) {
   }
 
   overlay.querySelector('[data-action="cancel"]').addEventListener("click", () =>
-    closeOverlayHistory(close)
+    closeOverlayHistory(activeClose)
   );
 
   void (async () => {

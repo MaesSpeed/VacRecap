@@ -25,7 +25,7 @@ export function openMediathekPlaceSheet({ vacationId, day, onSelect }) {
     </div>
   `;
 
-  bindOverlay(overlay, close);
+  const activeClose = bindOverlay(overlay, close);
 
   const listEl = overlay.querySelector('[data-role="list"]');
 
@@ -55,17 +55,17 @@ export function openMediathekPlaceSheet({ vacationId, day, onSelect }) {
     listEl.querySelectorAll("[data-place-id]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const place = hard.find((p) => p.id === btn.dataset.placeId);
-        closeOverlayHistory(close);
+        closeOverlayHistory(activeClose);
         onSelect({ place, ohneOrtPending: false });
       });
     });
     listEl.querySelector('[data-action="ohne-ort"]').addEventListener("click", () => {
-      closeOverlayHistory(close);
+      closeOverlayHistory(activeClose);
       onSelect({ place: null, ohneOrtPending: true });
     });
   });
 
   overlay.querySelector('[data-action="cancel"]').addEventListener("click", () =>
-    closeOverlayHistory(close)
+    closeOverlayHistory(activeClose)
   );
 }

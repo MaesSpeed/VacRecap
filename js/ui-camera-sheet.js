@@ -35,21 +35,21 @@ export function openCameraChoiceSheet({ onPhoto, onVideo }) {
     busy = false;
   };
 
-  bindOverlay(overlay, close);
+  const activeClose = bindOverlay(overlay, close);
 
   overlay.querySelector('[data-action="cancel"]').addEventListener("click", () =>
-    closeOverlayHistory(close)
+    closeOverlayHistory(activeClose)
   );
   overlay.querySelector('[data-action="photo"]').addEventListener("click", () => {
     if (busy) return;
     busy = true;
-    closeOverlayHistory(close);
+    closeOverlayHistory(activeClose);
     onPhoto?.();
   });
   overlay.querySelector('[data-action="video"]').addEventListener("click", () => {
     if (busy) return;
     busy = true;
-    closeOverlayHistory(close);
+    closeOverlayHistory(activeClose);
     onVideo?.();
   });
 }

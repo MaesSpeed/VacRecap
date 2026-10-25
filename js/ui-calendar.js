@@ -177,16 +177,16 @@ export function openDateRangePicker({ startDate, endDate, onApply }) {
     overlay.innerHTML = "";
   };
 
-  bindOverlay(overlay, close);
+  const activeClose = bindOverlay(overlay, close);
 
   applyBtn.addEventListener("click", () => {
     if (!draftStart || !draftEnd) return;
     onApply({ startDate: draftStart, endDate: draftEnd });
-    closeOverlayHistory(close);
+    closeOverlayHistory(activeClose);
   });
 
   sheet.querySelector('[data-action="cancel"]').addEventListener("click", () => {
-    closeOverlayHistory(close);
+    closeOverlayHistory(activeClose);
   });
 
   refresh();

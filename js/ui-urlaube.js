@@ -241,17 +241,17 @@ function showCardMenu(id, vacations) {
     overlay.innerHTML = "";
   };
 
-  bindOverlay(overlay, close);
+  const activeClose = bindOverlay(overlay, close);
 
   overlay.querySelector('[data-action="cancel"]').addEventListener("click", () =>
-    closeOverlayHistory(close)
+    closeOverlayHistory(activeClose)
   );
   overlay.querySelector('[data-action="edit"]').addEventListener("click", () => {
-    releaseOverlayHistory(close);
+    releaseOverlayHistory(activeClose);
     navigate({ name: "urlaub-form", mode: "edit", id });
   });
   overlay.querySelector('[data-action="delete"]').addEventListener("click", () => {
-    closeOverlayHistory(close);
+    closeOverlayHistory(activeClose);
     confirmDelete(id, vacation.title);
   });
 }
@@ -275,10 +275,10 @@ function confirmDelete(id, title) {
     overlay.innerHTML = "";
   };
 
-  bindOverlay(overlay, close);
+  const activeClose = bindOverlay(overlay, close);
 
   overlay.querySelector('[data-action="cancel"]').addEventListener("click", () =>
-    closeOverlayHistory(close)
+    closeOverlayHistory(activeClose)
   );
   overlay.querySelector('[data-action="confirm"]').addEventListener("click", async () => {
     const { deleteVacation, getVacation, deleteBlob, deleteVacationData } =
@@ -289,7 +289,7 @@ function confirmDelete(id, title) {
     }
     await deleteVacationData(id);
     await deleteVacation(id);
-    closeOverlayHistory(close);
+    closeOverlayHistory(activeClose);
     const { showToast } = await import("./toast.js");
     showToast("Urlaub gelöscht");
     window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));

@@ -44,7 +44,7 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
     overlay.innerHTML = "";
   };
 
-  bindOverlay(overlay, close);
+  const activeClose = bindOverlay(overlay, close);
 
   const input = overlay.querySelector('[data-role="name"]');
   const saveBtn = overlay.querySelector('[data-action="save"]');
@@ -55,12 +55,12 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
   syncSave();
 
   overlay.querySelector('[data-action="cancel"]').addEventListener("click", () =>
-    closeOverlayHistory(close)
+    closeOverlayHistory(activeClose)
   );
   overlay.querySelector('[data-action="save"]').addEventListener("click", async () => {
     if (saveBtn.disabled) return;
     const updated = await updatePlaceName(place, input.value);
-    closeOverlayHistory(close);
+    closeOverlayHistory(activeClose);
     showToast("Gespeichert");
     onSaved?.(updated);
   });
@@ -81,7 +81,7 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
     });
     if (!ok) return;
     await deletePlaceCascade(place.id);
-    closeOverlayHistory(close);
+    closeOverlayHistory(activeClose);
     showToast("Ort gelöscht");
     onDeleted?.(place.id);
   });
@@ -111,20 +111,20 @@ export function openSoftPointSheet(place, { vacationId, day, onPromoted, onDisca
     overlay.innerHTML = "";
   };
 
-  bindOverlay(overlay, close);
+  const activeClose = bindOverlay(overlay, close);
 
   overlay.querySelector('[data-action="cancel"]').addEventListener("click", () =>
-    closeOverlayHistory(close)
+    closeOverlayHistory(activeClose)
   );
   overlay.querySelector('[data-action="promote"]').addEventListener("click", async () => {
     const result = await promoteSoftPlace(place, { vacationId, day });
-    closeOverlayHistory(close);
+    closeOverlayHistory(activeClose);
     onPromoted?.(result.place, result.duplicate);
   });
   overlay.querySelector('[data-action="discard"]').addEventListener("click", async () => {
     const { discardSoftPlace } = await import("./place-service.js");
     await discardSoftPlace(place.id);
-    closeOverlayHistory(close);
+    closeOverlayHistory(activeClose);
     onDiscarded?.(place.id);
   });
 }
