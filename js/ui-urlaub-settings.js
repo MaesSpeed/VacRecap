@@ -1,7 +1,9 @@
 import { deleteBlob, deleteVacation, deleteVacationData, getVacation } from "./db.js";
 import { ICON_BACK_CHEVRON } from "./icons.js";
 import { navigate } from "./router.js";
+import { requestPersistentStorage } from "./db.js";
 import {
+  getLastBackupTs,
   getRememberCaptureLocation,
   getRememberLocationOnOpen,
   getSamePlaceRadiusM,
@@ -10,6 +12,8 @@ import {
   setRememberLocationOnOpen,
   setSamePlaceRadiusM,
 } from "./settings-store.js";
+import { formatBytesGerman, formatGermanDateTime } from "./storage-format.js";
+import { openBackupSheet } from "./ui-backup-sheet.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { showToast } from "./toast.js";
 import { escapeHtml } from "./utils.js";
@@ -32,11 +36,16 @@ export async function renderUrlaubSettings(appEl, id) {
     return;
   }
 
-  const [remember, radiusM, captureLoc] = await Promise.all([
+  void requestPersistentStorage();
+  const [remember, radiusM, captureLoc, lastBackup] = await Promise.all([
     getRememberLocationOnOpen(),
     getSamePlaceRadiusM(),
     getRememberCaptureLocation(),
+    getLastBackupTs(id),
   ]);
+  const backupSub = lastBackup
+    ? `Zuletzt: ${formatGermanDateTime(lastBackup)}`
+    : "ZIP mit allen Fotos, Videos und Notizen";
   const radiusOptions = samePlaceRadiusOptions();
 
   appEl.className = "screen screen--settings";
@@ -99,11 +108,13 @@ export async function renderUrlaubSettings(appEl, id) {
             <span class="settings-item__icon">${ICON_BACKUP}</span>
             <div class="settings-item__text">
               <span class="settings-item__title">Sicherung speichern</span>
-              <span class="settings-item__sub">ZIP mit allen Fotos, Videos und Notizen</span>
+              <span class="settings-item__sub" data-role="backup-sub">${escapeHtml(backupSub)}</span>
             </div>
             <span class="settings-item__chevron">${ICON_CHEVRON}</span>
           </button>
         </div>
+        <p class="settings-storage" data-role="storage-line" hidden></p>
+        <p class="settings-storage settings-storage--warn" data-role="storage-warn" hidden>Speicher wird knapp – Sicherung machen</p>
         <p class="settings-privacy">${ICON_LOCK} Alles wird nur auf deinem Handy gespeichert.</p>
       </section>
       <section class="settings-block">
@@ -164,8 +175,34 @@ export async function renderUrlaubSettings(appEl, id) {
   });
 
   appEl.querySelector('[data-action="backup"]').addEventListener("click", () => {
-    showToast("Kommt im nächsten Schritt");
+    openBackupSheet({
+      vacationId: id,
+      onSaved: async () => {
+        const ts = await getLastBackupTs(id);
+        const sub = ts
+          ? `Zuletzt: ${formatGermanDateTime(ts)}`
+          : "ZIP mit allen Fotos, Videos und Notizen";
+        const el = appEl.querySelector('[data-role="backup-sub"]');
+        if (el) el.textContent = sub;
+      },
+    });
   });
+
+  void (async () => {
+    if (!navigator.storage?.estimate) return;
+    try {
+      const { usage, quota } = await navigator.storage.estimate();
+      if (!Number.isFinite(usage) || !Number.isFinite(quota) || quota <= 0) return;
+      const line = appEl.querySelector('[data-role="storage-line"]');
+      line.textContent = `Belegt: ${formatBytesGerman(usage)} von ca. ${formatBytesGerman(quota)}`;
+      line.hidden = false;
+      if (usage / quota >= 0.8) {
+        appEl.querySelector('[data-role="storage-warn"]').hidden = false;
+      }
+    } catch {
+      /* ignore */
+    }
+  })();
 
   appEl.querySelector('[data-action="edit"]').addEventListener("click", () => {
     sessionStorage.setItem(

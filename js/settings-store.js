@@ -3,6 +3,7 @@ import { getSetting, putSetting } from "./db.js";
 const KEY_REMEMBER_LOCATION = "rememberLocationOnOpen";
 const KEY_SAME_PLACE_RADIUS = "samePlaceRadiusM";
 const KEY_REMEMBER_CAPTURE = "rememberCaptureLocation";
+const KEY_LAST_BACKUP = "lastBackupByVacation";
 
 const RADIUS_OPTIONS = [50, 100, 150, 300, 500];
 
@@ -41,4 +42,17 @@ export async function getRememberCaptureLocation() {
 
 export async function setRememberCaptureLocation(enabled) {
   await putSetting(KEY_REMEMBER_CAPTURE, enabled);
+}
+
+export async function getLastBackupTs(vacationId) {
+  const all = await getSetting(KEY_LAST_BACKUP);
+  if (!all || typeof all !== "object") return null;
+  const ts = all[vacationId];
+  return typeof ts === "number" ? ts : null;
+}
+
+export async function setLastBackupTs(vacationId, ts) {
+  const all = (await getSetting(KEY_LAST_BACKUP)) || {};
+  all[vacationId] = ts;
+  await putSetting(KEY_LAST_BACKUP, all);
 }

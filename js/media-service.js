@@ -2,7 +2,8 @@ import {
   putMedia,
   requestPersistentStorage,
 } from "./db.js";
-import { processPhotoFile, processVideoFile } from "./media-process.js";
+import { inferPhotoExt, inferPhotoMime, inferVideoExt, inferVideoMime } from "./media-file-meta.js";
+import { processPhotoOriginal, processVideoFile } from "./media-process.js";
 import { createId } from "./utils.js";
 
 let persistRequested = false;
@@ -30,7 +31,7 @@ export async function savePhotoForPlace({
   sourceKey,
 }) {
   await ensurePersist();
-  const processed = await processPhotoFile(file);
+  const processed = await processPhotoOriginal(file);
   const record = {
     id: createId(),
     placeId: place.id,
@@ -42,6 +43,8 @@ export async function savePhotoForPlace({
     thumbBlob: processed.thumbBlob,
     w: processed.w,
     h: processed.h,
+    mime: inferPhotoMime(file),
+    ext: inferPhotoExt(file),
     sourceKey: sourceKey ?? null,
   };
   try {
@@ -76,6 +79,8 @@ export async function saveVideoForPlace({
     h: processed.h,
     duration: processed.duration,
     durationLabel: processed.durationLabel,
+    mime: inferVideoMime(file),
+    ext: inferVideoExt(file),
     sourceKey: sourceKey ?? null,
   };
   try {
