@@ -28,11 +28,14 @@ import { openMediaViewer } from "./ui-media-viewer.js";
 import { openNoteSheet } from "./ui-note-sheet.js";
 import {
   buildThumbUrlMap,
+  ensurePhotoThumbs,
   loadDayPlacesEnriched,
   renderPlaceListHtml,
   revokeThumbUrls,
   wrapPlaceList,
 } from "./ui-place-list.js";
+
+const thumbRegenInflight = new Map();
 import { openEditPlaceSheet, openSoftPointSheet } from "./ui-place-sheets.js";
 import { createMediathekSession } from "./mediathek-session.js";
 import { mountTripFooter } from "./ui-trip-footer.js";
@@ -191,6 +194,8 @@ export async function renderUrlaubDetail(appEl, id) {
     if (token !== state.listRefreshToken) return;
 
     const allMedia = items.flatMap((i) => i.media);
+    await ensurePhotoThumbs(allMedia);
+    if (token !== state.listRefreshToken) return;
     const nextThumbUrls = buildThumbUrlMap(allMedia);
     const previousThumbUrls = state.thumbUrls;
 
@@ -224,28 +229,26 @@ export async function renderUrlaubDetail(appEl, id) {
     revokeThumbUrls(previousThumbUrls);
   }
 
-  async function regenerateThumbFromOriginal(mediaId, imgEl) {
-    if (!mediaId || imgEl?.dataset?.thumbRegenerating === "1") return;
-    if (imgEl) imgEl.dataset.thumbRegenerating = "1";
-    try {
-      const { getMedia, putMedia } = await import("./db.js");
-      const { createPhotoThumbFromBlob } = await import("./media-process.js");
+  async function regenerateThumbFromOriginal(mediaId) {
+    if (!mediaId) return;
+    if (thumbRegenInflight.has(mediaId)) {
+      await thumbRegenInflight.get(mediaId);
+      return;
+    }
+    const job = (async () => {
+      const { getMedia } = await import("./db.js");
       const record = await getMedia(mediaId);
-      if (!record?.blob || record.type === "video") return;
-      const thumbBlob = await createPhotoThumbFromBlob(record.blob);
-      await putMedia({ ...record, thumbBlob });
-      const newUrl = URL.createObjectURL(thumbBlob);
-      const oldUrl = state.thumbUrls[mediaId];
-      state.thumbUrls[mediaId] = newUrl;
-      if (oldUrl) URL.revokeObjectURL(oldUrl);
-      if (imgEl) {
-        imgEl.src = newUrl;
-        imgEl.hidden = false;
-      }
+      if (!record) return;
+      await ensurePhotoThumbs([record]);
+    })();
+    thumbRegenInflight.set(mediaId, job);
+    try {
+      await job;
+      await refreshDayList();
     } catch {
-      /* Platzhalter bleibt sichtbar */
+      /* Platzhalter bleibt bis nächster Refresh */
     } finally {
-      if (imgEl) delete imgEl.dataset.thumbRegenerating;
+      thumbRegenInflight.delete(mediaId);
     }
   }
 
@@ -454,8 +457,13 @@ export async function renderUrlaubDetail(appEl, id) {
       const img = e.target;
       if (!img?.matches?.(".tile__img, .th__img")) return;
       const mediaId = img.dataset.mediaId || img.closest("[data-media-id]")?.dataset?.mediaId;
-      img.hidden = true;
-      void regenerateThumbFromOriginal(mediaId, img);
+      const thumbWrap = img.closest(".th");
+      img.remove();
+      if (thumbWrap && !thumbWrap.classList.contains("th--ph")) {
+        thumbWrap.classList.add("th--ph");
+        if (mediaId) thumbWrap.dataset.mediaId = mediaId;
+      }
+      void regenerateThumbFromOriginal(mediaId);
     },
     true
   );

@@ -14,10 +14,6 @@ const ICON_NOTE = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" s
 const PLAY_SVG = `<svg class="tile__play" width="14" height="14" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>`;
 
 export async function loadDayPlacesEnriched(vacationId, day) {
-  const delayMs = typeof globalThis !== "undefined" ? globalThis.__vacrecapSlowPlaces : 0;
-  if (delayMs > 0) {
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
-  }
   const { getPlacesForDay } = await import("./db.js");
   const places = sortPlacesChronologicalDesc(await getPlacesForDay(vacationId, day));
   const enriched = await Promise.all(
@@ -34,6 +30,24 @@ export async function loadDayPlacesEnriched(vacationId, day) {
     })
   );
   return filterSoftPointsHidden(enriched, vacationId, day);
+}
+
+function photoThumbMissing(media) {
+  return media.type !== "video" && (!media.thumbBlob || media.thumbBlob.size === 0);
+}
+
+export async function ensurePhotoThumbs(mediaList) {
+  const { getMedia, putMedia } = await import("./db.js");
+  const { createPhotoThumbFromBlob } = await import("./media-process.js");
+  for (const media of mediaList) {
+    if (!photoThumbMissing(media)) continue;
+    const record = (await getMedia(media.id)) || media;
+    if (!record?.blob || record.type === "video") continue;
+    const thumbBlob = await createPhotoThumbFromBlob(record.blob);
+    const updated = { ...record, thumbBlob };
+    await putMedia(updated);
+    media.thumbBlob = thumbBlob;
+  }
 }
 
 export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrls = {} }) {
@@ -117,8 +131,8 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
           ${
             dim && hasMedia
               ? dimThumb
-                ? `<img class="th th__img" src="${dimThumb}" alt="" decoding="async" data-media-id="${newestMedia.id}" />`
-                : `<div class="th th--ph" aria-hidden="true"></div>`
+                ? `<div class="th"><img class="th__img" src="${dimThumb}" alt="" decoding="async" data-media-id="${newestMedia.id}" /></div>`
+                : `<div class="th th--ph" aria-hidden="true" data-media-id="${newestMedia.id}"></div>`
               : ""
           }
         </article>

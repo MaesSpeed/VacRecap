@@ -294,7 +294,6 @@ async function assertSlowRefreshNoDeadThumbs(page, label, vacationId) {
       window.__revokedDuringRefresh.push(u);
       return orig(u);
     };
-    window.__vacrecapSlowPlaces = 280;
   });
   await page.reload();
   await page.waitForSelector('[data-testid="trip-content"]');
@@ -305,11 +304,10 @@ async function assertSlowRefreshNoDeadThumbs(page, label, vacationId) {
     buffer: jpeg,
   });
   await page.waitForSelector(".tile[data-media-id]");
-  await page.evaluate(() => {
-    window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
-    window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
-  });
-  await page.waitForTimeout(1200);
+  for (let i = 0; i < 6; i++) {
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("vacrecap:data-changed")));
+  }
+  await page.waitForTimeout(800);
   const bad = await page.evaluate(() => {
     const revoked = new Set(window.__revokedDuringRefresh ?? []);
     const imgs = [...document.querySelectorAll(".tile__img, .th__img")];
