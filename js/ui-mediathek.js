@@ -258,7 +258,6 @@ export async function renderMediathekScreen(appEl, vacationId) {
       toastParts.push(`${skipped} schon vorhanden übersprungen`);
     }
     if (toastParts.length) showToast(toastParts.join(" · "));
-    window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
   }
 
   render();

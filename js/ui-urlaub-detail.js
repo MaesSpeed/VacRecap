@@ -78,6 +78,7 @@ async function getState(id, vacation) {
       openGeoDone: new Set(),
       thumbUrls: {},
       captureBusy: false,
+      listRefreshToken: 0,
     };
     tripUiState.set(id, state);
   }
@@ -181,30 +182,71 @@ export async function renderUrlaubDetail(appEl, id) {
   }
 
   async function refreshDayList() {
+    const token = ++state.listRefreshToken;
     await maybeSoftOnOpen();
+    if (token !== state.listRefreshToken) return;
     const items = await loadDayPlacesEnriched(id, state.activeDay);
+    if (token !== state.listRefreshToken) return;
     const selectedId = await ensureSelectedForDay(items);
+    if (token !== state.listRefreshToken) return;
 
-    revokeThumbUrls(state.thumbUrls);
     const allMedia = items.flatMap((i) => i.media);
-    state.thumbUrls = buildThumbUrlMap(allMedia);
+    const nextThumbUrls = buildThumbUrlMap(allMedia);
+    const previousThumbUrls = state.thumbUrls;
 
+    let html;
     if (items.length === 0) {
-      contentEl.innerHTML = `
+      html = `
         <div class="trip-empty" data-testid="trip-empty">
           <p class="trip-empty__title">Noch keine Orte heute</p>
           <p class="trip-empty__hint">Ort merken, Foto machen oder Notiz schreiben.</p>
         </div>`;
     } else {
-      contentEl.innerHTML = wrapPlaceList(
+      html = wrapPlaceList(
         renderPlaceListHtml(items, {
           selectedId,
           notesExpanded: state.notesExpanded,
-          thumbUrls: state.thumbUrls,
+          thumbUrls: nextThumbUrls,
         })
       );
     }
+    if (token !== state.listRefreshToken) {
+      revokeThumbUrls(nextThumbUrls);
+      return;
+    }
+    if (!contentEl.isConnected) {
+      revokeThumbUrls(nextThumbUrls);
+      return;
+    }
+    state.thumbUrls = nextThumbUrls;
+    contentEl.innerHTML = html;
     contentEl.dataset.activeDay = state.activeDay;
+    revokeThumbUrls(previousThumbUrls);
+  }
+
+  async function regenerateThumbFromOriginal(mediaId, imgEl) {
+    if (!mediaId || imgEl?.dataset?.thumbRegenerating === "1") return;
+    if (imgEl) imgEl.dataset.thumbRegenerating = "1";
+    try {
+      const { getMedia, putMedia } = await import("./db.js");
+      const { createPhotoThumbFromBlob } = await import("./media-process.js");
+      const record = await getMedia(mediaId);
+      if (!record?.blob || record.type === "video") return;
+      const thumbBlob = await createPhotoThumbFromBlob(record.blob);
+      await putMedia({ ...record, thumbBlob });
+      const newUrl = URL.createObjectURL(thumbBlob);
+      const oldUrl = state.thumbUrls[mediaId];
+      state.thumbUrls[mediaId] = newUrl;
+      if (oldUrl) URL.revokeObjectURL(oldUrl);
+      if (imgEl) {
+        imgEl.src = newUrl;
+        imgEl.hidden = false;
+      }
+    } catch {
+      /* Platzhalter bleibt sichtbar */
+    } finally {
+      if (imgEl) delete imgEl.dataset.thumbRegenerating;
+    }
   }
 
   async function setActiveDay(dayIso) {
@@ -406,7 +448,30 @@ export async function renderUrlaubDetail(appEl, id) {
     });
   }
 
+  contentEl.addEventListener(
+    "error",
+    (e) => {
+      const img = e.target;
+      if (!img?.matches?.(".tile__img, .th__img")) return;
+      const mediaId = img.dataset.mediaId || img.closest("[data-media-id]")?.dataset?.mediaId;
+      img.hidden = true;
+      void regenerateThumbFromOriginal(mediaId, img);
+    },
+    true
+  );
+
   contentEl.addEventListener("click", async (e) => {
+    const camBtn = e.target.closest('[data-action="camera-place"]');
+    if (camBtn) {
+      const host = e.target.closest(".oc[data-place-id]");
+      if (!host) return;
+      const placeId = host.dataset.placeId;
+      state.selectedByDay[state.activeDay] = placeId;
+      persistSelection(id, state);
+      openCapturePhotoInput(placeId);
+      return;
+    }
+
     const tile = e.target.closest(".tile[data-media-id]");
     if (tile) {
       const placeId = e.target.closest(".oc[data-place-id]")?.dataset.placeId;
@@ -470,10 +535,9 @@ export async function renderUrlaubDetail(appEl, id) {
     }
 
     const editBtn = e.target.closest('[data-action="edit-place"]');
-    const camBtn = e.target.closest('[data-action="camera-place"]');
     const expandBtn = e.target.closest('[data-action="expand-notes"]');
     const collapseBtn = e.target.closest('[data-action="collapse-notes"]');
-    if (editBtn || camBtn || expandBtn || collapseBtn) {
+    if (editBtn || expandBtn || collapseBtn) {
       const host = e.target.closest(".oc[data-place-id]");
       if (!host) return;
       const placeId = host.dataset.placeId;
@@ -490,10 +554,6 @@ export async function renderUrlaubDetail(appEl, id) {
             await refreshDayList();
           },
         });
-      } else if (camBtn) {
-        state.selectedByDay[state.activeDay] = placeId;
-        persistSelection(id, state);
-        openCapturePhotoInput(placeId);
       } else if (expandBtn) {
         state.notesExpanded.add(placeId);
         await refreshDayList();
