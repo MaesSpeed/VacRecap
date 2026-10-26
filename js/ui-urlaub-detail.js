@@ -96,7 +96,9 @@ function persistSelection(id, state) {
 }
 
 export async function renderUrlaubDetail(appEl, id) {
+  const mountGen = appEl?.dataset?.appRenderGen ?? "";
   const vacation = await getVacation(id);
+  if (appEl?.dataset?.appRenderGen !== mountGen) return;
   if (!vacation) {
     navigate({ name: "urlaube" });
     return;
@@ -606,6 +608,8 @@ export async function renderUrlaubDetail(appEl, id) {
 
   renderChips();
   await refreshDayList();
+  if (appEl?.dataset?.appRenderGen !== mountGen) return;
+
   function openGalleryPicker() {
     galleryInput.click();
   }

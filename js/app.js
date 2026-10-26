@@ -13,9 +13,17 @@ import { dismissOverlayOnly, initOverlayHistory } from "./overlay-stack.js";
 
 const appEl = document.getElementById("app");
 
-async function render() {
+let renderGeneration = 0;
+let renderCoalescePending = false;
+
+async function renderNow() {
+  const gen = ++renderGeneration;
+  if (appEl) appEl.dataset.appRenderGen = String(gen);
+
   const route = getRoute();
   const vacations = await getAllVacations();
+  if (appEl?.dataset.appRenderGen !== String(gen)) return;
+
   if (appEl?._mapCleanup) {
     appEl._mapCleanup();
   }
@@ -43,6 +51,15 @@ async function render() {
   }
 }
 
+function scheduleRender() {
+  if (renderCoalescePending) return;
+  renderCoalescePending = true;
+  queueMicrotask(() => {
+    renderCoalescePending = false;
+    void renderNow();
+  });
+}
+
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   const swUrl = assetUrl("sw.js");
@@ -59,10 +76,10 @@ async function boot() {
   registerServiceWorker();
   onRouteChange(() => {
     dismissOverlayOnly();
-    void render();
+    scheduleRender();
   });
   startRouter();
-  window.addEventListener("vacrecap:data-changed", render);
+  window.addEventListener("vacrecap:data-changed", scheduleRender);
 }
 
 boot();

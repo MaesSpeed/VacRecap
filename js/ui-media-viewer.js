@@ -26,31 +26,55 @@ function mediaUrl(item) {
   return url;
 }
 
-function shareHintMessage(isVideo) {
+function shareHintMessage(isVideo, mode = "share") {
+  if (mode === "download") {
+    return isVideo ? "Video wird heruntergeladen" : "Datei wird heruntergeladen";
+  }
   return isVideo
     ? "Zum Sichern „Video sichern“ wählen"
     : 'Zum Sichern „Bild sichern“ wählen';
 }
 
-function beginShareOriginal(file) {
-  if (navigator.canShare?.({ files: [file] })) {
-    return navigator.share({ files: [file] });
-  }
+function downloadShareFile(file) {
   const url = URL.createObjectURL(file);
   const a = document.createElement("a");
   a.href = url;
   a.download = file.name;
   a.click();
   URL.revokeObjectURL(url);
-  return Promise.resolve();
 }
 
-function showViewerShareSnack(overlay, isVideo) {
+function beginShareOriginal(file) {
+  if (navigator.canShare?.({ files: [file] })) {
+    return navigator.share({ files: [file] }).catch((err) => {
+      if (err?.name === "AbortError") throw err;
+      downloadShareFile(file);
+      return { fallback: "download" };
+    });
+  }
+  downloadShareFile(file);
+  return Promise.resolve({ fallback: "download" });
+}
+
+function showViewerShareSnack(overlay, isVideo, mode = "share") {
   const snack = overlay.querySelector('[data-role="share-snack"]');
   if (!snack) return;
-  snack.textContent = shareHintMessage(isVideo);
+  snack.textContent = shareHintMessage(isVideo, mode);
   snack.hidden = false;
   requestAnimationFrame(() => snack.classList.add("toast--visible"));
+}
+
+function scheduleShareSnackDismiss(overlay, timerRef, tapAt) {
+  if (timerRef.timer) {
+    clearTimeout(timerRef.timer);
+    timerRef.timer = null;
+  }
+  const dismissAt = Math.max(tapAt + SHARE_SNACK_MS, Date.now() + SHARE_SNACK_MS);
+  const delay = Math.max(0, dismissAt - Date.now());
+  timerRef.timer = setTimeout(() => {
+    timerRef.timer = null;
+    hideViewerShareSnack(overlay);
+  }, delay);
 }
 
 function hideViewerShareSnack(overlay) {
@@ -64,15 +88,15 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
   const sorted = mediaItems.slice().sort((a, b) => a.ts - b.ts);
   let index = sorted.findIndex((m) => m.id === startId);
   if (index < 0) index = 0;
-  let shareSnackTimer = null;
+  const shareSnackTimerRef = { timer: null };
 
   const overlay = document.getElementById("overlay-root");
   overlay.hidden = false;
 
   const close = () => {
-    if (shareSnackTimer) {
-      clearTimeout(shareSnackTimer);
-      shareSnackTimer = null;
+    if (shareSnackTimerRef.timer) {
+      clearTimeout(shareSnackTimerRef.timer);
+      shareSnackTimerRef.timer = null;
     }
     revokeAll();
     overlay.innerHTML = "";
@@ -83,9 +107,9 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
 
   const render = () => {
     revokeAll();
-    if (shareSnackTimer) {
-      clearTimeout(shareSnackTimer);
-      shareSnackTimer = null;
+    if (shareSnackTimerRef.timer) {
+      clearTimeout(shareSnackTimerRef.timer);
+      shareSnackTimerRef.timer = null;
     }
     hideViewerShareSnack(overlay);
     const item = sorted[index];
@@ -128,18 +152,23 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
     );
     overlay.querySelector('[data-action="save-photos"]').addEventListener("click", () => {
       const tapAt = Date.now();
-      showViewerShareSnack(overlay, isVideo);
+      if (shareSnackTimerRef.timer) {
+        clearTimeout(shareSnackTimerRef.timer);
+        shareSnackTimerRef.timer = null;
+      }
+      const useShare = Boolean(navigator.canShare?.({ files: [shareFile] }));
+      showViewerShareSnack(overlay, isVideo, useShare ? "share" : "download");
       beginShareOriginal(shareFile)
+        .then((result) => {
+          if (result?.fallback === "download") {
+            showViewerShareSnack(overlay, isVideo, "download");
+          }
+        })
         .catch((err) => {
           if (err?.name === "AbortError") return;
         })
         .finally(() => {
-          const dismissAt = Math.max(tapAt + SHARE_SNACK_MS, Date.now() + SHARE_SNACK_MS);
-          const delay = Math.max(0, dismissAt - Date.now());
-          shareSnackTimer = setTimeout(() => {
-            shareSnackTimer = null;
-            hideViewerShareSnack(overlay);
-          }, delay);
+          scheduleShareSnackDismiss(overlay, shareSnackTimerRef, tapAt);
         });
     });
     overlay.querySelector('[data-action="delete"]').addEventListener("click", async () => {
