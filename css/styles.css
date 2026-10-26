@@ -338,6 +338,34 @@ body {
   margin: 0 0 16px;
 }
 
+.empty-state .btn {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  margin: 0 auto 10px;
+}
+
+.btn-emaille--ghost {
+  background: #fff;
+  color: var(--emaille);
+  border: 2px solid var(--emaille);
+  box-shadow: none;
+}
+
+.urlaube-restore-link {
+  display: block;
+  width: 100%;
+  margin: 18px 0 8px;
+  padding: 14px;
+  border: none;
+  background: none;
+  color: #0066b3;
+  font-size: 16px;
+  font-weight: 800;
+  text-align: center;
+  cursor: pointer;
+}
+
 .btn {
   border: none;
   border-radius: 12px;
@@ -2963,6 +2991,35 @@ body {
 
 .backup-sheet__head-spacer {
   width: 1px;
+}
+
+.backup-sheet__progress-label {
+  font-size: 15px;
+  font-weight: 700;
+  color: #2b3946;
+  margin: 8px 0 12px;
+  text-align: center;
+}
+
+.backup-sheet__progress {
+  height: 8px;
+  border-radius: 4px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.backup-sheet__progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #0a84d6, var(--emaille));
+  transition: width 0.2s ease;
+}
+
+.backup-sheet__progress-pct {
+  margin: 8px 0 0;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #5b6b7a;
 }
 
 .backup-sheet__body {

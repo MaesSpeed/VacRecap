@@ -16,6 +16,7 @@ import {
 } from "./settings-store.js";
 import { formatBytesGerman, formatGermanDateTime } from "./storage-format.js";
 import { openBackupSheet } from "./ui-backup-sheet.js";
+import { wireRestoreZipInput } from "./ui-restore-sheet.js";
 import { openCoverCreditsSheet } from "./ui-cover-credits.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { showToast } from "./toast.js";
@@ -132,6 +133,14 @@ export async function renderUrlaubSettings(appEl, id) {
             </div>
             <span class="settings-item__chevron">${ICON_CHEVRON}</span>
           </button>
+          <button type="button" class="settings-item settings-item--link" data-action="restore-backup">
+            <span class="settings-item__icon">${ICON_BACKUP}</span>
+            <div class="settings-item__text">
+              <span class="settings-item__title">Sicherung einspielen</span>
+              <span class="settings-item__sub">ZIP-Sicherung wiederherstellen</span>
+            </div>
+            <span class="settings-item__chevron">${ICON_CHEVRON}</span>
+          </button>
         </div>
         <p class="settings-storage" data-role="storage-line" hidden></p>
         <p class="settings-storage settings-storage--warn" data-role="storage-warn" hidden>Speicher wird knapp – Sicherung machen</p>
@@ -219,6 +228,8 @@ export async function renderUrlaubSettings(appEl, id) {
       });
     });
   });
+
+  wireRestoreZipInput(appEl, '[data-action="restore-backup"]');
 
   appEl.querySelector('[data-action="backup"]').addEventListener("click", () => {
     openBackupSheet({
