@@ -184,6 +184,10 @@ async function assertDownloadFallback(page, label, mediaId) {
   if ((await page.evaluate(() => window.__shareCalls?.length ?? 0)) > 0) {
     throw new Error(`${label}: share trotz Fallback aufgerufen`);
   }
+  const text = await page.locator('[data-testid="media-viewer-share-snack"]').innerText();
+  if (!text.includes("heruntergeladen")) {
+    throw new Error(`${label}: Download-Snackbar (${text})`);
+  }
 }
 
 async function assertAbortSilent(page, label) {

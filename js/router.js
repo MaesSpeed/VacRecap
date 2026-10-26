@@ -97,9 +97,16 @@ export function navigate(route, { replace = false, fromTrip = false } = {}) {
   apply();
 }
 
+let notifyCoalescePending = false;
+
 function notify() {
-  const route = getRoute();
-  listeners.forEach((fn) => fn(route));
+  if (notifyCoalescePending) return;
+  notifyCoalescePending = true;
+  queueMicrotask(() => {
+    notifyCoalescePending = false;
+    const route = getRoute();
+    listeners.forEach((fn) => fn(route));
+  });
 }
 
 export function startRouter() {
