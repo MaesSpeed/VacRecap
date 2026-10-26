@@ -134,6 +134,7 @@ export async function renderUrlaubDetail(appEl, id) {
   let captureTargetPlaceId = null;
 
   const VIDEO_LONGPRESS_HINT_KEY = "vacrecap-video-longpress-hint";
+  const VIDEO_HINT_AFTER_PHOTO_MS = 3000;
 
   function renderChips() {
     const total = days.length;
@@ -266,7 +267,7 @@ export async function renderUrlaubDetail(appEl, id) {
     const line = r.toast?.line || "";
     if (!line) return;
     if (r.toast?.variant === "warn") {
-      showWarnToast(line, { title });
+      showWarnToast(line);
     } else {
       showTwoLineToast(title, line);
     }
@@ -313,7 +314,9 @@ export async function renderUrlaubDetail(appEl, id) {
         !localStorage.getItem(VIDEO_LONGPRESS_HINT_KEY)
       ) {
         localStorage.setItem(VIDEO_LONGPRESS_HINT_KEY, "1");
-        showToast("Lange drücken = Video", { icon: "none" });
+        setTimeout(() => {
+          showToast("Lange drücken = Video", { icon: "none" });
+        }, VIDEO_HINT_AFTER_PHOTO_MS);
       }
       await refreshDayList();
     } catch (err) {

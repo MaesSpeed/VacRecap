@@ -167,8 +167,8 @@ export async function resolveFooterCaptureTarget({
     const fb = await fallbackPlace({ vacationId, day, selectedPlaceId });
     const line =
       fb.place.name === OHNE_ORT
-        ? "Kein GPS – Ohne Ort gespeichert"
-        : `Kein GPS – zu «${fb.place.name}» gespeichert`;
+        ? "Kein GPS – Ohne Ort"
+        : `Kein GPS – bei «${fb.place.name}»`;
     return {
       ...fb,
       needsRefresh: fb.createdOhneOrt,

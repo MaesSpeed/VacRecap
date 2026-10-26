@@ -16,7 +16,7 @@ import { resolveFooterCaptureTarget } from "./target-place.js";
 import { loadTripSelection } from "./trip-selection-store.js";
 import { storeTripSelection, setTripSelection } from "./ui-urlaub-detail.js";
 import { mountTripFooter } from "./ui-trip-footer.js";
-import { dismissActiveToast, showToast, showTwoLineToast } from "./toast.js";
+import { dismissActiveToast, showToast, showTwoLineToast, showWarnToast } from "./toast.js";
 import { escapeHtml } from "./utils.js";
 
 const PARIS = { lat: 48.8566, lng: 2.3522 };
@@ -145,6 +145,9 @@ export async function renderMapScreen(appEl, vacationId) {
     attributionControl: false,
     zoomSnap: 0.25,
   });
+  const softPointPane = map.createPane("softPointPane");
+  softPointPane.style.zIndex = 550;
+  window.__vacrecapMap = map;
 
   L.control
     .attribution({ position: "bottomright", prefix: false })
@@ -293,20 +296,31 @@ export async function renderMapScreen(appEl, vacationId) {
 
     items.forEach((entry) => {
       const { place, photos, videos, notes } = entry;
+      if (!place.soft) return;
       const dayIso = placeDay(place);
       const color = dayColorFor(vacation, dayIso);
       const latlng = [place.lat, place.lng];
+      const icon = L.divIcon({
+        className: "map-marker-wrap",
+        html: `<span class="map-marker map-marker--soft" style="border-color:${color}"></span>`,
+        iconSize: [12, 12],
+        iconAnchor: [6, 6],
+      });
+      L.marker(latlng, {
+        icon,
+        pane: "softPointPane",
+        interactive: false,
+        keyboard: false,
+        zIndexOffset: -200,
+      }).addTo(layerGroup);
+    });
 
-      if (place.soft) {
-        const icon = L.divIcon({
-          className: "map-marker-wrap",
-          html: `<span class="map-marker map-marker--soft" style="border-color:${color}"></span>`,
-          iconSize: [12, 12],
-          iconAnchor: [6, 6],
-        });
-        L.marker(latlng, { icon }).addTo(layerGroup);
-        return;
-      }
+    items.forEach((entry) => {
+      const { place, photos, videos, notes } = entry;
+      if (place.soft) return;
+      const dayIso = placeDay(place);
+      const color = dayColorFor(vacation, dayIso);
+      const latlng = [place.lat, place.lng];
 
       const num = mapData.numberById.get(place.id);
       const icon = L.divIcon({
@@ -409,7 +423,14 @@ export async function renderMapScreen(appEl, vacationId) {
       }
       dismissActiveToast();
       if (r.toast?.line) {
-        showTwoLineToast(r.toast.title || (kind === "video" ? "Video gespeichert" : "Foto gespeichert"), r.toast.line);
+        if (r.toast.variant === "warn") {
+          showWarnToast(r.toast.line);
+        } else {
+          showTwoLineToast(
+            r.toast.title || (kind === "video" ? "Video gespeichert" : "Foto gespeichert"),
+            r.toast.line
+          );
+        }
       } else {
         showToast(kind === "video" ? "Video gespeichert" : "Foto gespeichert");
       }
