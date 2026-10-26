@@ -18,7 +18,10 @@ function syncToastRootPosition() {
   if (!root) return;
   const sheetOpen =
     overlay && !overlay.hidden && overlay.querySelector(".sheet, .sheet--calendar");
+  const viewerOpen =
+    overlay && !overlay.hidden && overlay.querySelector('[data-testid="media-viewer"]');
   root.classList.toggle("toast-root--above-sheet", Boolean(sheetOpen));
+  root.classList.toggle("toast-root--over-viewer", Boolean(viewerOpen));
 }
 
 function dismissToast({ immediate = false } = {}) {

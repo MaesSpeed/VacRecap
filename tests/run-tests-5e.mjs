@@ -334,10 +334,6 @@ async function assertMapFooterCamera(page, label, vacationId) {
 }
 
 async function assertMapDeepLinkBack(page, label, vacationId) {
-  await page.evaluate(() => {
-    sessionStorage.removeItem("vacrecap-map-from-trip");
-    sessionStorage.removeItem("vacrecap-map-from-trip-at");
-  });
   await page.goto(`./#/urlaub/${vacationId}/karte`);
   await page.waitForSelector('[data-testid="map-screen"]');
   await page.click('[data-testid="map-screen"] [data-action="back"]');

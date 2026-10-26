@@ -165,16 +165,17 @@ export async function resolveFooterCaptureTarget({
     return { ...gps, needsRefresh: true, toast };
   } catch {
     const fb = await fallbackPlace({ vacationId, day, selectedPlaceId });
-    const line = fb.place.name === OHNE_ORT
-      ? "Ohne Position (Standort nicht verfügbar)"
-      : `«${fb.place.name}»`;
+    const line =
+      fb.place.name === OHNE_ORT
+        ? "Kein GPS – Ohne Ort gespeichert"
+        : `Kein GPS – zu «${fb.place.name}» gespeichert`;
     return {
       ...fb,
       needsRefresh: fb.createdOhneOrt,
       toast: {
         title,
         line,
-        variant: fb.place.lat == null ? "warn" : undefined,
+        variant: "warn",
       },
     };
   }

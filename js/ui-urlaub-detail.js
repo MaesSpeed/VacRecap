@@ -19,10 +19,9 @@ import {
   resolveFooterCaptureTarget,
   resolvePlaceCardCaptureTarget,
 } from "./target-place.js";
-import { markMapOpenedFromTrip } from "./map-nav.js";
 import { consumePendingFooter } from "./pending-footer.js";
 import { loadTripSelection, saveTripSelection } from "./trip-selection-store.js";
-import { prefetchCaptureGps } from "./capture-gps-prefetch.js";
+import { prefetchCaptureGps, resetCaptureGpsPrefetch } from "./capture-gps-prefetch.js";
 import { blockTripFooter, isTripFooterBlocked, SHEET_INPUT_BLOCK_MS } from "./overlay-stack.js";
 import { dismissActiveToast, showToast, showTwoLineToast, showWarnToast } from "./toast.js";
 import { openMediaViewer } from "./ui-media-viewer.js";
@@ -288,10 +287,6 @@ export async function renderUrlaubDetail(appEl, id) {
   function openNativeVideoCamera() {
     if (state.captureBusy || isTripFooterBlocked()) return;
     captureTargetPlaceId = null;
-    if (!localStorage.getItem(VIDEO_LONGPRESS_HINT_KEY)) {
-      localStorage.setItem(VIDEO_LONGPRESS_HINT_KEY, "1");
-      showToast("Lange drücken = Video");
-    }
     blockTripFooter(SHEET_INPUT_BLOCK_MS);
     prefetchCaptureGps();
     captureVideoInput.click();
@@ -299,6 +294,7 @@ export async function renderUrlaubDetail(appEl, id) {
 
   async function handleMediaFile(file, kind) {
     if (!file || state.captureBusy) return;
+    const footerCapture = captureTargetPlaceId == null;
     state.captureBusy = true;
     showToast("Wird gespeichert…", { sticky: true, icon: "none" });
     try {
@@ -311,6 +307,14 @@ export async function renderUrlaubDetail(appEl, id) {
       await save();
       dismissActiveToast();
       showCaptureResultToast(r, kind);
+      if (
+        footerCapture &&
+        kind === "photo" &&
+        !localStorage.getItem(VIDEO_LONGPRESS_HINT_KEY)
+      ) {
+        localStorage.setItem(VIDEO_LONGPRESS_HINT_KEY, "1");
+        showToast("Lange drücken = Video", { icon: "none" });
+      }
       await refreshDayList();
     } catch (err) {
       dismissActiveToast();
@@ -327,23 +331,30 @@ export async function renderUrlaubDetail(appEl, id) {
     }
   }
 
+  const onCaptureInputAborted = () => {
+    captureTargetPlaceId = null;
+    resetCaptureGpsPrefetch();
+  };
+
   capturePhotoInput.addEventListener("change", () => {
     const file = capturePhotoInput.files?.[0];
     if (!file) {
-      captureTargetPlaceId = null;
+      onCaptureInputAborted();
       return;
     }
     handleMediaFile(file, "photo");
   });
+  capturePhotoInput.addEventListener("cancel", onCaptureInputAborted);
 
   captureVideoInput.addEventListener("change", () => {
     const file = captureVideoInput.files?.[0];
     if (!file) {
-      captureTargetPlaceId = null;
+      onCaptureInputAborted();
       return;
     }
     handleMediaFile(file, "video");
   });
+  captureVideoInput.addEventListener("cancel", onCaptureInputAborted);
 
   async function onNoteFooter() {
     if (state.captureBusy) return;
@@ -555,8 +566,7 @@ export async function renderUrlaubDetail(appEl, id) {
   });
 
   appEl.querySelector('[data-action="map"]').addEventListener("click", () => {
-    markMapOpenedFromTrip();
-    navigate({ name: "urlaub-map", id });
+    navigate({ name: "urlaub-map", id }, { fromTrip: true });
   });
 
   appEl.querySelector('[data-action="settings"]').addEventListener("click", () => {
