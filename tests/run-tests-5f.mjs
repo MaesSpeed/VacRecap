@@ -239,10 +239,11 @@ async function assertVideoHintAfterFirstFooterPhoto(page, label) {
   const ch = await chooser;
   if (ch) await ch.setFiles(file);
   else await page.locator('[data-testid="capture-photo-input"]').setInputFiles(file);
-  await page.waitForFunction(() => {
-    const t = document.querySelector('[data-testid="app-toast"]')?.textContent ?? "";
-    return t.includes("Lange drücken = Video");
-  });
+  await page.waitForFunction(
+    () => document.querySelector('[data-testid="app-toast"]')?.textContent?.includes("Lange drücken = Video"),
+    null,
+    { timeout: 5000 }
+  );
   const noIcon = await page.evaluate(() =>
     document.querySelector('[data-testid="app-toast"]')?.classList.contains("toast--no-icon")
   );
