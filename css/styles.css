@@ -1704,6 +1704,8 @@ body {
   height: 58px;
   border-radius: 12px;
   flex-shrink: 0;
+  overflow: hidden;
+  position: relative;
 }
 
 .th__img {
