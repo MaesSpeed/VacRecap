@@ -839,7 +839,7 @@ body {
   left: 50%;
   right: auto;
   bottom: calc(var(--footer-body) + 10px + var(--safe-bottom) + var(--kb));
-  z-index: 35;
+  z-index: 210;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -852,6 +852,10 @@ body {
 
 .toast-root--above-sheet {
   bottom: calc(10px + var(--kb));
+}
+
+.toast-root--over-viewer {
+  z-index: 210;
 }
 
 .toast {

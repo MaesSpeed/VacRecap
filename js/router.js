@@ -44,7 +44,7 @@ export function getRoute() {
   return { name: "urlaube" };
 }
 
-export function navigate(route, { replace = false } = {}) {
+export function navigate(route, { replace = false, fromTrip = false } = {}) {
   const current = getRoute();
   const fromOverview = !replace && current.name === "urlaube" && route.name === "urlaub-detail";
   if (fromOverview) {
@@ -78,7 +78,12 @@ export function navigate(route, { replace = false } = {}) {
   }
   const url = `${window.location.pathname}${window.location.search}${hash}`;
   if (replace) {
-    history.replaceState(null, "", url);
+    history.replaceState(history.state, "", url);
+    notify();
+    return;
+  }
+  if (fromTrip && route.name === "urlaub-map") {
+    history.pushState({ fromTrip: true }, "", url);
     notify();
     return;
   }

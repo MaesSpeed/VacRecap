@@ -7,7 +7,7 @@ import { peekRouteSegment, resolveRouteSegment } from "./route-service.js";
 import { getMapRoutesEnabled } from "./settings-store.js";
 import { ICON_BACK_CHEVRON } from "./icons.js";
 import { getMapSegment, setMapSegment } from "./map-session.js";
-import { prefetchCaptureGps } from "./capture-gps-prefetch.js";
+import { prefetchCaptureGps, resetCaptureGpsPrefetch } from "./capture-gps-prefetch.js";
 import { savePhotoForPlace, saveVideoForPlace } from "./media-service.js";
 import { leaveMapScreen, returnToTripFromMap } from "./map-nav.js";
 import { queuePendingFooter } from "./pending-footer.js";
@@ -133,7 +133,6 @@ export async function renderMapScreen(appEl, vacationId) {
   const capturePhotoInput = appEl.querySelector('[data-role="capture-photo-input"]');
   const captureVideoInput = appEl.querySelector('[data-role="capture-video-input"]');
   let captureBusy = false;
-  const VIDEO_LONGPRESS_HINT_KEY = "vacrecap-video-longpress-hint";
 
   const mapEl = appEl.querySelector('[data-role="map"]');
   const offlineHint = appEl.querySelector('[data-role="offline-hint"]');
@@ -423,17 +422,31 @@ export async function renderMapScreen(appEl, vacationId) {
     }
   }
 
+  const onMapCaptureAborted = () => {
+    resetCaptureGpsPrefetch();
+  };
+
   capturePhotoInput.addEventListener("change", () => {
     const file = capturePhotoInput.files?.[0];
     capturePhotoInput.value = "";
+    if (!file) {
+      onMapCaptureAborted();
+      return;
+    }
     void saveMapCapture(file, "photo");
   });
+  capturePhotoInput.addEventListener("cancel", onMapCaptureAborted);
 
   captureVideoInput.addEventListener("change", () => {
     const file = captureVideoInput.files?.[0];
     captureVideoInput.value = "";
+    if (!file) {
+      onMapCaptureAborted();
+      return;
+    }
     void saveMapCapture(file, "video");
   });
+  captureVideoInput.addEventListener("cancel", onMapCaptureAborted);
 
   mountTripFooter(appEl.querySelector('[data-role="footer-mount"]'), {
     onRememberPlace: async () => {
@@ -456,10 +469,6 @@ export async function renderMapScreen(appEl, vacationId) {
       const day = dayForFooter();
       setTripSelection(vacationId, day, null);
       void storeTripSelection(vacationId, day, null);
-      if (!localStorage.getItem(VIDEO_LONGPRESS_HINT_KEY)) {
-        localStorage.setItem(VIDEO_LONGPRESS_HINT_KEY, "1");
-        showToast("Lange drücken = Video");
-      }
       prefetchCaptureGps();
       captureVideoInput?.click();
     },
