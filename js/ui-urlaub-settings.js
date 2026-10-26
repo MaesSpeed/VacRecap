@@ -19,6 +19,7 @@ import { openBackupSheet } from "./ui-backup-sheet.js";
 import { openCoverCreditsSheet } from "./ui-cover-credits.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { showToast } from "./toast.js";
+import { APP_BUILD_VERSION, getAppVersionDisplayState } from "./app-version.js";
 import { escapeHtml } from "./utils.js";
 
 const ICON_CROSSHAIR = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0066B3" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="1.5" fill="#0066B3" stroke="none"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>`;
@@ -154,8 +155,17 @@ export async function renderUrlaubSettings(appEl, id) {
           </button>
         </div>
       </section>
+      <p class="settings-version" data-testid="app-version-line">Version ${APP_BUILD_VERSION}</p>
+      <p class="settings-version settings-version--hint" data-testid="app-version-update-hint" hidden>
+        Update bereit – App einmal schließen und neu öffnen
+      </p>
     </main>
   `;
+
+  void getAppVersionDisplayState().then(({ updateHint }) => {
+    const hint = appEl.querySelector('[data-testid="app-version-update-hint"]');
+    if (hint && updateHint) hint.hidden = false;
+  });
 
   appEl.querySelector('[data-action="back"]').addEventListener("click", () => {
     if (window.history.length > 1) {

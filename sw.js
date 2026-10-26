@@ -1,4 +1,4 @@
-const CACHE_VERSION = "vacrecap-v30";
+const CACHE_VERSION = "vacrecap-v31";
 const ASSETS = [
   "./",
   "./index.html",
@@ -11,6 +11,7 @@ const ASSETS = [
   "./fonts/nunito-sans-latin-800-normal.woff2",
   "./fonts/nunito-sans-latin-900-normal.woff2",
   "./js/app.js",
+  "./js/app-version.js",
   "./js/config.js",
   "./js/db.js",
   "./js/router.js",

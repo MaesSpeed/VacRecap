@@ -51,16 +51,30 @@ function photoThumbMissing(media) {
   return media.type !== "video" && (!media.thumbBlob || media.thumbBlob.size === 0);
 }
 
+async function createThumbBlobForMediaRecord(record) {
+  const { getMedia } = await import("./db.js");
+  const { createPhotoThumbFromBlob } = await import("./media-process.js");
+  if (!record?.blob) throw new Error("no blob");
+  try {
+    return await createPhotoThumbFromBlob(record.blob);
+  } catch (err) {
+    if (err?.name !== "InvalidStateError" || !record.id) throw err;
+    await new Promise((r) => setTimeout(r, 400));
+    const fresh = await getMedia(record.id);
+    if (!fresh?.blob) throw err;
+    return await createPhotoThumbFromBlob(fresh.blob);
+  }
+}
+
 export async function ensurePhotoThumbs(mediaList) {
   const { getMedia, putMedia } = await import("./db.js");
-  const { createPhotoThumbFromBlob } = await import("./media-process.js");
   for (const media of mediaList) {
     if (isThumbDecodeFailed(media.id)) continue;
     if (!photoThumbMissing(media)) continue;
     try {
       const record = (await getMedia(media.id)) || media;
       if (!record?.blob || record.type === "video") continue;
-      const thumbBlob = await createPhotoThumbFromBlob(record.blob);
+      const thumbBlob = await createThumbBlobForMediaRecord(record);
       const updated = { ...record, thumbBlob };
       await putMedia(updated);
       media.thumbBlob = thumbBlob;
@@ -78,7 +92,6 @@ export async function forceRebuildPhotoThumb(mediaId) {
   thumbForceRebuildAttempted.add(mediaId);
 
   const { getMedia, putMedia } = await import("./db.js");
-  const { createPhotoThumbFromBlob } = await import("./media-process.js");
   const record = await getMedia(mediaId);
   if (!record) {
     markThumbDecodeFailed(mediaId);
@@ -93,17 +106,12 @@ export async function forceRebuildPhotoThumb(mediaId) {
       markThumbDecodeFailed(mediaId);
       return false;
     }
-    const thumbBlob = await createPhotoThumbFromBlob(record.blob);
+    const thumbBlob = await createThumbBlobForMediaRecord(record);
     await putMedia({ ...record, thumbBlob });
     clearThumbDecodeFailed(mediaId);
     return true;
   } catch {
     markThumbDecodeFailed(mediaId);
-    try {
-      await putMedia({ ...record, thumbBlob: null });
-    } catch {
-      /* ignore */
-    }
     return false;
   }
 }

@@ -2899,6 +2899,22 @@ body {
   font-weight: 800;
 }
 
+.settings-version {
+  margin: 20px 8px 8px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 800;
+  color: #2b3946;
+  letter-spacing: 0.02em;
+}
+
+.settings-version--hint {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0066b3;
+}
+
 .sheet--camera {
   padding: 16px 16px max(calc(var(--footer-total) + 20px), 24px);
   box-sizing: border-box;
