@@ -13,6 +13,21 @@ const PIN_CAM_BADGE = `<svg width="12" height="12" viewBox="0 0 24 24" fill="non
 const ICON_NOTE = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>`;
 const PLAY_SVG = `<svg class="tile__play" width="14" height="14" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>`;
 
+const thumbDecodeFailedIds = new Set();
+const thumbForceRebuildAttempted = new Set();
+
+export function isThumbDecodeFailed(mediaId) {
+  return thumbDecodeFailedIds.has(mediaId);
+}
+
+export function markThumbDecodeFailed(mediaId) {
+  if (mediaId) thumbDecodeFailedIds.add(mediaId);
+}
+
+export function clearThumbDecodeFailed(mediaId) {
+  if (mediaId) thumbDecodeFailedIds.delete(mediaId);
+}
+
 export async function loadDayPlacesEnriched(vacationId, day) {
   const { getPlacesForDay } = await import("./db.js");
   const places = sortPlacesChronologicalDesc(await getPlacesForDay(vacationId, day));
@@ -40,13 +55,56 @@ export async function ensurePhotoThumbs(mediaList) {
   const { getMedia, putMedia } = await import("./db.js");
   const { createPhotoThumbFromBlob } = await import("./media-process.js");
   for (const media of mediaList) {
+    if (isThumbDecodeFailed(media.id)) continue;
     if (!photoThumbMissing(media)) continue;
-    const record = (await getMedia(media.id)) || media;
-    if (!record?.blob || record.type === "video") continue;
+    try {
+      const record = (await getMedia(media.id)) || media;
+      if (!record?.blob || record.type === "video") continue;
+      const thumbBlob = await createPhotoThumbFromBlob(record.blob);
+      const updated = { ...record, thumbBlob };
+      await putMedia(updated);
+      media.thumbBlob = thumbBlob;
+      clearThumbDecodeFailed(media.id);
+    } catch {
+      markThumbDecodeFailed(media.id);
+      media.thumbBlob = null;
+    }
+  }
+}
+
+export async function forceRebuildPhotoThumb(mediaId) {
+  if (!mediaId || isThumbDecodeFailed(mediaId)) return false;
+  if (thumbForceRebuildAttempted.has(mediaId)) return false;
+  thumbForceRebuildAttempted.add(mediaId);
+
+  const { getMedia, putMedia } = await import("./db.js");
+  const { createPhotoThumbFromBlob } = await import("./media-process.js");
+  const record = await getMedia(mediaId);
+  if (!record) {
+    markThumbDecodeFailed(mediaId);
+    return false;
+  }
+  if (record.type === "video") {
+    markThumbDecodeFailed(mediaId);
+    return false;
+  }
+  try {
+    if (!record.blob) {
+      markThumbDecodeFailed(mediaId);
+      return false;
+    }
     const thumbBlob = await createPhotoThumbFromBlob(record.blob);
-    const updated = { ...record, thumbBlob };
-    await putMedia(updated);
-    media.thumbBlob = thumbBlob;
+    await putMedia({ ...record, thumbBlob });
+    clearThumbDecodeFailed(mediaId);
+    return true;
+  } catch {
+    markThumbDecodeFailed(mediaId);
+    try {
+      await putMedia({ ...record, thumbBlob: null });
+    } catch {
+      /* ignore */
+    }
+    return false;
   }
 }
 
@@ -130,7 +188,7 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
           </div>
           ${
             dim && hasMedia
-              ? dimThumb
+              ? dimThumb && !isThumbDecodeFailed(newestMedia.id)
                 ? `<div class="th"><img class="th__img" src="${dimThumb}" alt="" decoding="async" data-media-id="${newestMedia.id}" /></div>`
                 : `<div class="th th--ph" aria-hidden="true" data-media-id="${newestMedia.id}"></div>`
               : ""
@@ -152,9 +210,10 @@ function renderTiles(media, thumbUrls) {
       const overlayExtra = extra > 0 && isLast ? `<span class="tile__more">+${extra}</span>` : "";
       const thumb = thumbUrls[m.id];
       const isVideo = m.type === "video";
-      const img = thumb
-        ? `<img class="tile__img" src="${thumb}" alt="" decoding="async" data-media-id="${m.id}" />`
-        : "";
+      const img =
+        thumb && !isThumbDecodeFailed(m.id)
+          ? `<img class="tile__img" src="${thumb}" alt="" decoding="async" data-media-id="${m.id}" />`
+          : "";
       const dur =
         isVideo
           ? `<span class="tile__dur">${escapeHtml(m.durationLabel || formatMediaDuration(m.duration))}</span>`
@@ -168,7 +227,7 @@ function renderTiles(media, thumbUrls) {
 export function buildThumbUrlMap(mediaList) {
   const map = {};
   for (const m of mediaList) {
-    if (m.thumbBlob) {
+    if (m.thumbBlob && !isThumbDecodeFailed(m.id)) {
       map[m.id] = URL.createObjectURL(m.thumbBlob);
     }
   }
