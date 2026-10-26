@@ -36,3 +36,22 @@ export function inferVideoMime(file) {
   if (ext === "mov") return "video/quicktime";
   return "video/mp4";
 }
+
+export function shareFileNameForMedia(item) {
+  const ext = item.ext || (item.type === "video" ? "mp4" : "jpg");
+  const prefix = item.type === "video" ? "VID" : "IMG";
+  const tag = (item.id || "media").replace(/[^a-zA-Z0-9]/g, "").slice(0, 12) || "export";
+  return `${prefix}_${tag}.${ext}`;
+}
+
+export function createShareFileFromMedia(item) {
+  const name = shareFileNameForMedia(item);
+  const mime =
+    item.mime ||
+    (item.type === "video"
+      ? item.ext === "mov"
+        ? "video/quicktime"
+        : "video/mp4"
+      : "image/jpeg");
+  return new File([item.blob], name, { type: mime });
+}
