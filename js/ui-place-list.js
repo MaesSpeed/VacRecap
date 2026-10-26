@@ -14,6 +14,10 @@ const ICON_NOTE = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" s
 const PLAY_SVG = `<svg class="tile__play" width="14" height="14" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>`;
 
 export async function loadDayPlacesEnriched(vacationId, day) {
+  const delayMs = typeof globalThis !== "undefined" ? globalThis.__vacrecapSlowPlaces : 0;
+  if (delayMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
   const { getPlacesForDay } = await import("./db.js");
   const places = sortPlacesChronologicalDesc(await getPlacesForDay(vacationId, day));
   const enriched = await Promise.all(
@@ -111,11 +115,11 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
             }
           </div>
           ${
-            dimThumb
-              ? `<img class="th" src="${dimThumb}" alt="" />`
-              : dim && hasMedia
-                ? `<div class="th th--ph" aria-hidden="true"></div>`
-                : ""
+            dim && hasMedia
+              ? dimThumb
+                ? `<img class="th th__img" src="${dimThumb}" alt="" decoding="async" data-media-id="${newestMedia.id}" />`
+                : `<div class="th th--ph" aria-hidden="true"></div>`
+              : ""
           }
         </article>
       </li>`;
@@ -133,14 +137,16 @@ function renderTiles(media, thumbUrls) {
       const isLast = i === visible.length - 1;
       const overlayExtra = extra > 0 && isLast ? `<span class="tile__more">+${extra}</span>` : "";
       const thumb = thumbUrls[m.id];
-      const bg = thumb ? `style="background-image:url('${thumb}')"` : "";
       const isVideo = m.type === "video";
+      const img = thumb
+        ? `<img class="tile__img" src="${thumb}" alt="" decoding="async" data-media-id="${m.id}" />`
+        : "";
       const dur =
         isVideo
           ? `<span class="tile__dur">${escapeHtml(m.durationLabel || formatMediaDuration(m.duration))}</span>`
           : "";
       const play = isVideo ? `<span class="tile__play-wrap">${PLAY_SVG}</span>` : "";
-      return `<button type="button" class="tile tile--btn" data-media-id="${m.id}" ${bg} aria-label="Medium anzeigen">${play}${dur}${overlayExtra}</button>`;
+      return `<button type="button" class="tile tile--btn" data-media-id="${m.id}" aria-label="Medium anzeigen">${img}${play}${dur}${overlayExtra}</button>`;
     })
     .join("");
 }

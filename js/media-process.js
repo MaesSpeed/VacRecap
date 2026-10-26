@@ -97,6 +97,13 @@ export async function createPhotoThumbFromFile(file) {
   return canvasToJpegBlob(thumb.canvas, THUMB_QUALITY);
 }
 
+export async function createPhotoThumbFromBlob(blob) {
+  const bitmap = await loadImageBitmap(blob);
+  const thumb = drawToCanvas(bitmap, THUMB_EDGE);
+  if (bitmap.close) bitmap.close();
+  return canvasToJpegBlob(thumb.canvas, THUMB_QUALITY);
+}
+
 function neutralThumbBlob() {
   const canvas = document.createElement("canvas");
   canvas.width = THUMB_EDGE;
