@@ -29,6 +29,7 @@ import { openNoteSheet } from "./ui-note-sheet.js";
 import {
   buildThumbUrlMap,
   ensurePhotoThumbs,
+  forceRebuildPhotoThumb,
   loadDayPlacesEnriched,
   renderPlaceListHtml,
   revokeThumbUrls,
@@ -237,18 +238,13 @@ export async function renderUrlaubDetail(appEl, id) {
       await thumbRegenInflight.get(mediaId);
       return;
     }
-    const job = (async () => {
-      const { getMedia } = await import("./db.js");
-      const record = await getMedia(mediaId);
-      if (!record) return;
-      await ensurePhotoThumbs([record]);
-    })();
+    const job = forceRebuildPhotoThumb(mediaId);
     thumbRegenInflight.set(mediaId, job);
     try {
-      await job;
-      await refreshDayList();
+      const rebuilt = await job;
+      if (rebuilt) await refreshDayList();
     } catch {
-      /* Platzhalter bleibt bis nächster Refresh */
+      /* Platzhalter bleibt sichtbar */
     } finally {
       thumbRegenInflight.delete(mediaId);
     }
@@ -459,11 +455,15 @@ export async function renderUrlaubDetail(appEl, id) {
       const img = e.target;
       if (!img?.matches?.(".tile__img, .th__img")) return;
       const mediaId = img.dataset.mediaId || img.closest("[data-media-id]")?.dataset?.mediaId;
+      if (!mediaId) {
+        img.remove();
+        return;
+      }
       const thumbWrap = img.closest(".th");
       img.remove();
       if (thumbWrap && !thumbWrap.classList.contains("th--ph")) {
         thumbWrap.classList.add("th--ph");
-        if (mediaId) thumbWrap.dataset.mediaId = mediaId;
+        thumbWrap.dataset.mediaId = mediaId;
       }
       void regenerateThumbFromOriginal(mediaId);
     },
