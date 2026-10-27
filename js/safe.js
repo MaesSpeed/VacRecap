@@ -10,7 +10,7 @@ import {
   deliverBackupFile,
   gatherBackupStats,
 } from "./backup-service.js";
-import { restoreVacationFromZip } from "./restore-service.js";
+import { handleRestoreZipFile } from "./ui-restore-sheet.js";
 import { computeVacationStats } from "./vacation-stats.js";
 import { markBootStable } from "./boot-stable.js";
 import { escapeHtml } from "./utils.js";
@@ -29,9 +29,14 @@ async function listVacations() {
 function statsLine(stats) {
   if (!stats) return "";
   const p = stats.photos ?? 0;
+  const v = stats.videos ?? 0;
   const n = stats.notes ?? 0;
   const o = stats.places ?? 0;
-  return `${o} Orte · ${p} Fotos · ${n} Notizen`;
+  const media =
+    p || v
+      ? `${p} Fotos${v ? ` · ${v} Videos` : ""}`
+      : "0 Fotos";
+  return `${o} Orte · ${media} · ${n} Notizen`;
 }
 
 async function render() {
@@ -80,7 +85,7 @@ async function render() {
         const stats = await gatherBackupStats(id);
         if (stats.isEmpty) return;
         const zip = await buildVacationZip(id);
-        const file = new File([zip], backupZipFilename(stats.vacation), {
+        const file = new File([zip.blob], zip.filename || backupZipFilename(stats.vacation), {
           type: "application/zip",
         });
         await deliverBackupFile(file);
@@ -91,7 +96,9 @@ async function render() {
   });
 
   appEl.querySelector('[data-action="clear-thumbs"]')?.addEventListener("click", async () => {
+    const { clearAllThumbDecodeFailures } = await import("./thumb-decode-state.js");
     await clearAllMediaThumbs();
+    clearAllThumbDecodeFailures();
     alert("Vorschaubilder gelöscht. Im Normalmodus werden sie nach und nach neu erzeugt.");
   });
 
@@ -101,18 +108,16 @@ async function render() {
     const file = restoreInput.files?.[0];
     restoreInput.value = "";
     if (!file) return;
-    try {
-      await restoreVacationFromZip(file);
-      await render();
-    } catch (e) {
-      alert(e?.userMessage || e?.message || "Einspielen fehlgeschlagen");
-    }
+    await handleRestoreZipFile(file);
+    await render();
   });
 
   appEl.querySelector('[data-action="normal"]')?.addEventListener("click", () => {
     markBootStable();
     sessionStorage.removeItem("vr-force-safe");
     sessionStorage.setItem("vr-normal-boot", "1");
+    const base = location.pathname || "/";
+    history.replaceState(null, "", base + "#/urlaube");
     location.reload();
   });
 }

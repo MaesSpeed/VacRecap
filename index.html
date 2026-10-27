@@ -29,9 +29,12 @@
         var forceApp = sessionStorage.getItem("vr-normal-boot") === "1";
         if (forceApp) {
           sessionStorage.removeItem("vr-normal-boot");
+          sessionStorage.removeItem("vr-force-safe");
           try {
-            localStorage.setItem(KEY, JSON.stringify({ since: now, attempts: 0, stable: true }));
+            localStorage.setItem(KEY, JSON.stringify({ unstable: false, crashCount: 0 }));
           } catch (e) {}
+          var base = location.pathname || "/";
+          history.replaceState(null, "", base + "#/urlaube");
           window.__VACRECAP_SAFE__ = false;
           return;
         }
@@ -45,25 +48,19 @@
         } catch (e) {
           data = null;
         }
-        var gap = now - (data?.lastLoad || 0);
-        if (!data || now - (data.since || 0) > 120000) {
-          data = { since: now, attempts: 0, stable: false, lastLoad: 0 };
+        if (!data || typeof data !== "object") {
+          data = { unstable: false, crashCount: 0 };
         }
-        if (data.stable) {
-          data.attempts = 0;
-          data.stable = false;
-        } else if (gap < 15000) {
-          data.attempts = (data.attempts || 0) + 1;
-        } else {
-          data.attempts = 1;
-          data.since = now;
+        var crashCount = data.crashCount || 0;
+        if (data.unstable === true) {
+          crashCount += 1;
         }
-        data.since = data.since || now;
-        data.lastLoad = now;
+        data.unstable = true;
+        data.crashCount = crashCount;
         try {
           localStorage.setItem(KEY, JSON.stringify(data));
         } catch (e) {}
-        var crashSafe = data.attempts >= 2;
+        var crashSafe = crashCount >= 2;
         window.__VACRECAP_SAFE__ = !!(forceSafe || crashSafe);
         if (crashSafe && !forceSafe && location.hash !== "#/urlaube") {
           location.replace(location.pathname + location.search + "#/urlaube");
