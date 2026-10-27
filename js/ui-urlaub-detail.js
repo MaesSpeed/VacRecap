@@ -28,13 +28,14 @@ import { openMediaViewer } from "./ui-media-viewer.js";
 import { openNoteSheet } from "./ui-note-sheet.js";
 import {
   buildThumbUrlMap,
-  ensurePhotoThumbs,
   forceRebuildPhotoThumb,
   loadDayPlacesEnriched,
   renderPlaceListHtml,
   revokeThumbUrls,
+  visibleThumbMediaIds,
   wrapPlaceList,
 } from "./ui-place-list.js";
+import { scheduleThumbRepairs } from "./thumb-repair-queue.js";
 
 const thumbRegenInflight = new Map();
 import { openEditPlaceSheet, openSoftPointSheet } from "./ui-place-sheets.js";
@@ -187,6 +188,36 @@ export async function renderUrlaubDetail(appEl, id) {
     });
   }
 
+  async function applyThumbToTiles(mediaId) {
+    if (!mediaId) return;
+    const { getMedia } = await import("./db.js");
+    const record = await getMedia(mediaId);
+    if (!record?.thumbBlob) return;
+    const prev = state.thumbUrls[mediaId];
+    if (prev) URL.revokeObjectURL(prev);
+    const url = URL.createObjectURL(record.thumbBlob);
+    state.thumbUrls[mediaId] = url;
+    contentEl.querySelectorAll(`img[data-media-id="${mediaId}"]`).forEach((img) => {
+      img.src = url;
+      img.hidden = false;
+    });
+    contentEl.querySelectorAll(`.th--ph[data-media-id="${mediaId}"]`).forEach((ph) => {
+      ph.classList.remove("th--ph");
+      ph.innerHTML = `<img class="th__img" src="${url}" alt="" decoding="async" data-media-id="${mediaId}" />`;
+    });
+  }
+
+  if (appEl._thumbRepairCleanup) appEl._thumbRepairCleanup();
+  const thumbRepairAc = new AbortController();
+  appEl._thumbRepairCleanup = () => thumbRepairAc.abort();
+  window.addEventListener(
+    "vacrecap:thumb-repaired",
+    (e) => {
+      void applyThumbToTiles(e.detail?.mediaId);
+    },
+    { signal: thumbRepairAc.signal }
+  );
+
   async function refreshDayList() {
     const token = ++state.listRefreshToken;
     await maybeSoftOnOpen();
@@ -197,9 +228,9 @@ export async function renderUrlaubDetail(appEl, id) {
     if (token !== state.listRefreshToken) return;
 
     const allMedia = items.flatMap((i) => i.media);
-    await ensurePhotoThumbs(allMedia);
-    if (token !== state.listRefreshToken) return;
-    const nextThumbUrls = buildThumbUrlMap(allMedia);
+    const visibleIds = visibleThumbMediaIds(items, selectedId);
+    scheduleThumbRepairs(allMedia);
+    const nextThumbUrls = buildThumbUrlMap(allMedia, visibleIds);
     const previousThumbUrls = state.thumbUrls;
 
     let html;
@@ -340,6 +371,7 @@ export async function renderUrlaubDetail(appEl, id) {
     if (!file || state.captureBusy) return;
     const footerCapture = captureTargetPlaceId == null;
     state.captureBusy = true;
+    appEl.dataset.captureBusy = "1";
     showToast("Wird gespeichert…", { sticky: true, icon: "none" });
     try {
       const r = await resolveTargetPlace(kind);
@@ -371,6 +403,7 @@ export async function renderUrlaubDetail(appEl, id) {
       }
     } finally {
       state.captureBusy = false;
+      appEl.dataset.captureBusy = "0";
       captureTargetPlaceId = null;
       capturePhotoInput.value = "";
       captureVideoInput.value = "";

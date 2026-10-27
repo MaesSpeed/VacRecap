@@ -13,20 +13,15 @@ const PIN_CAM_BADGE = `<svg width="12" height="12" viewBox="0 0 24 24" fill="non
 const ICON_NOTE = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>`;
 const PLAY_SVG = `<svg class="tile__play" width="14" height="14" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>`;
 
-const thumbDecodeFailedIds = new Set();
+import {
+  clearThumbDecodeFailed,
+  isThumbDecodeFailed,
+  markThumbDecodeFailed,
+} from "./thumb-decode-state.js";
+
+export { isThumbDecodeFailed, markThumbDecodeFailed, clearThumbDecodeFailed };
+
 const thumbForceRebuildAttempted = new Set();
-
-export function isThumbDecodeFailed(mediaId) {
-  return thumbDecodeFailedIds.has(mediaId);
-}
-
-export function markThumbDecodeFailed(mediaId) {
-  if (mediaId) thumbDecodeFailedIds.add(mediaId);
-}
-
-export function clearThumbDecodeFailed(mediaId) {
-  if (mediaId) thumbDecodeFailedIds.delete(mediaId);
-}
 
 export async function loadDayPlacesEnriched(vacationId, day) {
   const { getPlacesForDay } = await import("./db.js");
@@ -48,7 +43,8 @@ export async function loadDayPlacesEnriched(vacationId, day) {
 }
 
 function photoThumbMissing(media) {
-  return media.type !== "video" && (!media.thumbBlob || media.thumbBlob.size === 0);
+  if (media.type === "video") return false;
+  return !media.thumbBlob || media.thumbBlob.size === 0;
 }
 
 async function createThumbBlobForMediaRecord(record) {
@@ -67,22 +63,13 @@ async function createThumbBlobForMediaRecord(record) {
 }
 
 export async function ensurePhotoThumbs(mediaList) {
-  const { getMedia, putMedia } = await import("./db.js");
+  const { scheduleThumbRepairs } = await import("./thumb-repair-queue.js");
+  scheduleThumbRepairs(mediaList);
+  const { getMedia } = await import("./db.js");
   for (const media of mediaList) {
-    if (isThumbDecodeFailed(media.id)) continue;
     if (!photoThumbMissing(media)) continue;
-    try {
-      const record = (await getMedia(media.id)) || media;
-      if (!record?.blob || record.type === "video") continue;
-      const thumbBlob = await createThumbBlobForMediaRecord(record);
-      const updated = { ...record, thumbBlob };
-      await putMedia(updated);
-      media.thumbBlob = thumbBlob;
-      clearThumbDecodeFailed(media.id);
-    } catch {
-      markThumbDecodeFailed(media.id);
-      media.thumbBlob = null;
-    }
+    const fresh = await getMedia(media.id);
+    if (fresh?.thumbBlob) media.thumbBlob = fresh.thumbBlob;
   }
 }
 
@@ -107,8 +94,10 @@ export async function forceRebuildPhotoThumb(mediaId) {
       return false;
     }
     const thumbBlob = await createThumbBlobForMediaRecord(record);
-    await putMedia({ ...record, thumbBlob });
+    const { saveMediaThumb } = await import("./db.js");
+    await saveMediaThumb(mediaId, thumbBlob);
     clearThumbDecodeFailed(mediaId);
+    window.dispatchEvent(new CustomEvent("vacrecap:thumb-repaired", { detail: { mediaId } }));
     return true;
   } catch {
     markThumbDecodeFailed(mediaId);
@@ -232,14 +221,30 @@ function renderTiles(media, thumbUrls) {
     .join("");
 }
 
-export function buildThumbUrlMap(mediaList) {
+export function buildThumbUrlMap(mediaList, onlyIds = null) {
   const map = {};
   for (const m of mediaList) {
+    if (onlyIds && !onlyIds.has(m.id)) continue;
     if (m.thumbBlob && !isThumbDecodeFailed(m.id)) {
       map[m.id] = URL.createObjectURL(m.thumbBlob);
     }
   }
   return map;
+}
+
+export function visibleThumbMediaIds(items, selectedId) {
+  const ids = new Set();
+  for (const { place, media } of items) {
+    if (!media?.length) continue;
+    const sorted = media.slice().sort((a, b) => b.ts - a.ts);
+    const visible = sorted.slice(0, 4);
+    const dim = place.id !== selectedId ? sorted[sorted.length - 1] : null;
+    if (place.id === selectedId) {
+      visible.forEach((m) => ids.add(m.id));
+    }
+    if (dim) ids.add(dim.id);
+  }
+  return ids;
 }
 
 export function revokeThumbUrls(map) {

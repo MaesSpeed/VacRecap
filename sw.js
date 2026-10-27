@@ -1,4 +1,4 @@
-const CACHE_VERSION = "vacrecap-v35";
+const CACHE_VERSION = "vacrecap-v38";
 const ASSETS = [
   "./",
   "./index.html",
@@ -11,6 +11,8 @@ const ASSETS = [
   "./fonts/nunito-sans-latin-800-normal.woff2",
   "./fonts/nunito-sans-latin-900-normal.woff2",
   "./js/app.js",
+  "./js/safe.js",
+  "./js/boot-stable.js",
   "./js/app-version.js",
   "./js/config.js",
   "./js/db.js",
@@ -84,11 +86,43 @@ const ASSETS = [
   "./js/route-service.js",
   "./js/map-nav.js",
   "./js/pending-footer.js",
+  "./js/resume-policy.js",
+  "./js/thumb-repair-queue.js",
+  "./js/thumb-decode-state.js",
+  "./js/ui-global-settings.js",
+  "./js/migration-recovery.js",
 ];
+
+function isPrecachedAsset(url) {
+  try {
+    const path = new URL(url, self.location.href).pathname;
+    return ASSETS.some((a) => {
+      const rel = a.replace(/^\.\//, "");
+      return path.endsWith(rel) || path.endsWith("/" + rel);
+    });
+  } catch {
+    return false;
+  }
+}
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+});
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_VERSION).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting())
+    caches.open(CACHE_VERSION).then((cache) =>
+      Promise.all(
+        ASSETS.map((url) =>
+          cache.add(new Request(url, { cache: "reload" })).catch((err) => {
+            console.warn("[vacrecap-sw] precache failed:", url, err);
+            return null;
+          })
+        )
+      )
+    ).then(() => self.skipWaiting())
   );
 });
 
@@ -109,26 +143,32 @@ self.addEventListener("fetch", (event) => {
 
   if (request.mode === "navigate") {
     event.respondWith(
-      caches.match("./index.html", { ignoreSearch: true }).then((cached) => {
-        if (cached) return cached;
-        return fetch(request).catch(() => caches.match("./index.html", { ignoreSearch: true }));
-      })
+      caches.open(CACHE_VERSION).then((cache) =>
+        cache.match("./index.html", { ignoreSearch: true }).then((cached) => {
+          if (cached) return cached;
+          return fetch(request).catch(() => cache.match("./index.html", { ignoreSearch: true }));
+        })
+      )
     );
     return;
   }
 
+  if (!isPrecachedAsset(request.url)) {
+    event.respondWith(fetch(request).catch(() => caches.match(request)));
+    return;
+  }
+
   event.respondWith(
-    caches.match(request).then((cached) => {
-      const network = fetch(request)
-        .then((response) => {
+    caches.open(CACHE_VERSION).then((cache) =>
+      cache.match(request).then((cached) => {
+        if (cached) return cached;
+        return fetch(request).then((response) => {
           if (response.ok && response.type === "basic") {
-            const clone = response.clone();
-            caches.open(CACHE_VERSION).then((cache) => cache.put(request, clone));
+            return cache.put(request, response.clone()).then(() => response);
           }
           return response;
-        })
-        .catch(() => cached);
-      return cached || network;
-    })
+        });
+      })
+    )
   );
 });

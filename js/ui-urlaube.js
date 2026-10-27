@@ -100,8 +100,8 @@ export async function renderUrlaubeScreen(appEl, vacations) {
   wireRestoreZipInput(appEl, '[data-action="restore-backup"]');
 
   appEl.querySelector('[data-action="settings"]')?.addEventListener("click", () => {
-    import("./toast.js").then(({ showToast }) =>
-      showToast("Kommt im nächsten Schritt")
+    import("./ui-global-settings.js").then(({ openGlobalSettingsSheet }) =>
+      openGlobalSettingsSheet(appEl)
     );
   });
 
