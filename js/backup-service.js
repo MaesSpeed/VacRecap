@@ -90,6 +90,7 @@ Diese Datei wurde mit der PWA «Reisetagebuch» erstellt.
 function buildReiseJson(vacation, allPlaces, mediaFiles) {
   const days = vacationDays(vacation);
   return {
+    format: 2,
     app: "Reisetagebuch",
     exportedAt: new Date().toISOString(),
     vacation: {
@@ -97,6 +98,12 @@ function buildReiseJson(vacation, allPlaces, mediaFiles) {
       title: vacation.title,
       startDate: vacation.startDate,
       endDate: vacation.endDate,
+      createdAt: vacation.createdAt,
+      updatedAt: vacation.updatedAt,
+      author: vacation.author,
+      cover: vacation.cover,
+      companions: vacation.companions,
+      stats: vacation.stats,
     },
     days,
     places: allPlaces.map((p) => ({
@@ -224,7 +231,13 @@ export async function buildVacationZip(vacationId, { onProgress, daysFilter = nu
     }
   }
 
-  const reise = buildReiseJson(vacation, allPlaces, mediaManifest);
+  const placesForManifest = daysFilter
+    ? allPlaces.filter((p) => days.includes(p.day || p.dayDate))
+    : allPlaces;
+  const reise = buildReiseJson(vacation, placesForManifest, mediaManifest);
+  if (daysFilter) {
+    reise.days = days;
+  }
   reise.notes = notesManifest;
   await zip.addTextFile("reise.json", JSON.stringify(reise, null, 2), { ts: Date.now() });
   await bump();
