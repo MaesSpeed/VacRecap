@@ -3169,3 +3169,51 @@ body {
     padding-right: 20px;
   }
 }
+
+.screen--safe .safe-main {
+  padding: 16px;
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.safe-lead {
+  font-size: 15px;
+  line-height: 1.45;
+  color: #5b6b7a;
+  margin: 0 0 16px;
+}
+
+.safe-trip-list {
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.safe-trip {
+  border: 1px solid #d5dee7;
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.safe-trip__text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.safe-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sheet--settings-global .settings-link-row {
+  width: 100%;
+  text-align: left;
+}

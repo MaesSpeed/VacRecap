@@ -21,6 +21,82 @@
     <div id="app" class="app" aria-live="polite"></div>
     <div id="overlay-root" class="overlay-root" hidden></div>
     <div id="toast-root" class="toast-root" aria-live="assertive"></div>
-    <script type="module" src="js/app.js"></script>
+    <script>
+      (function () {
+        var KEY = "vr-boot";
+        var RELOAD_KEY = "vr-sw-reload";
+        var now = Date.now();
+        var forceApp = sessionStorage.getItem("vr-normal-boot") === "1";
+        if (forceApp) {
+          sessionStorage.removeItem("vr-normal-boot");
+          try {
+            localStorage.setItem(KEY, JSON.stringify({ since: now, attempts: 0, stable: true }));
+          } catch (e) {}
+          window.__VACRECAP_SAFE__ = false;
+          return;
+        }
+        var forceSafe =
+          /\bsafe=1\b/.test(location.search) ||
+          sessionStorage.getItem("vr-force-safe") === "1" ||
+          (location.hash || "").indexOf("/notfall") >= 0;
+        var data = null;
+        try {
+          data = JSON.parse(localStorage.getItem(KEY) || "null");
+        } catch (e) {
+          data = null;
+        }
+        var gap = now - (data?.lastLoad || 0);
+        if (!data || now - (data.since || 0) > 120000) {
+          data = { since: now, attempts: 0, stable: false, lastLoad: 0 };
+        }
+        if (data.stable) {
+          data.attempts = 0;
+          data.stable = false;
+        } else if (gap < 15000) {
+          data.attempts = (data.attempts || 0) + 1;
+        } else {
+          data.attempts = 1;
+          data.since = now;
+        }
+        data.since = data.since || now;
+        data.lastLoad = now;
+        try {
+          localStorage.setItem(KEY, JSON.stringify(data));
+        } catch (e) {}
+        var crashSafe = data.attempts >= 2;
+        window.__VACRECAP_SAFE__ = !!(forceSafe || crashSafe);
+        if (crashSafe && !forceSafe && location.hash !== "#/urlaube") {
+          location.replace(location.pathname + location.search + "#/urlaube");
+        }
+        window.addEventListener(
+          "error",
+          function (ev) {
+            var src = ev.filename || "";
+            if (!src || src.indexOf("/js/") < 0) return;
+            if (sessionStorage.getItem(RELOAD_KEY)) return;
+            sessionStorage.setItem(RELOAD_KEY, "1");
+            if ("caches" in window) {
+              caches.keys().then(function (keys) {
+                return Promise.all(keys.map(function (k) {
+                  return caches.delete(k);
+                }));
+              }).then(function () {
+                location.reload();
+              });
+            } else {
+              location.reload();
+            }
+          },
+          true
+        );
+      })();
+    </script>
+    <script type="module">
+      if (window.__VACRECAP_SAFE__) {
+        import("./js/safe.js");
+      } else {
+        import("./js/app.js");
+      }
+    </script>
   </body>
 </html>
