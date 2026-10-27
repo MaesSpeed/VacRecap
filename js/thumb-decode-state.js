@@ -11,3 +11,7 @@ export function markThumbDecodeFailed(mediaId) {
 export function clearThumbDecodeFailed(mediaId) {
   if (mediaId) thumbDecodeFailedIds.delete(mediaId);
 }
+
+export function clearAllThumbDecodeFailures() {
+  thumbDecodeFailedIds.clear();
+}

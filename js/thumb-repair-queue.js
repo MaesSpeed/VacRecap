@@ -1,4 +1,4 @@
-import { getMedia, putMedia, saveMediaThumb } from "./db.js";
+import { getMedia, saveMediaThumb } from "./db.js";
 import { createPhotoThumbFromBlob } from "./media-process.js";
 import {
   clearThumbDecodeFailed,
@@ -14,9 +14,22 @@ let started = false;
 let repairedThisSession = 0;
 const queue = [];
 let running = false;
+let decodeInflight = false;
 
 function photoThumbMissing(media) {
   return media?.type !== "video" && (!media.thumbBlob || media.thumbBlob.size === 0);
+}
+
+async function withDecodeLock(fn) {
+  while (decodeInflight) {
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  decodeInflight = true;
+  try {
+    return await fn();
+  } finally {
+    decodeInflight = false;
+  }
 }
 
 async function createThumbWithRetries(record) {
@@ -26,7 +39,7 @@ async function createThumbWithRetries(record) {
     try {
       const src = attempt === 0 ? record : await getMediaFresh(record.id);
       if (!src?.blob) throw new Error("no blob");
-      return await createPhotoThumbFromBlob(src.blob);
+      return await withDecodeLock(() => createPhotoThumbFromBlob(src.blob));
     } catch (err) {
       lastErr = err;
       if (err?.name !== "InvalidStateError" || attempt >= RETRY_DELAYS_MS.length) break;
@@ -40,18 +53,16 @@ async function repairOne(mediaId) {
   if (repairedThisSession >= MAX_PER_SESSION) return;
   if (isThumbDecodeFailed(mediaId)) return;
   const record = await getMedia(mediaId);
-  if (!record || record.type === "video" || record.thumbFailed) return;
+  if (!record || record.type === "video") return;
   if (!photoThumbMissing(record)) return;
   try {
     const thumbBlob = await createThumbWithRetries(record);
     await saveMediaThumb(mediaId, thumbBlob);
-    await putMedia({ id: mediaId, thumbFailed: false });
     clearThumbDecodeFailed(mediaId);
     repairedThisSession += 1;
     window.dispatchEvent(new CustomEvent("vacrecap:thumb-repaired", { detail: { mediaId } }));
   } catch {
     markThumbDecodeFailed(mediaId);
-    await putMedia({ id: mediaId, thumbFailed: true });
   }
 }
 
@@ -83,7 +94,6 @@ export function scheduleThumbRepairs(mediaList) {
     queue.push(m.id);
   }
   ensureStarted();
-  void drain();
 }
 
 export function resetThumbRepairSessionForTests() {
@@ -91,4 +101,5 @@ export function resetThumbRepairSessionForTests() {
   repairedThisSession = 0;
   queue.length = 0;
   running = false;
+  decodeInflight = false;
 }

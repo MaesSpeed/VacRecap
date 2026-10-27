@@ -8,7 +8,10 @@ function openDb() {
     dbPromise = new Promise((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
       req.onerror = () => reject(req.error);
-      req.onsuccess = () => resolve(req.result);
+      req.onsuccess = () => {
+        resolve(req.result);
+        queueMicrotask(() => void migrateResidualThumbBlobs());
+      };
       req.onupgradeneeded = (event) => {
         const db = event.target.result;
         const tx = event.target.transaction;
@@ -96,26 +99,57 @@ function openDb() {
               req.onerror = () => next();
             };
             if (thumbBlob.size > 0) {
-              thumbBlob
-                .arrayBuffer()
-                .then((data) => {
-                  thumbsStore.put({
-                    mediaId: v.id,
-                    mime: thumbBlob.type || "image/jpeg",
-                    data,
-                  });
-                  finish();
-                })
-                .catch(() => finish());
-            } else {
-              finish();
+              thumbsStore.put({
+                mediaId: v.id,
+                mime: thumbBlob.type || "image/jpeg",
+                blob: thumbBlob,
+              });
             }
+            finish();
           };
         }
       };
     });
   }
   return dbPromise;
+}
+
+async function migrateResidualThumbBlobs() {
+  try {
+    const done = await getSetting("thumbs_blob_migrated_v7");
+    if (done) return;
+    const db = await openDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(["media", "thumbs"], "readwrite");
+      const mediaStore = tx.objectStore("media");
+      const thumbsStore = tx.objectStore("thumbs");
+      mediaStore.openCursor().onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (!cursor) return;
+        const v = cursor.value;
+        const thumbBlob = v.thumbBlob;
+        if (thumbBlob && thumbBlob.size > 0) {
+          thumbsStore.put({
+            mediaId: v.id,
+            mime: thumbBlob.type || "image/jpeg",
+            blob: thumbBlob,
+          });
+          const copy = { ...v };
+          delete copy.thumbBlob;
+          const req = cursor.update(copy);
+          req.onsuccess = () => cursor.continue();
+          req.onerror = () => cursor.continue();
+        } else {
+          cursor.continue();
+        }
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    await putSetting("thumbs_blob_migrated_v7", true);
+  } catch {
+    /* retry on next open */
+  }
 }
 
 async function readThumbEntry(mediaId) {
@@ -130,7 +164,6 @@ async function readThumbEntry(mediaId) {
 
 export async function saveMediaThumb(mediaId, blob) {
   if (!mediaId || !blob) return;
-  const data = await blob.arrayBuffer();
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction("thumbs", "readwrite");
@@ -139,7 +172,7 @@ export async function saveMediaThumb(mediaId, blob) {
     tx.objectStore("thumbs").put({
       mediaId,
       mime: blob.type || "image/jpeg",
-      data,
+      blob,
     });
   });
 }
@@ -157,18 +190,43 @@ export async function deleteMediaThumb(mediaId) {
 
 export async function clearAllMediaThumbs() {
   const db = await openDb();
-  return new Promise((resolve, reject) => {
+  await new Promise((resolve, reject) => {
     const tx = db.transaction("thumbs", "readwrite");
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
     tx.objectStore("thumbs").clear();
+  });
+  await clearAllThumbFailureFlags();
+}
+
+export async function clearAllThumbFailureFlags() {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("media", "readwrite");
+    const store = tx.objectStore("media");
+    store.openCursor().onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (!cursor) return;
+      const v = cursor.value;
+      if (v.thumbFailed) {
+        const copy = { ...v };
+        delete copy.thumbFailed;
+        cursor.update(copy);
+      } else {
+        cursor.continue();
+      }
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }
 
 async function attachThumbInPlace(record) {
   if (!record?.id) return record;
   const entry = await readThumbEntry(record.id);
-  if (entry?.data) {
+  if (entry?.blob instanceof Blob) {
+    record.thumbBlob = entry.blob;
+  } else if (entry?.data) {
     record.thumbBlob = new Blob([entry.data], { type: entry.mime || "image/jpeg" });
   }
   return record;

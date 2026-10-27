@@ -43,7 +43,7 @@ export async function loadDayPlacesEnriched(vacationId, day) {
 }
 
 function photoThumbMissing(media) {
-  if (media.type === "video" || media.thumbFailed) return false;
+  if (media.type === "video") return false;
   return !media.thumbBlob || media.thumbBlob.size === 0;
 }
 
@@ -94,15 +94,13 @@ export async function forceRebuildPhotoThumb(mediaId) {
       return false;
     }
     const thumbBlob = await createThumbBlobForMediaRecord(record);
-    const { saveMediaThumb, putMedia } = await import("./db.js");
+    const { saveMediaThumb } = await import("./db.js");
     await saveMediaThumb(mediaId, thumbBlob);
-    await putMedia({ id: mediaId, thumbFailed: false });
     clearThumbDecodeFailed(mediaId);
+    window.dispatchEvent(new CustomEvent("vacrecap:thumb-repaired", { detail: { mediaId } }));
     return true;
   } catch {
     markThumbDecodeFailed(mediaId);
-    const { putMedia } = await import("./db.js");
-    await putMedia({ id: mediaId, thumbFailed: true });
     return false;
   }
 }
@@ -227,7 +225,7 @@ export function buildThumbUrlMap(mediaList, onlyIds = null) {
   const map = {};
   for (const m of mediaList) {
     if (onlyIds && !onlyIds.has(m.id)) continue;
-    if (m.thumbBlob && !isThumbDecodeFailed(m.id) && !m.thumbFailed) {
+    if (m.thumbBlob && !isThumbDecodeFailed(m.id)) {
       map[m.id] = URL.createObjectURL(m.thumbBlob);
     }
   }

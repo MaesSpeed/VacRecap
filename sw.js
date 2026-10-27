@@ -1,4 +1,4 @@
-const CACHE_VERSION = "vacrecap-v36";
+const CACHE_VERSION = "vacrecap-v37";
 const ASSETS = [
   "./",
   "./index.html",
@@ -104,12 +104,21 @@ function isPrecachedAsset(url) {
   }
 }
 
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+});
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_VERSION).then((cache) =>
       Promise.all(
         ASSETS.map((url) =>
-          cache.add(new Request(url, { cache: "reload" })).catch(() => null)
+          cache.add(new Request(url, { cache: "reload" })).catch((err) => {
+            console.warn("[vacrecap-sw] precache failed:", url, err);
+            return null;
+          })
         )
       )
     ).then(() => self.skipWaiting())

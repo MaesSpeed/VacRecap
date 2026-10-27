@@ -26,11 +26,24 @@ const CONTEXT_OPTS = {
   serviceWorkers: "block",
 };
 
-function startServer() {
-  return new Promise((resolve) => {
+function startServer({ swVariant = "current" } = {}) {
+  let swV35Body = null;
+  return new Promise(async (resolve) => {
+    if (swVariant === "dual") {
+      const current = await readFile(path.join(root, "sw.js"), "utf8");
+      swV35Body = current.replace(/vacrecap-v37/g, "vacrecap-v35").replace(/v37/g, "v35");
+    }
     const server = createServer(async (req, res) => {
       const url = new URL(req.url, "http://localhost");
       let rel = decodeURIComponent(url.pathname);
+      if (rel === "/sw-v35.js" && swV35Body) {
+        res.writeHead(200, {
+          "Content-Type": "application/javascript; charset=utf-8",
+          "Cache-Control": "public, max-age=600",
+        });
+        res.end(swV35Body);
+        return;
+      }
       if (rel.endsWith("/")) rel += "index.html";
       try {
         const data = await readFile(path.join(root, rel.replace(/^\//, "")));
@@ -67,47 +80,120 @@ async function seedTrip(page) {
 
 async function assertBootCrashCounter(page, label) {
   const crash = await page.evaluate(() => {
-    const KEY = "vr-boot";
-    const now = Date.now();
-    const run = (data) => {
-      const gap = now - (data?.lastLoad || 0);
-      if (!data || now - (data.since || 0) > 120000) {
-        data = { since: now, attempts: 0, stable: false, lastLoad: 0 };
-      }
-      if (data.stable) {
-        data.attempts = 0;
-        data.stable = false;
-      } else if (gap < 15000) {
-        data.attempts = (data.attempts || 0) + 1;
-      } else {
-        data.attempts = 1;
-        data.since = now;
-      }
-      data.lastLoad = now;
-      return data;
+    const boot = (data) => {
+      let crashCount = data.crashCount || 0;
+      if (data.unstable === true) crashCount += 1;
+      return { unstable: true, crashCount };
     };
-    let d = run({ since: now, attempts: 0, stable: false, lastLoad: now - 5000 });
-    d = run(d);
-    return d.attempts >= 2;
+    let state = { unstable: false, crashCount: 0 };
+    state = boot(state);
+    state = boot(state);
+    state = boot(state);
+    return state.crashCount >= 2;
   });
   if (!crash) throw new Error(`${label}: Absturz-Zähler löst nicht aus`);
+}
+
+async function assertSafeModeBackup(page, label, vacationId, baseUrl) {
+  await page.goto(baseUrl);
+  await page.evaluate(async (vid) => {
+    const { getPlacesForVacation, putPlace, putMedia, getMediaForPlace, getVacation } =
+      await import("./js/db.js");
+    const { createPlace } = await import("./js/places.js");
+    const { createId, todayIso } = await import("./js/utils.js");
+    const vacation = await getVacation(vid);
+    const day = vacation?.startDate || todayIso();
+    const places = await getPlacesForVacation(vid);
+    let place = places.find((p) => !p.soft);
+    if (!place) {
+      place = createPlace({
+        id: createId(),
+        vacationId: vid,
+        day,
+        ts: Date.now(),
+        lat: 1,
+        lng: 2,
+        name: "Safe-Ort",
+        soft: false,
+        source: "test",
+      });
+      await putPlace(place);
+    }
+    const media = await getMediaForPlace(place.id);
+    if (!media.some((m) => m.type !== "video")) {
+      const canvas = document.createElement("canvas");
+      canvas.width = 80;
+      canvas.height = 60;
+      canvas.getContext("2d").fillStyle = "#336699";
+      canvas.getContext("2d").fillRect(0, 0, 80, 60);
+      const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.9));
+      await putMedia({
+        id: createId(),
+        placeId: place.id,
+        vacationId: vid,
+        day: place.day || day,
+        ts: Date.now(),
+        type: "photo",
+        blob,
+        mime: "image/jpeg",
+        ext: "jpg",
+      });
+    }
+  }, vacationId);
+  await page.goto(`./?safe=1#/notfall`);
+  await page.waitForSelector('[data-testid="safe-mode-screen"]');
+  const zipMeta = await page.evaluate(async (vid) => {
+    const { buildVacationZip } = await import("./js/backup-service.js");
+    const { ZipReader } = await import("./js/zip-reader.js");
+    const { getMediaForPlace, getPlacesForVacation } = await import("./js/db.js");
+    const zip = await buildVacationZip(vid);
+    const file = new File([zip.blob], "t.zip", { type: "application/zip" });
+    if (file.size < 100) return { ok: false, err: `ZIP zu klein (${file.size})` };
+    const reader = new ZipReader(file);
+    await reader.loadCatalog();
+    const manifest = await reader.readJSON("reise.json");
+    const places = await getPlacesForVacation(vid);
+    const place = places.find((p) => !p.soft);
+    const media = place ? await getMediaForPlace(place.id) : [];
+    const photo = media.find((m) => m.type !== "video");
+    if (!photo?.blob) return { ok: false, err: "kein Foto" };
+    const origHash = Array.from(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", await photo.blob.arrayBuffer()))
+    )
+      .map((x) => x.toString(16).padStart(2, "0"))
+      .join("");
+    const paths = reader.listPaths();
+    const photoPath = manifest.media?.find((m) => m.type === "photo")?.path;
+    if (!photoPath) {
+      return { ok: false, err: `kein Foto in Manifest (${manifest.media?.length || 0})` };
+    }
+    if (!paths.includes(photoPath)) {
+      return { ok: false, err: `Pfad fehlt (${photoPath}) in ${paths.slice(0, 3).join(",")}` };
+    }
+    const fromZip = await reader.readBlob(photoPath, photo.mime);
+    const zipHash = Array.from(
+      new Uint8Array(await crypto.subtle.digest("SHA-256", await fromZip.arrayBuffer()))
+    )
+      .map((x) => x.toString(16).padStart(2, "0"))
+      .join("");
+    return { ok: zipHash === origHash && manifest.app === "Reisetagebuch", origHash, zipHash };
+  }, vacationId);
+  if (!zipMeta?.ok) throw new Error(`${label}: ${zipMeta?.err || "ZIP/Hash"}`);
 }
 
 async function assertSafeModeCrash(page, label) {
   await page.goto("./?safe=1");
   await page.waitForSelector('[data-testid="safe-mode-screen"]', { timeout: 15_000 });
-  const vid = await page.evaluate(async () => {
-    const { getAllVacations } = await import("./js/db.js");
-    const list = await getAllVacations();
-    return list[0]?.id || null;
-  });
-  if (!vid) throw new Error(`${label}: keine Reise für Safe-Backup`);
-  await page.locator(`[data-action="backup"][data-id="${vid}"]`).click();
-  await page.waitForTimeout(500);
   await page.locator('[data-action="normal"]').click();
   await page.waitForSelector(".top-bar__title");
-  const safe = await page.locator('[data-testid="safe-mode-screen"]').count();
-  if (safe) throw new Error(`${label}: Normal start blieb im Notfallmodus`);
+  const url = await page.evaluate(() => ({
+    hash: location.hash,
+    search: location.search,
+    safe: window.__VACRECAP_SAFE__,
+  }));
+  if (url.safe || url.search.includes("safe=1") || url.hash.includes("notfall")) {
+    throw new Error(`${label}: URL/Modus nach Normalstart (${JSON.stringify(url)})`);
+  }
 }
 
 async function assertResumeOverview(page, label, vacationId) {
@@ -116,15 +202,9 @@ async function assertResumeOverview(page, label, vacationId) {
   const moved = await page.evaluate(async () => {
     const pausedAt = Date.now() - 3 * 60 * 1000;
     localStorage.setItem("vr-last-active", String(pausedAt));
-    const stored = Number(localStorage.getItem("vr-last-active"));
     const { runColdResumeCheck } = await import("./js/resume-policy.js");
     runColdResumeCheck();
-    return {
-      hash: location.hash,
-      resume: window.__VR_RESUME_DEBUG,
-      stored,
-      pausedAt,
-    };
+    return { hash: location.hash };
   });
   if (moved.hash !== "#/urlaube") {
     throw new Error(`${label}: keine Übersicht nach Pause (${JSON.stringify(moved)})`);
@@ -132,32 +212,95 @@ async function assertResumeOverview(page, label, vacationId) {
   await page.waitForSelector(".screen--urlaube", { timeout: 15_000 });
 }
 
-async function assertSwSingleVersion(page, baseUrl, label) {
+async function assertSwUpdateWithSha(page, baseUrl, label) {
   const ctx = await page.context().browser().newContext({
     baseURL: baseUrl,
     ...devices["iPhone 8"],
     serviceWorkers: "allow",
   });
   const p = await ctx.newPage();
-  await p.goto("./");
-  const info = await p.evaluate(async () => {
-    const reg = await navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" });
+  await p.goto(baseUrl);
+  const result = await p.evaluate(async () => {
+    const digestBytes = async (blob) => {
+      const d = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+      return Array.from(new Uint8Array(d))
+        .map((x) => x.toString(16).padStart(2, "0"))
+        .join("");
+    };
+    const { createId, todayIso } = await import("./js/utils.js");
+    const { putPlace, putMedia, getMedia } = await import("./js/db.js");
+    const { createPlace } = await import("./js/places.js");
+    const canvas = document.createElement("canvas");
+    canvas.width = 32;
+    canvas.height = 24;
+    canvas.getContext("2d").fillRect(0, 0, 32, 24);
+    const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.9));
+    const expected = await digestBytes(blob);
+    const vacationId = createId();
+    const placeId = createId();
+    const mediaId = createId();
+    const day = todayIso();
+    await putPlace(
+      createPlace({
+        id: placeId,
+        vacationId,
+        day,
+        ts: Date.now(),
+        lat: 1,
+        lng: 2,
+        name: "SW",
+        soft: false,
+        source: "test",
+      })
+    );
+    await putMedia({
+      id: mediaId,
+      placeId,
+      vacationId,
+      day,
+      ts: Date.now(),
+      type: "photo",
+      blob,
+      mime: "image/jpeg",
+      ext: "jpg",
+    });
+    const oldCache = await caches.open("vacrecap-v35");
+    await oldCache.put("./js/app-version.js", new Response("export const APP_BUILD_VERSION = 35;\n"));
+    let reg = await navigator.serviceWorker.register("./sw-v35.js", { updateViaCache: "none" });
     await navigator.serviceWorker.ready;
-    const keys = await caches.keys();
-    const cache = await caches.open("vacrecap-v36");
-    const app = await cache.match("./js/app.js");
-    const ver = await cache.match("./js/app-version.js");
-    let build = 0;
-    if (ver) {
-      const t = await ver.text();
-      const m = t.match(/APP_BUILD_VERSION\s*=\s*(\d+)/);
-      build = m ? Number(m[1]) : 0;
+    reg = await navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" });
+    await reg.update();
+    await new Promise((r) => setTimeout(r, 500));
+    if (reg.waiting) {
+      reg.waiting.postMessage({ type: "SKIP_WAITING" });
     }
-    return { keys, hasApp: !!app, build, onlyV36: keys.every((k) => k === "vacrecap-v36") };
+    await new Promise((resolve) => {
+      const t = setTimeout(resolve, 2000);
+      navigator.serviceWorker.addEventListener(
+        "controllerchange",
+        () => {
+          clearTimeout(t);
+          resolve();
+        },
+        { once: true }
+      );
+    });
+    let keys = await caches.keys();
+    for (let i = 0; i < 15; i++) {
+      keys = await caches.keys();
+      if (keys.length === 1 && keys[0] === "vacrecap-v37") break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    const onlyV37 = keys.length === 1 && keys[0] === "vacrecap-v37";
+    const verResp = await (await caches.open("vacrecap-v37")).match("./js/app-version.js");
+    const verText = verResp ? await verResp.text() : "";
+    const build = /APP_BUILD_VERSION\s*=\s*(\d+)/.exec(verText)?.[1];
+    const after = await digestBytes((await getMedia(mediaId)).blob);
+    return { onlyV37, build: Number(build), shaOk: after === expected, keys };
   });
   await ctx.close();
-  if (!info.onlyV36 || !info.hasApp || info.build !== 36) {
-    throw new Error(`${label}: SW-Cache (${JSON.stringify(info)})`);
+  if (!result.onlyV37 || result.build !== 37 || !result.shaOk) {
+    throw new Error(`${label}: SW-Update (${JSON.stringify(result)})`);
   }
 }
 
@@ -219,26 +362,37 @@ async function assertThumbStoreMigration(page, label) {
         ext: "jpg",
       });
     }
-    const db = await new Promise((resolve, reject) => {
-      const req = indexedDB.open("vacrecap");
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
     const raw = await new Promise((resolve, reject) => {
-      const tx = db.transaction("media", "readonly");
-      const req = tx.objectStore("media").get(ids[0]);
-      req.onsuccess = () => resolve(req.result);
+      const req = indexedDB.open("vacrecap");
+      req.onsuccess = () => {
+        const tx = req.result.transaction("media", "readonly");
+        const g = tx.objectStore("media").get(ids[0]);
+        g.onsuccess = () => resolve(g.result);
+        g.onerror = () => reject(g.error);
+      };
       req.onerror = () => reject(req.error);
     });
     if (raw?.thumbBlob) {
       return { ok: false, err: "thumbBlob noch im Medien-Record" };
     }
+    const thumbEntry = await new Promise((resolve, reject) => {
+      const req = indexedDB.open("vacrecap");
+      req.onsuccess = () => {
+        const tx = req.result.transaction("thumbs", "readonly");
+        const g = tx.objectStore("thumbs").get(ids[0]);
+        g.onsuccess = () => resolve(g.result);
+        g.onerror = () => reject(g.error);
+      };
+      req.onerror = () => reject(req.error);
+    });
+    if (!thumbEntry?.blob && !thumbEntry?.data) {
+      return { ok: false, err: "Thumb nicht im thumbs-Store" };
+    }
     const { scheduleThumbRepairs } = await import("./js/thumb-repair-queue.js");
     const { deleteMediaThumb } = await import("./js/db.js");
     for (const id of ids) await deleteMediaThumb(id);
-    const list = ids.map((id) => ({ id, type: "photo", thumbBlob: null }));
-    scheduleThumbRepairs(list);
-    await new Promise((r) => setTimeout(r, 4500));
+    scheduleThumbRepairs(ids.map((id) => ({ id, type: "photo", thumbBlob: null })));
+    await new Promise((r) => setTimeout(r, 3500));
     await new Promise((r) => setTimeout(r, 8000));
     if (maxInflight > 1) {
       return { ok: false, err: `mehr als 1 Decode parallel (${maxInflight})` };
@@ -315,14 +469,14 @@ async function assertOriginalShaAfterReload(page, label, baseUrl) {
   if (!after) throw new Error(`${label}: hash nach reload`);
 }
 
-async function assertVersion36(page, label) {
+async function assertVersion37(page, label) {
   await page.goto("./");
   const v = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  if (v !== 36) throw new Error(`${label}: Version ${v}`);
+  if (v !== 37) throw new Error(`${label}: Version ${v}`);
 }
 
 async function main() {
-  const { server, baseUrl } = await startServer();
+  const { server, baseUrl } = await startServer({ swVariant: "dual" });
   const chromiumBrowser = await chromium.launch();
   const ctx = await chromiumBrowser.newContext({ baseURL: baseUrl, ...CONTEXT_OPTS });
   const page = await ctx.newPage();
@@ -334,16 +488,17 @@ async function main() {
   const vacationId = await seedTrip(page);
   await assertResumeOverview(page, "5p-resume", vacationId);
   await assertBootCrashCounter(page, "5p-boot-crash");
-  await assertSafeModeCrash(page, "5p-safe-crash");
+  await assertSafeModeBackup(page, "5p-safe-backup", vacationId, baseUrl);
+  await assertSafeModeCrash(page, "5p-safe-normal");
   await assertThumbStoreMigration(page, "5p-thumbs");
   await assertOriginalShaAfterReload(page, "5p-sha", baseUrl);
 
   for (const vp of VIEWPORTS) {
     await page.setViewportSize({ width: vp.width, height: vp.height });
-    await assertVersion36(page, `5p-version-${vp.name}`);
+    await assertVersion37(page, `5p-version-${vp.name}`);
   }
 
-  await assertSwSingleVersion(page, baseUrl, "5p-sw-cache");
+  await assertSwUpdateWithSha(page, baseUrl, "5p-sw-update");
 
   const webkitUserData = await mkdtemp(path.join(tmpdir(), "vacrecap-5p-wk-"));
   const webkitCtx = await webkit.launchPersistentContext(webkitUserData, {

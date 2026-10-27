@@ -188,6 +188,36 @@ export async function renderUrlaubDetail(appEl, id) {
     });
   }
 
+  async function applyThumbToTiles(mediaId) {
+    if (!mediaId) return;
+    const { getMedia } = await import("./db.js");
+    const record = await getMedia(mediaId);
+    if (!record?.thumbBlob) return;
+    const prev = state.thumbUrls[mediaId];
+    if (prev) URL.revokeObjectURL(prev);
+    const url = URL.createObjectURL(record.thumbBlob);
+    state.thumbUrls[mediaId] = url;
+    contentEl.querySelectorAll(`img[data-media-id="${mediaId}"]`).forEach((img) => {
+      img.src = url;
+      img.hidden = false;
+    });
+    contentEl.querySelectorAll(`.th--ph[data-media-id="${mediaId}"]`).forEach((ph) => {
+      ph.classList.remove("th--ph");
+      ph.innerHTML = `<img class="th__img" src="${url}" alt="" decoding="async" data-media-id="${mediaId}" />`;
+    });
+  }
+
+  if (appEl._thumbRepairCleanup) appEl._thumbRepairCleanup();
+  const thumbRepairAc = new AbortController();
+  appEl._thumbRepairCleanup = () => thumbRepairAc.abort();
+  window.addEventListener(
+    "vacrecap:thumb-repaired",
+    (e) => {
+      void applyThumbToTiles(e.detail?.mediaId);
+    },
+    { signal: thumbRepairAc.signal }
+  );
+
   async function refreshDayList() {
     const token = ++state.listRefreshToken;
     await maybeSoftOnOpen();
