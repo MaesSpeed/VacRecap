@@ -197,13 +197,27 @@ export async function renderUrlaubDetail(appEl, id) {
     if (prev) URL.revokeObjectURL(prev);
     const url = URL.createObjectURL(record.thumbBlob);
     state.thumbUrls[mediaId] = url;
+    const imgHtml = `<img class="tile__img" src="${url}" alt="" decoding="async" data-media-id="${mediaId}" />`;
     contentEl.querySelectorAll(`img[data-media-id="${mediaId}"]`).forEach((img) => {
       img.src = url;
       img.hidden = false;
     });
+    contentEl.querySelectorAll(`.tile[data-media-id="${mediaId}"]`).forEach((tile) => {
+      if (!tile.querySelector(".tile__img")) {
+        tile.insertAdjacentHTML("afterbegin", imgHtml);
+      }
+    });
     contentEl.querySelectorAll(`.th--ph[data-media-id="${mediaId}"]`).forEach((ph) => {
       ph.classList.remove("th--ph");
       ph.innerHTML = `<img class="th__img" src="${url}" alt="" decoding="async" data-media-id="${mediaId}" />`;
+    });
+  }
+
+  function scheduleApplyThumbToTiles(mediaId) {
+    if (!mediaId) return;
+    void applyThumbToTiles(mediaId);
+    requestAnimationFrame(() => {
+      void applyThumbToTiles(mediaId);
     });
   }
 
@@ -213,7 +227,7 @@ export async function renderUrlaubDetail(appEl, id) {
   window.addEventListener(
     "vacrecap:thumb-repaired",
     (e) => {
-      void applyThumbToTiles(e.detail?.mediaId);
+      scheduleApplyThumbToTiles(e.detail?.mediaId);
     },
     { signal: thumbRepairAc.signal }
   );
@@ -261,6 +275,9 @@ export async function renderUrlaubDetail(appEl, id) {
     contentEl.innerHTML = html;
     contentEl.dataset.activeDay = state.activeDay;
     revokeThumbUrls(previousThumbUrls);
+    for (const m of allMedia) {
+      if (m.thumbBlob?.size) scheduleApplyThumbToTiles(m.id);
+    }
   }
 
   async function regenerateThumbFromOriginal(mediaId) {
@@ -272,8 +289,7 @@ export async function renderUrlaubDetail(appEl, id) {
     const job = forceRebuildPhotoThumb(mediaId);
     thumbRegenInflight.set(mediaId, job);
     try {
-      const rebuilt = await job;
-      if (rebuilt) await refreshDayList();
+      await job;
     } catch {
       /* Platzhalter bleibt sichtbar */
     } finally {

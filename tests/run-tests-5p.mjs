@@ -31,7 +31,7 @@ function startServer({ swVariant = "current" } = {}) {
   return new Promise(async (resolve) => {
     if (swVariant === "dual") {
       const current = await readFile(path.join(root, "sw.js"), "utf8");
-      swV35Body = current.replace(/vacrecap-v38/g, "vacrecap-v35").replace(/v38/g, "v35");
+      swV35Body = current.replace(/vacrecap-v39/g, "vacrecap-v35").replace(/v39/g, "v35");
     }
     const server = createServer(async (req, res) => {
       const url = new URL(req.url, "http://localhost");
@@ -288,18 +288,18 @@ async function assertSwUpdateWithSha(page, baseUrl, label) {
     let keys = await caches.keys();
     for (let i = 0; i < 15; i++) {
       keys = await caches.keys();
-      if (keys.length === 1 && keys[0] === "vacrecap-v38") break;
+      if (keys.length === 1 && keys[0] === "vacrecap-v39") break;
       await new Promise((r) => setTimeout(r, 200));
     }
-    const onlyV38 = keys.length === 1 && keys[0] === "vacrecap-v38";
-    const verResp = await (await caches.open("vacrecap-v38")).match("./js/app-version.js");
+    const onlyV39 = keys.length === 1 && keys[0] === "vacrecap-v39";
+    const verResp = await (await caches.open("vacrecap-v39")).match("./js/app-version.js");
     const verText = verResp ? await verResp.text() : "";
     const build = /APP_BUILD_VERSION\s*=\s*(\d+)/.exec(verText)?.[1];
     const after = await digestBytes((await getMedia(mediaId)).blob);
-    return { onlyV38, build: Number(build), shaOk: after === expected, keys };
+    return { onlyV39, build: Number(build), shaOk: after === expected, keys };
   });
   await ctx.close();
-  if (!result.onlyV38 || result.build !== 38 || !result.shaOk) {
+  if (!result.onlyV39 || result.build !== 39 || !result.shaOk) {
     throw new Error(`${label}: SW-Update (${JSON.stringify(result)})`);
   }
 }
@@ -637,10 +637,10 @@ async function assertOriginalShaAfterReload(page, label, baseUrl) {
   if (!after) throw new Error(`${label}: hash nach reload`);
 }
 
-async function assertVersion38(page, label) {
+async function assertVersion39(page, label) {
   await page.goto("./");
   const v = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  if (v !== 38) throw new Error(`${label}: Version ${v}`);
+  if (v !== 39) throw new Error(`${label}: Version ${v}`);
 }
 
 async function main() {
@@ -663,7 +663,7 @@ async function main() {
 
   for (const vp of VIEWPORTS) {
     await page.setViewportSize({ width: vp.width, height: vp.height });
-    await assertVersion38(page, `5p-version-${vp.name}`);
+    await assertVersion39(page, `5p-version-${vp.name}`);
   }
 
   await assertSwUpdateWithSha(page, baseUrl, "5p-sw-update");

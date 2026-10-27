@@ -1,5 +1,8 @@
 const RELOAD_KEY = "vr-thumb-mig-reload";
 
+const MIGRATION_FAIL_MSG =
+  "Die Vorschaubild-Migration konnte nicht abgeschlossen werden. Bitte einmal neu laden.";
+
 export function showMigrationRecovery(message) {
   const app = document.getElementById("app");
   if (!app) return;
@@ -16,6 +19,17 @@ export function showMigrationRecovery(message) {
   });
 }
 
+function ensureMigrationRecoveryVisible(message) {
+  const paint = () => showMigrationRecovery(message);
+  if (document.getElementById("app")) paint();
+  else document.addEventListener("DOMContentLoaded", paint, { once: true });
+}
+
+export function showMigrationRecoveryOnAbort() {
+  sessionStorage.removeItem(RELOAD_KEY);
+  ensureMigrationRecoveryVisible(MIGRATION_FAIL_MSG);
+}
+
 export async function runWithMigrationRecovery(run) {
   try {
     await run();
@@ -27,9 +41,7 @@ export async function runWithMigrationRecovery(run) {
       return;
     }
     sessionStorage.removeItem(RELOAD_KEY);
-    showMigrationRecovery(
-      "Die Vorschaubild-Migration konnte nicht abgeschlossen werden. Bitte einmal neu laden."
-    );
+    ensureMigrationRecoveryVisible(MIGRATION_FAIL_MSG);
     throw err;
   }
 }

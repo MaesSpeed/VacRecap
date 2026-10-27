@@ -123,12 +123,23 @@ async function assertInvalidStateRetry(page, label, vacationId) {
       }
       return orig(...args);
     };
+    const { deleteMediaThumb, getMedia } = await import("./js/db.js");
+    const { resetThumbRepairSessionForTests } = await import("./js/thumb-repair-queue.js");
+    const { clearAllThumbDecodeFailures } = await import("./js/thumb-decode-state.js");
+    const { resetThumbForceRebuildSession } = await import("./js/ui-place-list.js");
+    await deleteMediaThumb(mediaId);
+    clearAllThumbDecodeFailures();
+    resetThumbForceRebuildSession();
+    resetThumbRepairSessionForTests();
     const { forceRebuildPhotoThumb } = await import("./js/ui-place-list.js");
-    const rebuilt = await forceRebuildPhotoThumb(mediaId);
-    return { rebuilt, bitmapCalls };
+    await forceRebuildPhotoThumb(mediaId);
+    await new Promise((r) => setTimeout(r, 9000));
+    const m = await getMedia(mediaId);
+    const hasThumb = !!(m?.thumbBlob && m.thumbBlob.size > 20);
+    return { hasThumb, bitmapCalls };
   }, mediaId);
 
-  if (!ok.rebuilt) {
+  if (!ok.hasThumb) {
     throw new Error(`${label}: Rebuild nach Retry fehlgeschlagen`);
   }
   if (ok.bitmapCalls < 2) {

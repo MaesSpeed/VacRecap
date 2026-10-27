@@ -13,9 +13,14 @@ const RETRY_DELAYS_MS = [400, 800, 1600];
 let started = false;
 let delayPassed = false;
 let repairedThisSession = 0;
+let unlimitedSession = false;
 const queue = [];
 let running = false;
 let decodeInflight = false;
+
+function sessionRepairLimit() {
+  return unlimitedSession ? Number.POSITIVE_INFINITY : MAX_PER_SESSION;
+}
 
 function photoThumbMissing(media) {
   return media?.type !== "video" && (!media.thumbBlob || media.thumbBlob.size === 0);
@@ -51,7 +56,7 @@ async function createThumbWithRetries(record) {
 }
 
 async function repairOne(mediaId) {
-  if (repairedThisSession >= MAX_PER_SESSION) return;
+  if (repairedThisSession >= sessionRepairLimit()) return;
   if (isThumbDecodeFailed(mediaId)) return;
   const record = await getMedia(mediaId);
   if (!record || record.type === "video") return;
@@ -71,12 +76,16 @@ async function drain() {
   if (running) return;
   running = true;
   try {
-    while (queue.length && repairedThisSession < MAX_PER_SESSION) {
+    const limit = sessionRepairLimit();
+    while (queue.length && repairedThisSession < limit) {
       const id = queue.shift();
       if (id) await repairOne(id);
     }
   } finally {
     running = false;
+    if (queue.length && repairedThisSession < sessionRepairLimit()) {
+      void drain();
+    }
   }
 }
 
@@ -87,6 +96,13 @@ function ensureStarted() {
     delayPassed = true;
     void drain();
   }, START_DELAY_MS);
+}
+
+/** Nach „Vorschaubilder zurücksetzen“: gesamte Queue in dieser Session abarbeiten. */
+export function beginFullThumbRepairAfterReset() {
+  unlimitedSession = true;
+  repairedThisSession = 0;
+  if (delayPassed) void drain();
 }
 
 export function scheduleThumbRepairs(mediaList) {
@@ -101,10 +117,19 @@ export function scheduleThumbRepairs(mediaList) {
   if (delayPassed) void drain();
 }
 
+export function enqueueThumbRepair(mediaId) {
+  if (!mediaId || isThumbDecodeFailed(mediaId)) return;
+  if (queue.includes(mediaId)) return;
+  queue.push(mediaId);
+  ensureStarted();
+  if (delayPassed) void drain();
+}
+
 export function resetThumbRepairSessionForTests() {
   started = false;
   delayPassed = false;
   repairedThisSession = 0;
+  unlimitedSession = false;
   queue.length = 0;
   running = false;
   decodeInflight = false;

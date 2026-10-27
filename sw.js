@@ -1,4 +1,4 @@
-const CACHE_VERSION = "vacrecap-v38";
+const CACHE_VERSION = "vacrecap-v39";
 const ASSETS = [
   "./",
   "./index.html",

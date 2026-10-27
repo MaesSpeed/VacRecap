@@ -23,6 +23,10 @@ export { isThumbDecodeFailed, markThumbDecodeFailed, clearThumbDecodeFailed };
 
 const thumbForceRebuildAttempted = new Set();
 
+export function resetThumbForceRebuildSession() {
+  thumbForceRebuildAttempted.clear();
+}
+
 export async function loadDayPlacesEnriched(vacationId, day) {
   const { getPlacesForDay } = await import("./db.js");
   const places = sortPlacesChronologicalDesc(await getPlacesForDay(vacationId, day));
@@ -47,21 +51,6 @@ function photoThumbMissing(media) {
   return !media.thumbBlob || media.thumbBlob.size === 0;
 }
 
-async function createThumbBlobForMediaRecord(record) {
-  const { getMedia } = await import("./db.js");
-  const { createPhotoThumbFromBlob } = await import("./media-process.js");
-  if (!record?.blob) throw new Error("no blob");
-  try {
-    return await createPhotoThumbFromBlob(record.blob);
-  } catch (err) {
-    if (err?.name !== "InvalidStateError" || !record.id) throw err;
-    await new Promise((r) => setTimeout(r, 400));
-    const fresh = await getMedia(record.id);
-    if (!fresh?.blob) throw err;
-    return await createPhotoThumbFromBlob(fresh.blob);
-  }
-}
-
 export async function ensurePhotoThumbs(mediaList) {
   const { scheduleThumbRepairs } = await import("./thumb-repair-queue.js");
   scheduleThumbRepairs(mediaList);
@@ -77,32 +66,9 @@ export async function forceRebuildPhotoThumb(mediaId) {
   if (!mediaId || isThumbDecodeFailed(mediaId)) return false;
   if (thumbForceRebuildAttempted.has(mediaId)) return false;
   thumbForceRebuildAttempted.add(mediaId);
-
-  const { getMedia, putMedia } = await import("./db.js");
-  const record = await getMedia(mediaId);
-  if (!record) {
-    markThumbDecodeFailed(mediaId);
-    return false;
-  }
-  if (record.type === "video") {
-    markThumbDecodeFailed(mediaId);
-    return false;
-  }
-  try {
-    if (!record.blob) {
-      markThumbDecodeFailed(mediaId);
-      return false;
-    }
-    const thumbBlob = await createThumbBlobForMediaRecord(record);
-    const { saveMediaThumb } = await import("./db.js");
-    await saveMediaThumb(mediaId, thumbBlob);
-    clearThumbDecodeFailed(mediaId);
-    window.dispatchEvent(new CustomEvent("vacrecap:thumb-repaired", { detail: { mediaId } }));
-    return true;
-  } catch {
-    markThumbDecodeFailed(mediaId);
-    return false;
-  }
+  const { enqueueThumbRepair } = await import("./thumb-repair-queue.js");
+  enqueueThumbRepair(mediaId);
+  return false;
 }
 
 export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrls = {} }) {

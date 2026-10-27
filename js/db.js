@@ -15,6 +15,11 @@ function openDb() {
       req.onupgradeneeded = (event) => {
         const db = event.target.result;
         const tx = event.target.transaction;
+        tx.onabort = () => {
+          void import("./migration-recovery.js").then(({ showMigrationRecoveryOnAbort }) => {
+            showMigrationRecoveryOnAbort();
+          });
+        };
         if (!db.objectStoreNames.contains("vacations")) {
           const store = db.createObjectStore("vacations", { keyPath: "id" });
           store.createIndex("startDate", "startDate", { unique: false });
@@ -128,6 +133,7 @@ async function migrateResidualThumbBlobs() {
       };
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error("thumb migration aborted"));
     });
     await putSetting("thumbs_blob_migrated_v7", true);
   });
@@ -177,35 +183,11 @@ export async function clearAllMediaThumbs() {
     tx.onerror = () => reject(tx.error);
     tx.objectStore("thumbs").clear();
   });
-  await clearAllThumbFailureFlags();
-}
-
-export async function clearAllThumbFailureFlags() {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction("media", "readwrite");
-    const store = tx.objectStore("media");
-    store.openCursor().onsuccess = (e) => {
-      const cursor = e.target.result;
-      if (!cursor) return;
-      const v = cursor.value;
-      if (v.thumbFailed) {
-        const copy = { ...v };
-        delete copy.thumbFailed;
-        const req = cursor.update(copy);
-        req.onsuccess = () => cursor.continue();
-        req.onerror = () => cursor.continue();
-      } else {
-        cursor.continue();
-      }
-    };
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
 }
 
 async function attachThumbInPlace(record) {
   if (!record?.id) return record;
+  delete record.thumbBlob;
   const entry = await readThumbEntry(record.id);
   if (entry?.blob instanceof Blob) {
     record.thumbBlob = entry.blob;

@@ -97,8 +97,12 @@ async function render() {
 
   appEl.querySelector('[data-action="clear-thumbs"]')?.addEventListener("click", async () => {
     const { clearAllThumbDecodeFailures } = await import("./thumb-decode-state.js");
+    const { beginFullThumbRepairAfterReset } = await import("./thumb-repair-queue.js");
+    const { resetThumbForceRebuildSession } = await import("./ui-place-list.js");
     await clearAllMediaThumbs();
     clearAllThumbDecodeFailures();
+    resetThumbForceRebuildSession();
+    beginFullThumbRepairAfterReset();
     alert("Vorschaubilder gelöscht. Im Normalmodus werden sie nach und nach neu erzeugt.");
   });
 
