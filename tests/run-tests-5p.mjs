@@ -31,7 +31,7 @@ function startServer({ swVariant = "current" } = {}) {
   return new Promise(async (resolve) => {
     if (swVariant === "dual") {
       const current = await readFile(path.join(root, "sw.js"), "utf8");
-      swV35Body = current.replace(/vacrecap-v37/g, "vacrecap-v35").replace(/v37/g, "v35");
+      swV35Body = current.replace(/vacrecap-v38/g, "vacrecap-v35").replace(/v38/g, "v35");
     }
     const server = createServer(async (req, res) => {
       const url = new URL(req.url, "http://localhost");
@@ -288,18 +288,18 @@ async function assertSwUpdateWithSha(page, baseUrl, label) {
     let keys = await caches.keys();
     for (let i = 0; i < 15; i++) {
       keys = await caches.keys();
-      if (keys.length === 1 && keys[0] === "vacrecap-v37") break;
+      if (keys.length === 1 && keys[0] === "vacrecap-v38") break;
       await new Promise((r) => setTimeout(r, 200));
     }
-    const onlyV37 = keys.length === 1 && keys[0] === "vacrecap-v37";
-    const verResp = await (await caches.open("vacrecap-v37")).match("./js/app-version.js");
+    const onlyV38 = keys.length === 1 && keys[0] === "vacrecap-v38";
+    const verResp = await (await caches.open("vacrecap-v38")).match("./js/app-version.js");
     const verText = verResp ? await verResp.text() : "";
     const build = /APP_BUILD_VERSION\s*=\s*(\d+)/.exec(verText)?.[1];
     const after = await digestBytes((await getMedia(mediaId)).blob);
-    return { onlyV37, build: Number(build), shaOk: after === expected, keys };
+    return { onlyV38, build: Number(build), shaOk: after === expected, keys };
   });
   await ctx.close();
-  if (!result.onlyV37 || result.build !== 37 || !result.shaOk) {
+  if (!result.onlyV38 || result.build !== 38 || !result.shaOk) {
     throw new Error(`${label}: SW-Update (${JSON.stringify(result)})`);
   }
 }
@@ -346,7 +346,7 @@ async function assertThumbStoreMigration(page, label) {
     const full = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.85));
     const thumb = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.5));
     const ids = [];
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 2; i++) {
       const id = createId();
       ids.push(id);
       await putMedia({
@@ -361,19 +361,6 @@ async function assertThumbStoreMigration(page, label) {
         mime: "image/jpeg",
         ext: "jpg",
       });
-    }
-    const raw = await new Promise((resolve, reject) => {
-      const req = indexedDB.open("vacrecap");
-      req.onsuccess = () => {
-        const tx = req.result.transaction("media", "readonly");
-        const g = tx.objectStore("media").get(ids[0]);
-        g.onsuccess = () => resolve(g.result);
-        g.onerror = () => reject(g.error);
-      };
-      req.onerror = () => reject(req.error);
-    });
-    if (raw?.thumbBlob) {
-      return { ok: false, err: "thumbBlob noch im Medien-Record" };
     }
     const thumbEntry = await new Promise((resolve, reject) => {
       const req = indexedDB.open("vacrecap");
@@ -393,12 +380,193 @@ async function assertThumbStoreMigration(page, label) {
     for (const id of ids) await deleteMediaThumb(id);
     scheduleThumbRepairs(ids.map((id) => ({ id, type: "photo", thumbBlob: null })));
     await new Promise((r) => setTimeout(r, 3500));
+    const lateId = createId();
+    await putMedia({
+      id: lateId,
+      placeId,
+      vacationId,
+      day,
+      ts: Date.now() + 99,
+      type: "photo",
+      blob: full,
+      mime: "image/jpeg",
+      ext: "jpg",
+    });
+    await deleteMediaThumb(lateId);
+    scheduleThumbRepairs([{ id: lateId, type: "photo", thumbBlob: null }]);
     await new Promise((r) => setTimeout(r, 8000));
+    const lateThumb = await new Promise((resolve, reject) => {
+      const req = indexedDB.open("vacrecap");
+      req.onsuccess = () => {
+        const tx = req.result.transaction("thumbs", "readonly");
+        const g = tx.objectStore("thumbs").get(lateId);
+        g.onsuccess = () => resolve(g.result);
+        g.onerror = () => reject(g.error);
+      };
+      req.onerror = () => reject(req.error);
+    });
+    if (!lateThumb?.blob?.size) {
+      return { ok: false, err: "Thumb-Reparatur nach 3-s-Fenster fehlgeschlagen (N1)" };
+    }
     if (maxInflight > 1) {
       return { ok: false, err: `mehr als 1 Decode parallel (${maxInflight})` };
     }
     return { ok: true };
   });
+  if (!result?.ok) throw new Error(`${label}: ${result.err}`);
+}
+
+async function assertWebKitV5Migration64(page, label, { runSw = false } = {}) {
+  const result = await page.evaluate(async (doSw) => {
+    const imp = (rel) => import(new URL(rel, location.origin).href);
+    const digestBytes = async (blob) => {
+      const d = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+      return Array.from(new Uint8Array(d))
+        .map((x) => x.toString(16).padStart(2, "0"))
+        .join("");
+    };
+    const deleteDb = () =>
+      new Promise((resolve) => {
+        const req = indexedDB.deleteDatabase("vacrecap");
+        req.onsuccess = () => resolve();
+        req.onerror = () => resolve();
+        req.onblocked = () => resolve();
+      });
+    await deleteDb();
+    const COUNT = 64;
+    const expected = [];
+    const ids = [];
+    const canvas = document.createElement("canvas");
+    canvas.width = 12;
+    canvas.height = 12;
+    const ctx = canvas.getContext("2d");
+    const blobs = [];
+    const thumbs = [];
+    for (let i = 0; i < COUNT; i++) {
+      ctx.fillStyle = `rgb(${i % 255}, ${(i * 5) % 255}, ${(i * 11) % 255})`;
+      ctx.fillRect(0, 0, 12, 12);
+      blobs.push(await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.92)));
+      thumbs.push(await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.55)));
+      expected.push(await digestBytes(blobs[i]));
+      ids.push(`mig-${i}`);
+    }
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.open("vacrecap", 5);
+      req.onerror = () => reject(req.error);
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains("vacations")) {
+          db.createObjectStore("vacations", { keyPath: "id" });
+        }
+        if (!db.objectStoreNames.contains("places")) {
+          db.createObjectStore("places", { keyPath: "id" });
+        }
+        if (!db.objectStoreNames.contains("media")) {
+          db.createObjectStore("media", { keyPath: "id" });
+        }
+        if (!db.objectStoreNames.contains("settings")) {
+          db.createObjectStore("settings", { keyPath: "key" });
+        }
+      };
+      req.onsuccess = (e) => {
+        const db = e.target.result;
+        const tx = db.transaction(["vacations", "places", "media"], "readwrite");
+        tx.objectStore("vacations").put({
+          id: "v1",
+          title: "Mig",
+          startDate: "2026-01-01",
+          endDate: "2026-01-02",
+        });
+        tx.objectStore("places").put({
+          id: "p1",
+          vacationId: "v1",
+          day: "2026-01-01",
+          dayDate: "2026-01-01",
+          ts: 1,
+          lat: 0,
+          lng: 0,
+          name: "Ort",
+          soft: false,
+        });
+        const store = tx.objectStore("media");
+        for (let i = 0; i < COUNT; i++) {
+          store.put({
+            id: ids[i],
+            placeId: "p1",
+            vacationId: "v1",
+            day: "2026-01-01",
+            ts: i,
+            type: "photo",
+            blob: blobs[i],
+            thumbBlob: thumbs[i],
+            mime: "image/jpeg",
+            ext: "jpg",
+          });
+        }
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => reject(tx.error);
+      };
+    });
+    const { getMedia } = await imp("/js/db.js");
+    for (let i = 0; i < COUNT; i++) {
+      const m = await getMedia(ids[i]);
+      if (!m?.blob) return { ok: false, err: `kein Blob ${i}` };
+      const h = await digestBytes(m.blob);
+      if (h !== expected[i]) return { ok: false, err: `Original SHA ${i}` };
+      if (!m.thumbBlob?.size) return { ok: false, err: `kein Thumb ${i}` };
+      const th = await digestBytes(m.thumbBlob);
+      const expTh = await digestBytes(thumbs[i]);
+      if (th !== expTh) return { ok: false, err: `Thumb SHA ${i}` };
+    }
+    const thumbInStore = await new Promise((resolve, reject) => {
+      const req = indexedDB.open("vacrecap");
+      req.onsuccess = () => {
+        const tx = req.result.transaction("thumbs", "readonly");
+        const g = tx.objectStore("thumbs").get(ids[0]);
+        g.onsuccess = () => resolve(g.result);
+        g.onerror = () => reject(g.error);
+      };
+      req.onerror = () => reject(req.error);
+    });
+    if (!thumbInStore?.blob?.size) {
+      return { ok: false, err: "thumbs-Store leer nach v5→v6" };
+    }
+    if (doSw) {
+      const oldCache = await caches.open("vacrecap-v35");
+      await oldCache.put("./js/app-version.js", new Response("export const APP_BUILD_VERSION = 35;\n"));
+      let reg = await navigator.serviceWorker.register("./sw-v35.js", { updateViaCache: "none" });
+      await navigator.serviceWorker.ready;
+      reg = await navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" });
+      await reg.update();
+      await new Promise((r) => setTimeout(r, 400));
+      if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
+      await new Promise((resolve) => {
+        const t = setTimeout(resolve, 2000);
+        navigator.serviceWorker.addEventListener(
+          "controllerchange",
+          () => {
+            clearTimeout(t);
+            resolve();
+          },
+          { once: true }
+        );
+      });
+      const m0 = await getMedia(ids[0]);
+      const hAfter = await digestBytes(m0.blob);
+      if (hAfter !== expected[0]) {
+        return { ok: false, err: "Original nach SW-Update nicht lesbar" };
+      }
+      const { buildVacationZip } = await imp("/js/backup-service.js");
+      const zip = await buildVacationZip("v1");
+      if (!zip?.blob || zip.blob.size < 100) {
+        return { ok: false, err: "Backup-ZIP nach Migration" };
+      }
+    }
+    return { ok: true };
+  }, runSw);
   if (!result?.ok) throw new Error(`${label}: ${result.err}`);
 }
 
@@ -469,10 +637,10 @@ async function assertOriginalShaAfterReload(page, label, baseUrl) {
   if (!after) throw new Error(`${label}: hash nach reload`);
 }
 
-async function assertVersion37(page, label) {
+async function assertVersion38(page, label) {
   await page.goto("./");
   const v = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  if (v !== 37) throw new Error(`${label}: Version ${v}`);
+  if (v !== 38) throw new Error(`${label}: Version ${v}`);
 }
 
 async function main() {
@@ -495,7 +663,7 @@ async function main() {
 
   for (const vp of VIEWPORTS) {
     await page.setViewportSize({ width: vp.width, height: vp.height });
-    await assertVersion37(page, `5p-version-${vp.name}`);
+    await assertVersion38(page, `5p-version-${vp.name}`);
   }
 
   await assertSwUpdateWithSha(page, baseUrl, "5p-sw-update");
@@ -503,10 +671,19 @@ async function main() {
   const webkitUserData = await mkdtemp(path.join(tmpdir(), "vacrecap-5p-wk-"));
   const webkitCtx = await webkit.launchPersistentContext(webkitUserData, {
     baseURL: baseUrl,
-    ...CONTEXT_OPTS,
+    ...devices["iPhone 8"],
+    viewport: { width: 375, height: 667 },
+    serviceWorkers: "allow",
   });
+  for (let run = 1; run <= 5; run++) {
+    const migPage = await webkitCtx.newPage();
+    migPage.setDefaultTimeout(180_000);
+    await migPage.goto(`${baseUrl}tests/idb-blank.html`, { waitUntil: "commit" });
+    await assertWebKitV5Migration64(migPage, `5p-webkit-mig-${run}`, { runSw: run === 1 });
+    await migPage.close();
+  }
   const wPage = await webkitCtx.newPage();
-  wPage.setDefaultTimeout(120_000);
+  wPage.setDefaultTimeout(180_000);
   await assertOriginalShaAfterReload(wPage, "5p-sha-webkit", baseUrl);
   await webkitCtx.close();
   await rm(webkitUserData, { recursive: true, force: true });

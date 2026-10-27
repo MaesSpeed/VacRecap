@@ -104,12 +104,16 @@ async function render() {
 
   const restoreInput = appEl.querySelector('[data-role="restore-input"]');
   appEl.querySelector('[data-action="restore"]')?.addEventListener("click", () => restoreInput?.click());
-  restoreInput?.addEventListener("change", async () => {
+  restoreInput?.addEventListener("change", () => {
     const file = restoreInput.files?.[0];
     restoreInput.value = "";
     if (!file) return;
-    await handleRestoreZipFile(file);
-    await render();
+    const onData = () => {
+      window.removeEventListener("vacrecap:data-changed", onData);
+      void render();
+    };
+    window.addEventListener("vacrecap:data-changed", onData);
+    void handleRestoreZipFile(file);
   });
 
   appEl.querySelector('[data-action="normal"]')?.addEventListener("click", () => {

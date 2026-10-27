@@ -86,26 +86,14 @@ function openDb() {
             if (!cursor) return;
             const v = cursor.value;
             const thumbBlob = v.thumbBlob;
-            const next = () => cursor.continue();
-            if (!thumbBlob) {
-              next();
-              return;
-            }
-            const copy = { ...v };
-            delete copy.thumbBlob;
-            const finish = () => {
-              const req = cursor.update(copy);
-              req.onsuccess = () => next();
-              req.onerror = () => next();
-            };
-            if (thumbBlob.size > 0) {
+            if (thumbBlob && thumbBlob.size > 0) {
               thumbsStore.put({
                 mediaId: v.id,
                 mime: thumbBlob.type || "image/jpeg",
                 blob: thumbBlob,
               });
             }
-            finish();
+            cursor.continue();
           };
         }
       };
@@ -115,7 +103,8 @@ function openDb() {
 }
 
 async function migrateResidualThumbBlobs() {
-  try {
+  const { runWithMigrationRecovery } = await import("./migration-recovery.js");
+  await runWithMigrationRecovery(async () => {
     const done = await getSetting("thumbs_blob_migrated_v7");
     if (done) return;
     const db = await openDb();
@@ -134,22 +123,14 @@ async function migrateResidualThumbBlobs() {
             mime: thumbBlob.type || "image/jpeg",
             blob: thumbBlob,
           });
-          const copy = { ...v };
-          delete copy.thumbBlob;
-          const req = cursor.update(copy);
-          req.onsuccess = () => cursor.continue();
-          req.onerror = () => cursor.continue();
-        } else {
-          cursor.continue();
         }
+        cursor.continue();
       };
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
     await putSetting("thumbs_blob_migrated_v7", true);
-  } catch {
-    /* retry on next open */
-  }
+  });
 }
 
 async function readThumbEntry(mediaId) {
@@ -211,7 +192,9 @@ export async function clearAllThumbFailureFlags() {
       if (v.thumbFailed) {
         const copy = { ...v };
         delete copy.thumbFailed;
-        cursor.update(copy);
+        const req = cursor.update(copy);
+        req.onsuccess = () => cursor.continue();
+        req.onerror = () => cursor.continue();
       } else {
         cursor.continue();
       }

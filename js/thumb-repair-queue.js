@@ -11,6 +11,7 @@ const MAX_PER_SESSION = 10;
 const RETRY_DELAYS_MS = [400, 800, 1600];
 
 let started = false;
+let delayPassed = false;
 let repairedThisSession = 0;
 const queue = [];
 let running = false;
@@ -82,7 +83,10 @@ async function drain() {
 function ensureStarted() {
   if (started) return;
   started = true;
-  window.setTimeout(() => void drain(), START_DELAY_MS);
+  window.setTimeout(() => {
+    delayPassed = true;
+    void drain();
+  }, START_DELAY_MS);
 }
 
 export function scheduleThumbRepairs(mediaList) {
@@ -94,10 +98,12 @@ export function scheduleThumbRepairs(mediaList) {
     queue.push(m.id);
   }
   ensureStarted();
+  if (delayPassed) void drain();
 }
 
 export function resetThumbRepairSessionForTests() {
   started = false;
+  delayPassed = false;
   repairedThisSession = 0;
   queue.length = 0;
   running = false;

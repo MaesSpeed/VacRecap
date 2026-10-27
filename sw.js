@@ -1,4 +1,4 @@
-const CACHE_VERSION = "vacrecap-v37";
+const CACHE_VERSION = "vacrecap-v38";
 const ASSETS = [
   "./",
   "./index.html",
@@ -90,6 +90,7 @@ const ASSETS = [
   "./js/thumb-repair-queue.js",
   "./js/thumb-decode-state.js",
   "./js/ui-global-settings.js",
+  "./js/migration-recovery.js",
 ];
 
 function isPrecachedAsset(url) {
