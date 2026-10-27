@@ -1,5 +1,7 @@
+import { signOut } from "./auth-service.js";
+import { APP_BUILD_VERSION } from "./app-version.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
-import { markBootStable } from "./boot-stable.js";
+import { clearReadCache } from "./local-cache.js";
 
 export function openGlobalSettingsSheet(hostEl) {
   const overlay = document.getElementById("overlay-root");
@@ -13,8 +15,9 @@ export function openGlobalSettingsSheet(hostEl) {
         <button type="button" class="sheet__close" data-action="close" aria-label="Schließen">×</button>
       </div>
       <div class="sheet__body">
-        <button type="button" class="settings-link-row" data-action="safe-mode">Notfallmodus</button>
-        <p class="settings-item__sub">Vereinfachte Ansicht zum Sichern und Einspielen ohne Karte und Vorschaubilder.</p>
+        <p class="settings-item__sub">Version ${APP_BUILD_VERSION} · Cloud-Modus</p>
+        <button type="button" class="settings-link-row" data-action="clear-cache">Offline-Cache leeren</button>
+        <button type="button" class="settings-link-row" data-action="sign-out">Abmelden</button>
       </div>
     </div>
   `;
@@ -28,12 +31,14 @@ export function openGlobalSettingsSheet(hostEl) {
   bindOverlay(overlay, close);
 
   overlay.querySelector('[data-action="close"]')?.addEventListener("click", close);
-  overlay.querySelector('[data-action="safe-mode"]')?.addEventListener("click", () => {
-    markBootStable();
-    sessionStorage.setItem("vr-force-safe", "1");
-    const url = new URL(location.href);
-    url.searchParams.set("safe", "1");
-    url.hash = "#/notfall";
-    location.href = url.toString();
+  overlay.querySelector('[data-action="clear-cache"]')?.addEventListener("click", () => {
+    clearReadCache();
+    close();
+  });
+  overlay.querySelector('[data-action="sign-out"]')?.addEventListener("click", async () => {
+    await signOut();
+    close();
+    location.hash = "#/urlaube";
+    location.reload();
   });
 }

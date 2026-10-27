@@ -1,34 +1,65 @@
-import { assetUrl, getBasePath } from "./config.js";
-import { getAllVacations, requestPersistentStorage } from "./db.js";
-import { installBootStableReporting } from "./boot-stable.js";
-import { installResumePolicy, runColdResumeCheck } from "./resume-policy.js";
+import { getSession, onAuthStateChange } from "./auth-service.js";
+import { getAllVacations } from "./db.js";
+import { installGestureGuards } from "./gesture-guard.js";
+import { runLegacyCleanup } from "./legacy-cleanup.js";
+import { isOfflineReadOnly, setOfflineReadOnly } from "./local-cache.js";
 import { getRoute, navigate, onRouteChange, startRouter } from "./router.js";
+import { renderLoginScreen } from "./ui-login.js";
 import { renderUrlaubDetail } from "./ui-urlaub-detail.js";
 import { renderUrlaubSettings } from "./ui-urlaub-settings.js";
 import { renderUrlaubForm } from "./ui-urlaub-form.js";
-import { renderMapScreen } from "./ui-map.js";
-import { renderMediathekScreen } from "./ui-mediathek.js";
 import { renderUrlaubeScreen } from "./ui-urlaube.js";
-import { installGestureGuards } from "./gesture-guard.js";
 import { installVisualViewportKeyboard } from "./visual-viewport.js";
 import { dismissOverlayOnly, initOverlayHistory } from "./overlay-stack.js";
+import { showWarnToast } from "./toast.js";
+import { CloudOfflineError } from "./cloud-errors.js";
 
 const appEl = document.getElementById("app");
 
 let renderGeneration = 0;
 let renderCoalescePending = false;
+let appStarted = false;
+
+function updateOnlineBanner() {
+  const offline = isOfflineReadOnly();
+  let banner = document.getElementById("vr-offline-banner");
+  if (!offline) {
+    banner?.remove();
+    return;
+  }
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "vr-offline-banner";
+    banner.className = "offline-banner";
+    banner.setAttribute("role", "status");
+    banner.textContent = "Offline – nur Lesen aus dem letzten Stand.";
+    document.body.prepend(banner);
+  }
+}
 
 async function renderNow() {
   const gen = ++renderGeneration;
   if (appEl) appEl.dataset.appRenderGen = String(gen);
 
   const route = getRoute();
-  const vacations = await getAllVacations();
+  let vacations = [];
+  try {
+    vacations = await getAllVacations();
+  } catch (err) {
+    if (err instanceof CloudOfflineError) {
+      setOfflineReadOnly(true);
+      vacations = await getAllVacations();
+    } else {
+      throw err;
+    }
+  }
   if (appEl?.dataset.appRenderGen !== String(gen)) return;
 
   if (appEl?._mapCleanup) {
     appEl._mapCleanup();
   }
+
+  updateOnlineBanner();
 
   switch (route.name) {
     case "urlaub-form":
@@ -41,10 +72,9 @@ async function renderNow() {
       await renderUrlaubSettings(appEl, route.id);
       break;
     case "urlaub-mediathek":
-      await renderMediathekScreen(appEl, route.id);
-      break;
     case "urlaub-map":
-      await renderMapScreen(appEl, route.id);
+      showWarnToast("Karte und Mediathek kommen mit den Cloud-Fotos im nächsten Schritt.");
+      navigate({ name: "urlaub-detail", id: route.id }, { replace: true });
       break;
     case "urlaube":
     default:
@@ -58,41 +88,49 @@ function scheduleRender() {
   renderCoalescePending = true;
   queueMicrotask(() => {
     renderCoalescePending = false;
-    void renderNow();
+    void renderNow().catch((err) => {
+      if (err instanceof CloudOfflineError) {
+        showWarnToast(err.message);
+      }
+    });
   });
 }
 
-function registerServiceWorker() {
-  if (!("serviceWorker" in navigator)) return;
-  const swUrl = assetUrl("sw.js");
-  navigator.serviceWorker
-    .register(swUrl, { scope: getBasePath(), updateViaCache: "none" })
-    .then((reg) => {
-      const bump = () => reg.update().catch(() => {});
-      document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "visible") bump();
-      });
-    })
-    .catch(() => {
-      /* offline dev */
-    });
+function startApp() {
+  if (appStarted) return;
+  appStarted = true;
+  onRouteChange(() => {
+    dismissOverlayOnly();
+    scheduleRender();
+  });
+  startRouter();
+  window.addEventListener("vacrecap:data-changed", scheduleRender);
+  window.addEventListener("online", () => {
+    setOfflineReadOnly(false);
+    scheduleRender();
+  });
+  window.addEventListener("offline", () => {
+    setOfflineReadOnly(true);
+    scheduleRender();
+  });
+  scheduleRender();
 }
 
 async function boot() {
   installGestureGuards();
   installVisualViewportKeyboard();
   initOverlayHistory();
-  installBootStableReporting();
-  await requestPersistentStorage();
-  registerServiceWorker();
-  onRouteChange(() => {
-    dismissOverlayOnly();
-    scheduleRender();
-  });
-  installResumePolicy();
-  startRouter();
-  runColdResumeCheck();
-  window.addEventListener("vacrecap:data-changed", scheduleRender);
+  runLegacyCleanup();
+
+  const session = await getSession();
+  if (!session) {
+    renderLoginScreen(appEl, () => startApp());
+    onAuthStateChange((s) => {
+      if (s) startApp();
+    });
+    return;
+  }
+  startApp();
 }
 
 boot();

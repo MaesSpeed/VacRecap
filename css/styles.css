@@ -3217,3 +3217,41 @@ body {
   width: 100%;
   text-align: left;
 }
+
+.screen--login .login-main {
+  padding: 20px 16px 32px;
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+.login-lead {
+  margin: 0 0 16px;
+  color: #3d4f5f;
+  line-height: 1.45;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.login-error {
+  color: #b42318;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.login-hint {
+  margin: 0;
+  color: #5b6b7a;
+}
+
+.offline-banner {
+  background: #fff4e5;
+  color: #5b3b00;
+  text-align: center;
+  padding: 8px 12px;
+  font-size: 0.9rem;
+  border-bottom: 1px solid #f0d9b5;
+}

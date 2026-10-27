@@ -1,11 +1,9 @@
 import { resolveCoverSrc } from "./covers.js";
-import { getBlob } from "./db.js";
 import { armPointerSuppression } from "./gesture-guard.js";
 import { bindOverlay, closeOverlayHistory, releaseOverlayHistory } from "./overlay-stack.js";
 import { computeVacationStats, formatVacationStatsLine } from "./vacation-stats.js";
 import { navigate } from "./router.js";
 import { clearTripUiState } from "./ui-urlaub-detail.js";
-import { wireRestoreZipInput } from "./ui-restore-sheet.js";
 import { avatarListForVacation } from "./vacation.js";
 import {
   currentDayIndex,
@@ -57,9 +55,8 @@ export async function renderUrlaubeScreen(appEl, vacations) {
       ${
         vacations.length === 0
           ? `<div class="empty-state" data-testid="urlaube-empty">
-        <p>Noch keine Reisen – lege deine erste an oder spiele eine Sicherung ein.</p>
-        <button type="button" class="btn btn-emaille" data-action="restore-backup">Sicherung einspielen</button>
-        <button type="button" class="btn btn-emaille btn-emaille--ghost" data-action="new">Neue Reise anlegen</button>
+        <p>Noch keine Reisen – lege deine erste an.</p>
+        <button type="button" class="btn btn-emaille" data-action="new">Neue Reise anlegen</button>
       </div>`
           : ""
       }
@@ -74,15 +71,12 @@ export async function renderUrlaubeScreen(appEl, vacations) {
       </button>`
           : ""
       }
-      <button type="button" class="urlaube-restore-link" data-action="restore-backup" data-testid="urlaube-restore-link">
-        Sicherung einspielen
-      </button>
     </main>
   `;
 
   const coverUrls = new Map();
   for (const v of vacations) {
-    coverUrls.set(v.id, await resolveCoverSrc(v, getBlob));
+    coverUrls.set(v.id, await resolveCoverSrc(v, async () => null));
   }
 
   appEl.querySelectorAll("[data-vacation-id]").forEach((card) => {
@@ -96,8 +90,6 @@ export async function renderUrlaubeScreen(appEl, vacations) {
   appEl.querySelectorAll('[data-action="new"]').forEach((btn) => {
     btn.addEventListener("click", () => navigate({ name: "urlaub-form", mode: "create" }));
   });
-
-  wireRestoreZipInput(appEl, '[data-action="restore-backup"]');
 
   appEl.querySelector('[data-action="settings"]')?.addEventListener("click", () => {
     import("./ui-global-settings.js").then(({ openGlobalSettingsSheet }) =>
