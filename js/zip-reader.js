@@ -39,13 +39,12 @@ export class ZipReader {
     const tail = await this.file.slice(this.file.size - tailLen, this.file.size).arrayBuffer();
     const eocdAt = findEocdOffset(tail);
     if (eocdAt < 0) throw new Error("ZIP_END_NOT_FOUND");
-    const base = this.file.size - tailLen;
     const eocd = new DataView(tail, eocdAt);
     const centralSize = eocd.getUint32(12, true);
     const centralOffset = eocd.getUint32(16, true);
     const count = eocd.getUint16(10, true);
     const centralBuf = await this.file
-      .slice(base + centralOffset, base + centralOffset + centralSize)
+      .slice(centralOffset, centralOffset + centralSize)
       .arrayBuffer();
     const view = new DataView(centralBuf);
     let pos = 0;
@@ -106,10 +105,10 @@ export class ZipReader {
         dataEnd = dataStart + compSize;
       }
     }
-    const compressed = await this.file.slice(dataStart, dataEnd).arrayBuffer();
     if (entry.method === 0) {
-      return new Blob([compressed]);
+      return this.file.slice(dataStart, dataEnd);
     }
+    const compressed = await this.file.slice(dataStart, dataEnd).arrayBuffer();
     if (entry.method === 8) {
       if (typeof DecompressionStream === "undefined") throw new Error("ZIP_NO_DEFLATE");
       const ds = new DecompressionStream("deflate-raw");

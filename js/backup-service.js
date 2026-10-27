@@ -231,7 +231,13 @@ export async function buildVacationZip(vacationId, { onProgress, daysFilter = nu
     }
   }
 
-  const reise = buildReiseJson(vacation, allPlaces, mediaManifest);
+  const placesForManifest = daysFilter
+    ? allPlaces.filter((p) => days.includes(p.day || p.dayDate))
+    : allPlaces;
+  const reise = buildReiseJson(vacation, placesForManifest, mediaManifest);
+  if (daysFilter) {
+    reise.days = days;
+  }
   reise.notes = notesManifest;
   await zip.addTextFile("reise.json", JSON.stringify(reise, null, 2), { ts: Date.now() });
   await bump();

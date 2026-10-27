@@ -212,11 +212,18 @@ export async function restoreVacationFromZip(
       await tick("Notiz");
     }
 
+    if (isCancelled()) throw new RestoreError("cancelled", "Abgebrochen.");
+    onProgress?.({ percent: 98, label: "Vorschaubilder", phase: "final" });
+    if (isCancelled()) throw new RestoreError("cancelled", "Abgebrochen.");
     await ensurePhotoThumbs(mediaRecords);
+    if (isCancelled()) throw new RestoreError("cancelled", "Abgebrochen.");
     await tick("Vorschaubilder");
+    if (isCancelled()) throw new RestoreError("cancelled", "Abgebrochen.");
     const stats = await computeVacationStats(vacationId);
+    if (isCancelled()) throw new RestoreError("cancelled", "Abgebrochen.");
     await putVacation({ ...vacation, stats: { places: stats.places, photos: stats.photos, notes: stats.notes } });
-    onProgress?.({ percent: 100, label: "Fertig" });
+    if (isCancelled()) throw new RestoreError("cancelled", "Abgebrochen.");
+    onProgress?.({ percent: 100, label: "Fertig", phase: "done" });
     return { vacationId, vacation };
   } catch (err) {
     if (installedVacationId) {

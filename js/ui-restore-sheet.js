@@ -97,12 +97,36 @@ function openRestoreProgressSheet(file, { duplicateMode }) {
   const labelEl = overlay.querySelector('[data-role="label"]');
   const barEl = overlay.querySelector('[data-role="bar"]');
   const pctEl = overlay.querySelector('[data-role="pct"]');
+  const cancelBtn = overlay.querySelector('[data-action="cancel"]');
+
+  const finishSuccess = (vacationId) => {
+    const run = () => {
+      showToast("Reise eingespielt");
+      navigate({ name: "urlaub-detail", id: vacationId });
+      window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+    };
+    if (history.state?.vacrecapOverlay) {
+      const afterPop = () => {
+        window.removeEventListener("popstate", afterPop);
+        run();
+      };
+      window.addEventListener("popstate", afterPop);
+      closeOverlayHistory(activeClose);
+    } else {
+      closeOverlayHistory(activeClose);
+      run();
+    }
+  };
 
   void restoreVacationFromZip(file, {
     duplicateMode,
     isCancelled: () => cancelled,
-    onProgress: ({ percent, label }) => {
+    onProgress: ({ percent, label, phase }) => {
       if (cancelled) return;
+      if (phase === "final" || phase === "done") {
+        cancelBtn.disabled = true;
+        cancelBtn.setAttribute("aria-disabled", "true");
+      }
       labelEl.textContent = label || "…";
       barEl.style.width = `${percent}%`;
       pctEl.textContent = `${percent} %`;
@@ -110,13 +134,16 @@ function openRestoreProgressSheet(file, { duplicateMode }) {
   })
     .then(({ vacationId }) => {
       if (cancelled) return;
-      closeOverlayHistory(activeClose);
-      showToast("Reise eingespielt");
-      navigate({ name: "urlaub-detail", id: vacationId });
-      window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+      finishSuccess(vacationId);
     })
     .catch((err) => {
-      if (cancelled || err?.code === "cancelled") return;
+      if (cancelled || err?.code === "cancelled") {
+        if (err?.code === "cancelled") {
+          showToast("Abgebrochen", { icon: "none" });
+        }
+        closeOverlayHistory(activeClose);
+        return;
+      }
       closeOverlayHistory(activeClose);
       const msg = err instanceof RestoreError ? err.userMessage : "Einspielen fehlgeschlagen.";
       showToast(msg, { icon: "none" });
