@@ -1,5 +1,7 @@
 import { assetUrl, getBasePath } from "./config.js";
 import { getAllVacations, requestPersistentStorage } from "./db.js";
+import { installBootStableReporting } from "./boot-stable.js";
+import { installResumePolicy, runColdResumeCheck } from "./resume-policy.js";
 import { getRoute, navigate, onRouteChange, startRouter } from "./router.js";
 import { renderUrlaubDetail } from "./ui-urlaub-detail.js";
 import { renderUrlaubSettings } from "./ui-urlaub-settings.js";
@@ -63,22 +65,33 @@ function scheduleRender() {
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   const swUrl = assetUrl("sw.js");
-  navigator.serviceWorker.register(swUrl, { scope: getBasePath() }).catch(() => {
-    /* offline dev */
-  });
+  navigator.serviceWorker
+    .register(swUrl, { scope: getBasePath(), updateViaCache: "none" })
+    .then((reg) => {
+      const bump = () => reg.update().catch(() => {});
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") bump();
+      });
+    })
+    .catch(() => {
+      /* offline dev */
+    });
 }
 
 async function boot() {
   installGestureGuards();
   installVisualViewportKeyboard();
   initOverlayHistory();
+  installBootStableReporting();
   await requestPersistentStorage();
   registerServiceWorker();
   onRouteChange(() => {
     dismissOverlayOnly();
     scheduleRender();
   });
+  installResumePolicy();
   startRouter();
+  runColdResumeCheck();
   window.addEventListener("vacrecap:data-changed", scheduleRender);
 }
 
