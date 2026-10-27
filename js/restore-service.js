@@ -75,17 +75,16 @@ export async function vacationIdExists(id) {
   return Boolean(await getVacation(id));
 }
 
-function extFromPath(path) {
-  const base = path.split("/").pop() || "";
-  const dot = base.lastIndexOf(".");
-  if (dot < 0) return "";
-  return base.slice(dot + 1).toLowerCase();
-}
-
-function mimeForMedia(type, path, manifestMime) {
-  if (manifestMime) return manifestMime;
-  const fake = { name: path, type: "" };
-  return type === "video" ? inferVideoMime(fake) : inferPhotoMime(fake);
+function fileMetaFromPath(type, path, manifestMime) {
+  const name = path.split("/").pop() || path;
+  const mime = manifestMime
+    ? manifestMime
+    : type === "video"
+      ? inferVideoMime({ name, type: "" })
+      : inferPhotoMime({ name, type: "" });
+  const fake = { name, type: mime };
+  const ext = type === "video" ? inferVideoExt(fake) : inferPhotoExt(fake);
+  return { mime, ext };
 }
 
 function buildIdMap(manifest, { newCopy }) {
@@ -171,10 +170,9 @@ export async function restoreVacationFromZip(
       if (isCancelled()) throw new RestoreError("cancelled", "Abgebrochen.");
       const placeId = placeMap.get(item.placeId);
       if (!placeId) continue;
-      const blob = await reader.readBlob(item.path);
       const type = item.type === "video" ? "video" : "photo";
-      const ext = extFromPath(item.path) || (type === "video" ? "mp4" : "jpg");
-      const mime = mimeForMedia(type, item.path, item.mime);
+      const { mime, ext } = fileMetaFromPath(type, item.path, item.mime);
+      const blob = await reader.readBlob(item.path, mime);
       const place = (manifest.places || []).find((p) => p.id === item.placeId);
       const day = place?.day || place?.dayDate || manifest.days?.[0] || vacation.startDate;
       const record = {

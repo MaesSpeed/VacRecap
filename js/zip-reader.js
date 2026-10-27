@@ -94,8 +94,9 @@ export class ZipReader {
     return [...this.entries.keys()];
   }
 
-  async readBlob(path) {
+  async readBlob(path, mime) {
     await this.loadCatalog();
+    const blobType = mime || "application/octet-stream";
     const entry = this.entries.get(path.replace(/\\/g, "/"));
     if (!entry) throw new Error("ZIP_ENTRY_MISSING");
     const localHead = await this.file.slice(entry.localHeaderOffset, entry.localHeaderOffset + 30).arrayBuffer();
@@ -115,14 +116,14 @@ export class ZipReader {
       }
     }
     if (entry.method === 0) {
-      return blobFromStoredRange(this.file, dataStart, dataEnd);
+      return blobFromStoredRange(this.file, dataStart, dataEnd, blobType);
     }
     const compressed = await this.file.slice(dataStart, dataEnd).arrayBuffer();
     if (entry.method === 8) {
       if (typeof DecompressionStream === "undefined") throw new Error("ZIP_NO_DEFLATE");
       const ds = new DecompressionStream("deflate-raw");
       const out = await new Response(new Blob([compressed]).stream().pipeThrough(ds)).arrayBuffer();
-      return new Blob([out]);
+      return new Blob([out], { type: blobType });
     }
     throw new Error("ZIP_UNSUPPORTED_METHOD");
   }

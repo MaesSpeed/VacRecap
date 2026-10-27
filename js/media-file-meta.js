@@ -27,6 +27,8 @@ export function inferPhotoMime(file) {
   const ext = inferPhotoExt(file);
   if (ext === "png") return "image/png";
   if (ext === "webp") return "image/webp";
+  if (ext === "heic" || ext === "heif") return "image/heic";
+  if (ext === "gif") return "image/gif";
   return "image/jpeg";
 }
 
@@ -34,6 +36,7 @@ export function inferVideoMime(file) {
   if (file.type) return file.type;
   const ext = inferVideoExt(file);
   if (ext === "mov") return "video/quicktime";
+  if (ext === "m4v") return "video/mp4";
   return "video/mp4";
 }
 
