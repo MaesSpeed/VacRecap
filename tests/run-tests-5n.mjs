@@ -165,9 +165,17 @@ async function assertSyntheticRoundtrip(page, label) {
   });
 }
 
-async function assertLargeMediaRoundtrip(page, label) {
+async function assertMediaHashesAfterReload(page, label, { format = 2 } = {}) {
   await page.goto("./");
-  await runInPage(page, async () => {
+  const prep = await page.evaluate(async (format) => {
+    const digestBytes = async (bytes) => {
+      const d = await crypto.subtle.digest("SHA-256", bytes);
+      return Array.from(new Uint8Array(d))
+        .map((x) => x.toString(16).padStart(2, "0"))
+        .join("");
+    };
+    const digestBlob = async (blob) => digestBytes(await blob.arrayBuffer());
+
     try {
       const { ZipWriter } = await import("./js/zip-builder.js");
       const { restoreVacationFromZip } = await import("./js/restore-service.js");
@@ -180,23 +188,50 @@ async function assertLargeMediaRoundtrip(page, label) {
         getMediaForPlace,
       } = await import("./js/db.js");
 
+      for (const v of await getAllVacations()) {
+        await deleteVacationData(v.id);
+        await deleteVacation(v.id);
+      }
+
       const vacationId = createId();
       const placeId = createId();
       const photo = new Uint8Array(3 * 1024 * 1024);
-      photo.fill(42);
-      const video = new Uint8Array(20 * 1024 * 1024);
-      video.fill(17);
+      for (let i = 0; i < photo.length; i++) photo[i] = (i * 3) % 256;
+      const smallVideo = new Uint8Array(2 * 1024 * 1024);
+      smallVideo.fill(9);
+      const bigVideo = new Uint8Array(100 * 1024 * 1024);
+      for (let i = 0; i < bigVideo.length; i++) bigVideo[i] = (i * 7) % 256;
+
+      const expected = {
+        photo: await digestBytes(photo),
+        smallVideo: await digestBytes(smallVideo),
+        bigVideo: await digestBytes(bigVideo),
+      };
+
       const photoPath = "2026-11-06_Mo/Ort_10-00/foto.jpg";
-      const videoPath = "2026-11-06_Mo/Ort_10-00/video.mp4";
+      const smallPath = "2026-11-06_Mo/Ort_10-00/kurz.mp4";
+      const bigPath = "2026-11-06_Mo/Ort_10-00/lang.mp4";
+
+      const vacation =
+        format === 1
+          ? {
+              id: vacationId,
+              title: "Fmt1",
+              startDate: "2026-11-06",
+              endDate: "2026-11-06",
+            }
+          : {
+              id: vacationId,
+              title: "Fmt2",
+              startDate: "2026-11-06",
+              endDate: "2026-11-06",
+              cover: { type: "preset", presetId: "stadt" },
+              companions: { tags: [], names: [] },
+            };
+
       const manifest = {
-        format: 2,
         app: "Reisetagebuch",
-        vacation: {
-          id: vacationId,
-          title: "Groß",
-          startDate: "2026-11-06",
-          endDate: "2026-11-06",
-        },
+        vacation,
         days: ["2026-11-06"],
         places: [
           {
@@ -211,65 +246,79 @@ async function assertLargeMediaRoundtrip(page, label) {
         ],
         media: [
           { path: photoPath, type: "photo", ts: 1001, placeId, mime: "image/jpeg" },
-          { path: videoPath, type: "video", ts: 1002, placeId, mime: "video/mp4" },
+          { path: smallPath, type: "video", ts: 1002, placeId, mime: "video/mp4" },
+          { path: bigPath, type: "video", ts: 1003, placeId, mime: "video/mp4" },
         ],
         notes: [],
       };
+      if (format === 2) manifest.format = 2;
 
       const zip = new ZipWriter();
       await zip.addFile(photoPath, new Blob([photo], { type: "image/jpeg" }), { ts: 1001 });
-      await zip.addFile(videoPath, new Blob([video], { type: "video/mp4" }), { ts: 1002 });
+      await zip.addFile(smallPath, new Blob([smallVideo], { type: "video/mp4" }), { ts: 1002 });
+      await zip.addFile(bigPath, new Blob([bigVideo], { type: "video/mp4" }), { ts: 1003 });
       await zip.addTextFile("reise.json", JSON.stringify(manifest));
-      const zipFile = new File([zip.finalize()], "large.zip", { type: "application/zip" });
 
-      for (const v of await getAllVacations()) {
-        await deleteVacationData(v.id);
-        await deleteVacation(v.id);
+      let zipFile = new File([zip.finalize()], "persist.zip", { type: "application/zip" });
+      if (zipFile.size < 70_000) {
+        return { ok: false, err: `ZIP klein (${zipFile.size})` };
       }
 
       const { vacationId: rid } = await restoreVacationFromZip(zipFile);
+      zipFile = null;
+
       const places = await getPlacesForVacation(rid);
       const media = await getMediaForPlace(places[0].id);
-      const sizes = await Promise.all(
-        media.map(async (m) => (m.blob ? (await m.blob.arrayBuffer()).byteLength : 0))
-      );
-      if (sizes.sort((a, b) => a - b).join() !== [photo.length, video.length].sort((a, b) => a - b).join()) {
-        return { ok: false, err: `Mediengrößen ${sizes}` };
+      const p = media.find((m) => m.type === "photo");
+      const videos = media
+        .filter((m) => m.type === "video")
+        .sort((a, b) => (a.blob?.size || 0) - (b.blob?.size || 0));
+      if (!p || videos.length < 2) return { ok: false, err: "missing media" };
+      if (
+        (await digestBlob(p.blob)) !== expected.photo ||
+        (await digestBlob(videos[0].blob)) !== expected.smallVideo ||
+        (await digestBlob(videos[1].blob)) !== expected.bigVideo
+      ) {
+        return { ok: false, err: "hash mismatch before reload" };
       }
-      return { ok: true, zipSize: zipFile.size };
+
+      return { ok: true, vacationId: rid, expected };
     } catch (e) {
       return { ok: false, err: e?.message || String(e) };
     }
-  });
-}
+  }, format);
 
-async function assertStoredSliceHash(page, label) {
-  await page.goto("./");
-  await runInPage(page, async () => {
-    try {
-      const { ZipWriter } = await import("./js/zip-builder.js");
-      const { ZipReader } = await import("./js/zip-reader.js");
-      const size = 600 * 1024;
-      const bytes = new Uint8Array(size);
-      for (let i = 0; i < size; i++) bytes[i] = i % 256;
-      const zip = new ZipWriter();
-      await zip.addFile("payload.bin", new Blob([bytes]), { ts: 1 });
-      const file = new File([zip.finalize()], "hash.zip", { type: "application/zip" });
-      const reader = new ZipReader(file);
-      const blob = await reader.readBlob("payload.bin");
-      const digest = async (b) => {
-        const buf = await b.arrayBuffer();
-        const d = await crypto.subtle.digest("SHA-256", buf);
+  if (!prep?.ok) throw new Error(`${label}: ${prep.err || "prep failed"}`);
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+
+  const after = await page.evaluate(
+    async ({ vacationId, expected }) => {
+      const digestBytes = async (bytes) => {
+        const d = await crypto.subtle.digest("SHA-256", bytes);
         return Array.from(new Uint8Array(d))
           .map((x) => x.toString(16).padStart(2, "0"))
           .join("");
       };
-      const match = (await digest(blob)) === (await digest(new Blob([bytes])));
-      return { ok: match, err: match ? undefined : "SHA-256 mismatch" };
-    } catch (e) {
-      return { ok: false, err: e?.message || String(e) };
-    }
-  });
+      const digestBlob = async (blob) => digestBytes(await blob.arrayBuffer());
+      const { getPlacesForVacation, getMediaForPlace } = await import("./js/db.js");
+      const places = await getPlacesForVacation(vacationId);
+      const media = await getMediaForPlace(places[0].id);
+      const p = media.find((m) => m.type === "photo");
+      const videos = media
+        .filter((m) => m.type === "video")
+        .sort((a, b) => (a.blob?.size || 0) - (b.blob?.size || 0));
+      if (!p || videos.length < 2) return { ok: false, err: "missing media after reload" };
+      const ok =
+        (await digestBlob(p.blob)) === expected.photo &&
+        (await digestBlob(videos[0].blob)) === expected.smallVideo &&
+        (await digestBlob(videos[1].blob)) === expected.bigVideo;
+      return { ok, err: ok ? undefined : "hash mismatch after reload" };
+    },
+    { vacationId: prep.vacationId, expected: prep.expected }
+  );
+
+  if (!after?.ok) throw new Error(`${label}: ${after.err || "reload check failed"}`);
 }
 
 async function assertPartialBackup(page, label) {
@@ -468,11 +517,11 @@ async function main() {
   const chromiumBrowser = await chromium.launch();
   const chromiumCtx = await chromiumBrowser.newContext({ baseURL: baseUrl, ...CONTEXT_OPTS });
   const chromiumPage = await chromiumCtx.newPage();
-  chromiumPage.setDefaultTimeout(180_000);
+  chromiumPage.setDefaultTimeout(600_000);
 
   await assertSyntheticRoundtrip(chromiumPage, "5n-chromium-synth");
-  await assertLargeMediaRoundtrip(chromiumPage, "5n-chromium-large");
-  await assertStoredSliceHash(chromiumPage, "5n-chromium-hash");
+  await assertMediaHashesAfterReload(chromiumPage, "5n-chromium-reload-f2", { format: 2 });
+  await assertMediaHashesAfterReload(chromiumPage, "5n-chromium-reload-f1", { format: 1 });
   await assertPartialBackup(chromiumPage, "5n-partial");
 
   const cancelCtx = await chromiumBrowser.newContext({ baseURL: baseUrl, ...CONTEXT_OPTS });
@@ -493,11 +542,11 @@ async function main() {
     ...CONTEXT_OPTS,
   });
   const webkitPage = webkitCtx.pages()[0] || (await webkitCtx.newPage());
-  webkitPage.setDefaultTimeout(180_000);
+  webkitPage.setDefaultTimeout(600_000);
 
   await assertSyntheticRoundtrip(webkitPage, "5n-webkit-synth");
-  await assertLargeMediaRoundtrip(webkitPage, "5n-webkit-large");
-  await assertStoredSliceHash(webkitPage, "5n-webkit-hash");
+  await assertMediaHashesAfterReload(webkitPage, "5n-webkit-reload-f2", { format: 2 });
+  await assertMediaHashesAfterReload(webkitPage, "5n-webkit-reload-f1", { format: 1 });
 
   await chromiumPage.goto(baseUrl);
   await assertBadZips(chromiumPage, "5n-bad");
