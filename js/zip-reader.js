@@ -4,6 +4,15 @@ const SIG_LOCAL = 0x04034b50;
 const SIG_DESCRIPTOR = 0x08074b50;
 const FLAG_UTF8 = 0x0800;
 const FLAG_DATA_DESCRIPTOR = 0x0008;
+const STORED_CHUNK_BYTES = 8 * 1024 * 1024;
+
+async function blobFromStoredRange(file, dataStart, dataEnd, type = "application/octet-stream") {
+  const parts = [];
+  for (let o = dataStart; o < dataEnd; o += STORED_CHUNK_BYTES) {
+    parts.push(await file.slice(o, Math.min(o + STORED_CHUNK_BYTES, dataEnd)).arrayBuffer());
+  }
+  return new Blob(parts, { type });
+}
 
 function findEocdOffset(buffer) {
   const minEocd = 22;
@@ -106,7 +115,7 @@ export class ZipReader {
       }
     }
     if (entry.method === 0) {
-      return this.file.slice(dataStart, dataEnd);
+      return blobFromStoredRange(this.file, dataStart, dataEnd);
     }
     const compressed = await this.file.slice(dataStart, dataEnd).arrayBuffer();
     if (entry.method === 8) {
