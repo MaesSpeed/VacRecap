@@ -1,5 +1,5 @@
 const DB_NAME = "vacrecap";
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 let dbPromise = null;
 
@@ -46,6 +46,9 @@ function openDb() {
         if (!db.objectStoreNames.contains("routeCache")) {
           db.createObjectStore("routeCache", { keyPath: "key" });
         }
+        if (!db.objectStoreNames.contains("thumbs")) {
+          db.createObjectStore("thumbs", { keyPath: "mediaId" });
+        }
 
         if (db.objectStoreNames.contains("media")) {
           const media = tx.objectStore("media");
@@ -71,10 +74,104 @@ function openDb() {
             cursor.continue();
           };
         }
+
+        if (event.oldVersion < 6 && db.objectStoreNames.contains("media")) {
+          const mediaStore = tx.objectStore("media");
+          const thumbsStore = tx.objectStore("thumbs");
+          mediaStore.openCursor().onsuccess = (e) => {
+            const cursor = e.target.result;
+            if (!cursor) return;
+            const v = cursor.value;
+            const thumbBlob = v.thumbBlob;
+            const next = () => cursor.continue();
+            if (!thumbBlob) {
+              next();
+              return;
+            }
+            const copy = { ...v };
+            delete copy.thumbBlob;
+            const finish = () => {
+              const req = cursor.update(copy);
+              req.onsuccess = () => next();
+              req.onerror = () => next();
+            };
+            if (thumbBlob.size > 0) {
+              thumbBlob
+                .arrayBuffer()
+                .then((data) => {
+                  thumbsStore.put({
+                    mediaId: v.id,
+                    mime: thumbBlob.type || "image/jpeg",
+                    data,
+                  });
+                  finish();
+                })
+                .catch(() => finish());
+            } else {
+              finish();
+            }
+          };
+        }
       };
     });
   }
   return dbPromise;
+}
+
+async function readThumbEntry(mediaId) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("thumbs", "readonly");
+    const req = tx.objectStore("thumbs").get(mediaId);
+    req.onsuccess = () => resolve(req.result ?? null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function saveMediaThumb(mediaId, blob) {
+  if (!mediaId || !blob) return;
+  const data = await blob.arrayBuffer();
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("thumbs", "readwrite");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.objectStore("thumbs").put({
+      mediaId,
+      mime: blob.type || "image/jpeg",
+      data,
+    });
+  });
+}
+
+export async function deleteMediaThumb(mediaId) {
+  if (!mediaId) return;
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("thumbs", "readwrite");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.objectStore("thumbs").delete(mediaId);
+  });
+}
+
+export async function clearAllMediaThumbs() {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("thumbs", "readwrite");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.objectStore("thumbs").clear();
+  });
+}
+
+async function attachThumbInPlace(record) {
+  if (!record?.id) return record;
+  const entry = await readThumbEntry(record.id);
+  if (entry?.data) {
+    record.thumbBlob = new Blob([entry.data], { type: entry.mime || "image/jpeg" });
+  }
+  return record;
 }
 
 export async function requestPersistentStorage() {
@@ -263,26 +360,47 @@ export async function deletePlace(id) {
 }
 
 export async function putMedia(record) {
+  const thumbBlob = record.thumbBlob;
+  const toStore = { ...record };
+  delete toStore.thumbBlob;
   const db = await openDb();
-  return new Promise((resolve, reject) => {
+  await new Promise((resolve, reject) => {
     const tx = db.transaction("media", "readwrite");
-    tx.oncomplete = () => resolve(record);
+    tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
-    tx.objectStore("media").put(record);
+    const store = tx.objectStore("media");
+    if (toStore.id && toStore.blob === undefined && thumbBlob === undefined) {
+      store.get(toStore.id).onsuccess = (e) => {
+        const existing = e.target.result;
+        const merged = existing ? { ...existing, ...toStore } : toStore;
+        delete merged.thumbBlob;
+        store.put(merged);
+      };
+    } else {
+      store.put(toStore);
+    }
   });
+  if (thumbBlob !== undefined) {
+    if (thumbBlob && thumbBlob.size > 0) await saveMediaThumb(record.id, thumbBlob);
+    else await deleteMediaThumb(record.id);
+  }
+  return record;
 }
 
 export async function getMedia(id) {
   const db = await openDb();
-  return new Promise((resolve, reject) => {
+  const record = await new Promise((resolve, reject) => {
     const tx = db.transaction("media", "readonly");
     const req = tx.objectStore("media").get(id);
     req.onsuccess = () => resolve(req.result ?? null);
     req.onerror = () => reject(req.error);
   });
+  if (!record) return null;
+  return attachThumbInPlace(record);
 }
 
 export async function deleteMedia(id) {
+  await deleteMediaThumb(id);
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction("media", "readwrite");
@@ -404,21 +522,28 @@ export async function getAllMediaForVacation(vacationId) {
 
 export async function getMediaForPlace(placeId) {
   const db = await openDb();
-  return new Promise((resolve, reject) => {
+  const ids = await new Promise((resolve, reject) => {
     const tx = db.transaction("media", "readonly");
     const store = tx.objectStore("media");
     let req;
     try {
-      req = store.index("placeId").getAll(placeId);
+      req = store.index("placeId").getAllKeys(placeId);
     } catch {
-      req = store.getAll();
+      req = store.getAllKeys();
     }
     req.onsuccess = () => {
-      const all = req.result ?? [];
-      resolve(all.filter((m) => m.placeId === placeId));
+      const keys = req.result ?? [];
+      if (keys.length && typeof keys[0] === "object") {
+        resolve([]);
+        return;
+      }
+      resolve(keys);
     };
     req.onerror = () => reject(req.error);
   });
+  if (!ids.length) return [];
+  const records = await Promise.all(ids.map((id) => getMedia(id)));
+  return records.filter(Boolean);
 }
 
 export async function getNotesForPlace(placeId) {

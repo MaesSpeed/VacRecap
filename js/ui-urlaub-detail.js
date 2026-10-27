@@ -28,13 +28,14 @@ import { openMediaViewer } from "./ui-media-viewer.js";
 import { openNoteSheet } from "./ui-note-sheet.js";
 import {
   buildThumbUrlMap,
-  ensurePhotoThumbs,
   forceRebuildPhotoThumb,
   loadDayPlacesEnriched,
   renderPlaceListHtml,
   revokeThumbUrls,
+  visibleThumbMediaIds,
   wrapPlaceList,
 } from "./ui-place-list.js";
+import { scheduleThumbRepairs } from "./thumb-repair-queue.js";
 
 const thumbRegenInflight = new Map();
 import { openEditPlaceSheet, openSoftPointSheet } from "./ui-place-sheets.js";
@@ -197,9 +198,9 @@ export async function renderUrlaubDetail(appEl, id) {
     if (token !== state.listRefreshToken) return;
 
     const allMedia = items.flatMap((i) => i.media);
-    await ensurePhotoThumbs(allMedia);
-    if (token !== state.listRefreshToken) return;
-    const nextThumbUrls = buildThumbUrlMap(allMedia);
+    const visibleIds = visibleThumbMediaIds(items, selectedId);
+    scheduleThumbRepairs(allMedia);
+    const nextThumbUrls = buildThumbUrlMap(allMedia, visibleIds);
     const previousThumbUrls = state.thumbUrls;
 
     let html;
@@ -340,6 +341,7 @@ export async function renderUrlaubDetail(appEl, id) {
     if (!file || state.captureBusy) return;
     const footerCapture = captureTargetPlaceId == null;
     state.captureBusy = true;
+    appEl.dataset.captureBusy = "1";
     showToast("Wird gespeichert…", { sticky: true, icon: "none" });
     try {
       const r = await resolveTargetPlace(kind);
@@ -371,6 +373,7 @@ export async function renderUrlaubDetail(appEl, id) {
       }
     } finally {
       state.captureBusy = false;
+      appEl.dataset.captureBusy = "0";
       captureTargetPlaceId = null;
       capturePhotoInput.value = "";
       captureVideoInput.value = "";
