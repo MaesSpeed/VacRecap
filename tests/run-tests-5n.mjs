@@ -202,10 +202,29 @@ async function assertMediaHashesAfterReload(page, label, { format = 2 } = {}) {
       const bigVideo = new Uint8Array(100 * 1024 * 1024);
       for (let i = 0; i < bigVideo.length; i++) bigVideo[i] = (i * 7) % 256;
 
+      const expectedMime = {
+        photo: "image/jpeg",
+        smallVideo: "video/mp4",
+        bigVideo: "video/mp4",
+      };
       const expected = {
         photo: await digestBytes(photo),
         smallVideo: await digestBytes(smallVideo),
         bigVideo: await digestBytes(bigVideo),
+        mime: expectedMime,
+      };
+
+      const assertMediaTypes = (p, small, big) => {
+        if (p.blob?.type !== expectedMime.photo || p.mime !== expectedMime.photo) {
+          return `photo type ${p.blob?.type}/${p.mime}`;
+        }
+        if (small.blob?.type !== expectedMime.smallVideo || small.mime !== expectedMime.smallVideo) {
+          return `small video type ${small.blob?.type}/${small.mime}`;
+        }
+        if (big.blob?.type !== expectedMime.bigVideo || big.mime !== expectedMime.bigVideo) {
+          return `big video type ${big.blob?.type}/${big.mime}`;
+        }
+        return null;
       };
 
       const photoPath = "2026-11-06_Mo/Ort_10-00/foto.jpg";
@@ -245,9 +264,15 @@ async function assertMediaHashesAfterReload(page, label, { format = 2 } = {}) {
           },
         ],
         media: [
-          { path: photoPath, type: "photo", ts: 1001, placeId, mime: "image/jpeg" },
-          { path: smallPath, type: "video", ts: 1002, placeId, mime: "video/mp4" },
-          { path: bigPath, type: "video", ts: 1003, placeId, mime: "video/mp4" },
+          format === 1
+            ? { path: photoPath, type: "photo", ts: 1001, placeId }
+            : { path: photoPath, type: "photo", ts: 1001, placeId, mime: "image/jpeg" },
+          format === 1
+            ? { path: smallPath, type: "video", ts: 1002, placeId }
+            : { path: smallPath, type: "video", ts: 1002, placeId, mime: "video/mp4" },
+          format === 1
+            ? { path: bigPath, type: "video", ts: 1003, placeId }
+            : { path: bigPath, type: "video", ts: 1003, placeId, mime: "video/mp4" },
         ],
         notes: [],
       };
@@ -274,6 +299,8 @@ async function assertMediaHashesAfterReload(page, label, { format = 2 } = {}) {
         .filter((m) => m.type === "video")
         .sort((a, b) => (a.blob?.size || 0) - (b.blob?.size || 0));
       if (!p || videos.length < 2) return { ok: false, err: "missing media" };
+      const typeErr = assertMediaTypes(p, videos[0], videos[1]);
+      if (typeErr) return { ok: false, err: `before reload: ${typeErr}` };
       if (
         (await digestBlob(p.blob)) !== expected.photo ||
         (await digestBlob(videos[0].blob)) !== expected.smallVideo ||
@@ -309,11 +336,20 @@ async function assertMediaHashesAfterReload(page, label, { format = 2 } = {}) {
         .filter((m) => m.type === "video")
         .sort((a, b) => (a.blob?.size || 0) - (b.blob?.size || 0));
       if (!p || videos.length < 2) return { ok: false, err: "missing media after reload" };
-      const ok =
+      const mime = expected.mime;
+      const typeOk =
+        p.blob?.type === mime.photo &&
+        p.mime === mime.photo &&
+        videos[0].blob?.type === mime.smallVideo &&
+        videos[0].mime === mime.smallVideo &&
+        videos[1].blob?.type === mime.bigVideo &&
+        videos[1].mime === mime.bigVideo;
+      const hashOk =
         (await digestBlob(p.blob)) === expected.photo &&
         (await digestBlob(videos[0].blob)) === expected.smallVideo &&
         (await digestBlob(videos[1].blob)) === expected.bigVideo;
-      return { ok, err: ok ? undefined : "hash mismatch after reload" };
+      if (!typeOk) return { ok: false, err: "mime/type mismatch after reload" };
+      return { ok: hashOk, err: hashOk ? undefined : "hash mismatch after reload" };
     },
     { vacationId: prep.vacationId, expected: prep.expected }
   );
