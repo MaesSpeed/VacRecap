@@ -17,7 +17,7 @@ import { loadTripSelection } from "./trip-selection-store.js";
 import { storeTripSelection, setTripSelection } from "./ui-urlaub-detail.js";
 import { mountTripFooter } from "./ui-trip-footer.js";
 import { dismissActiveToast, showToast, showTwoLineToast, showWarnToast } from "./toast.js";
-import { escapeHtml } from "./utils.js";
+import { escapeHtml, todayIso } from "./utils.js";
 
 const PARIS = { lat: 48.8566, lng: 2.3522 };
 const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -84,9 +84,13 @@ function statsLine({ photos, videos, notes }) {
   return parts.join(" · ") || "Keine Medien";
 }
 
-function contextDay(vacationId, vacation, segment) {
-  if (segment !== "all") return segment;
+async function footerDay(vacationId, vacation, segment) {
   const days = vacationDays(vacation);
+  if (segment !== "all") return days.includes(segment) ? segment : days[0];
+  const today = todayIso();
+  if (days.includes(today)) return today;
+  const saved = await loadTripSelection(vacationId);
+  if (saved?.activeDay && days.includes(saved.activeDay)) return saved.activeDay;
   return days[0];
 }
 
@@ -394,10 +398,10 @@ export async function renderMapScreen(appEl, vacationId) {
   renderLegend();
   drawMarkers();
 
-  const dayForFooter = () => contextDay(vacationId, vacation, segment);
+  const dayForFooter = () => footerDay(vacationId, vacation, segment);
 
   async function resolveMapCaptureDayPlace() {
-    const day = dayForFooter();
+    const day = await dayForFooter();
     const saved = await loadTripSelection(vacationId);
     const activeDay = saved?.activeDay ?? day;
     const selectedPlaceId = saved?.selectedByDay?.[activeDay] ?? null;
@@ -472,7 +476,7 @@ export async function renderMapScreen(appEl, vacationId) {
   mountTripFooter(appEl.querySelector('[data-role="footer-mount"]'), {
     onRememberPlace: async () => {
       const { rememberPlaceFromGps } = await import("./place-service.js");
-      const day = dayForFooter();
+      const day = await dayForFooter();
       await storeTripSelection(vacationId, day, null);
       setTripSelection(vacationId, day, null);
       await rememberPlaceFromGps({ vacationId, day });
@@ -486,12 +490,13 @@ export async function renderMapScreen(appEl, vacationId) {
       showToast("Fotos und Videos kommen im nächsten Schritt", { icon: "none" });
     },
     onNote: () => {
-      const day = dayForFooter();
-      void storeTripSelection(vacationId, day, null).then(() => {
-        setTripSelection(vacationId, day, null);
-        queuePendingFooter("note");
-        returnToTripFromMap(vacationId);
-      });
+      void dayForFooter().then((day) =>
+        storeTripSelection(vacationId, day, null).then(() => {
+          setTripSelection(vacationId, day, null);
+          queuePendingFooter("note");
+          returnToTripFromMap(vacationId);
+        })
+      );
     },
     onGallery: () => {
       showToast("Fotos und Videos kommen im nächsten Schritt", { icon: "none" });
@@ -499,7 +504,12 @@ export async function renderMapScreen(appEl, vacationId) {
   });
 
   appEl._mapCleanup = () => {
-    map.remove();
+    try {
+      map.stop();
+      map.remove();
+    } catch {
+      /* Container ist beim Verlassen schon weg. */
+    }
     delete appEl._mapCleanup;
   };
 }

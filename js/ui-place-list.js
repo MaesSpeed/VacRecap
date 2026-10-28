@@ -31,9 +31,12 @@ function newestUploadedPhoto(media) {
   return uploaded.slice().sort((a, b) => a.ts - b.ts)[uploaded.length - 1];
 }
 
-export async function loadDayPlacesEnriched(vacationId, day) {
+export async function loadDayPlacesEnriched(vacationId, day, knownPlaces) {
   const { getPlacesForDay } = await import("./db.js");
-  const places = sortPlacesChronologicalDesc(await getPlacesForDay(vacationId, day));
+  const source = knownPlaces
+    ? knownPlaces.filter((p) => (p.day || p.dayDate) === day)
+    : await getPlacesForDay(vacationId, day);
+  const places = sortPlacesChronologicalDesc(source);
   const enriched = await Promise.all(
     places.map(async (p) => {
       if (p.soft) return { place: p, photos: 0, videos: 0, notes: [], media: [], mediaLoadError: false };
@@ -67,9 +70,13 @@ function renderAddNoteLink() {
   return `<button type="button" class="notes-add" data-action="add-note">+ Notiz</button>`;
 }
 
+function sortNotesByRecentUpdate(notes) {
+  return notes.slice().sort((a, b) => (b.ts ?? b.createdAt ?? 0) - (a.ts ?? a.createdAt ?? 0));
+}
+
 export function renderFreeNotesHtml(notes, { expanded = false } = {}) {
   if (!notes?.length) return "";
-  const sorted = sortNotesNewestFirst(notes);
+  const sorted = sortNotesByRecentUpdate(notes);
   const preview = expanded ? sorted : sorted.slice(0, 2);
   const hiddenCount = Math.max(0, sorted.length - 2);
   return `
@@ -312,7 +319,6 @@ export function wrapPlaceList(innerHtml, mediaErrorHtml = "") {
     ${mediaErrorHtml}
     <div class="place-list-wrap">
       <ul class="place-list" data-testid="place-list">${innerHtml}</ul>
-      <div class="place-list-fade" aria-hidden="true"></div>
     </div>`;
 }
 

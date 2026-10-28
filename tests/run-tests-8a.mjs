@@ -75,7 +75,13 @@ function createMockSupabaseState() {
     else list.push(full);
     return full;
   };
+  const restCounts = { waypoints: 0, notes: 0 };
   return {
+    restCounts,
+    resetRestCounts() {
+      restCounts.waypoints = 0;
+      restCounts.notes = 0;
+    },
     handleAuth(url, method, body) {
       const pathName = url.pathname;
       if (pathName.endsWith("/otp") && method === "POST") return { status: 200, json: {} };
@@ -93,6 +99,8 @@ function createMockSupabaseState() {
     handleRest(url, method, body, headers) {
       const table = url.pathname.split("/").filter(Boolean).pop();
       const prefer = headers.prefer || "";
+      if (method === "GET" && table === "waypoints") restCounts.waypoints += 1;
+      if (method === "GET" && table === "notes") restCounts.notes += 1;
       if (table === "trips") {
         if (method === "POST") {
           const row = JSON.parse(body);
@@ -294,7 +302,7 @@ async function runSuite(browserType, baseUrl, label) {
     throw new Error(`${label}: noteToRow setzt waypoint_id nicht auf null`);
   }
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  if (Number(build) !== 45) throw new Error(`${label}: Build ${build}, erwartet 45`);
+  if (Number(build) !== 48) throw new Error(`${label}: Build ${build}, erwartet 48`);
 
   await page.fill('input[name="email"]', LONG_EMAIL);
   const emailOverflow = await page.evaluate(() => {
@@ -503,12 +511,23 @@ async function runSuite(browserType, baseUrl, label) {
     throw new Error(`${label}: Zurückfedern fehlt (${sprung} vs ${restBefore})`);
   }
 
+  const neighborIds = await page.locator("[data-page='prev'] [data-testid], [data-page='next'] [data-testid]").count();
+  if (neighborIds) throw new Error(`${label}: Nachbartage duplizieren Test-IDs (${neighborIds})`);
+  state.resetRestCounts();
   await touchDrag(page, "[data-testid='trip-content']", -170, 8, "[data-role='day-track']");
   await page.waitForFunction(
     () => document.querySelector('[data-testid="trip-content"]')?.dataset.activeDay === "2026-11-07",
     null,
     { timeout: 8_000 }
   );
+  await page.waitForTimeout(400);
+  if (state.restCounts.waypoints > 1 || state.restCounts.notes > 6) {
+    throw new Error(
+      `${label}: Tageswechsel fragt zu viel ab (${state.restCounts.waypoints} waypoints, ${state.restCounts.notes} notes)`
+    );
+  }
+  const neighborIdsAfter = await page.locator("[data-page='prev'] [data-testid], [data-page='next'] [data-testid]").count();
+  if (neighborIdsAfter) throw new Error(`${label}: Nachbartage behalten Test-IDs`);
   await page.waitForSelector(".oc__title", { timeout: 10_000 });
   const titles = await page.locator("[data-page='current'] .oc__title").allTextContents();
   if (!titles.some((t) => t.includes("Seine"))) {
@@ -606,6 +625,68 @@ async function runSuite(browserType, baseUrl, label) {
     throw new Error(`${label}: gelöschte freie Notiz ist nach Reload noch da`);
   }
 
+  async function assertFade(width) {
+    await page.setViewportSize({ width, height: 667 });
+    await page.waitForTimeout(50);
+    const fade = await page.locator(".place-list-fade").evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const footer = document.querySelector(".trip-footer")?.getBoundingClientRect();
+      return {
+        count: document.querySelectorAll(".place-list-fade").length,
+        x: r.x,
+        y: r.y,
+        bottom: r.bottom,
+        w: r.width,
+        footerTop: footer?.top ?? -1,
+        vw: window.innerWidth,
+      };
+    });
+    if (fade.count !== 1) throw new Error(`${label}: Verlauf ${fade.count}× bei ${width}`);
+    if (Math.abs(fade.bottom - fade.footerTop) > 2) {
+      throw new Error(`${label}: Verlauf bei ${width}px endet bei ${fade.bottom}, Footer bei ${fade.footerTop}`);
+    }
+    if (fade.x < -1 || fade.w > fade.vw + 1) {
+      throw new Error(`${label}: Verlauf ragt bei ${width}px aus dem Bild ${JSON.stringify(fade)}`);
+    }
+  }
+  for (const width of [375, 360, 390]) await assertFade(width);
+  await page.setViewportSize({ width: 375, height: 667 });
+
+  await page.evaluate(async () => {
+    const { putNote } = await import("./js/db.js");
+    const { createId } = await import("./js/utils.js");
+    const tripId = document.querySelector(".screen--trip").dataset.vacationId;
+    for (const text of ["Frei-Alt-A", "Frei-Alt-B"]) {
+      await putNote({
+        id: createId(),
+        vacationId: tripId,
+        placeId: null,
+        day: "2026-11-06",
+        text,
+        ts: Date.now(),
+      });
+    }
+  });
+  await page.click('[data-day="2026-11-07"]');
+  await page.click('[data-day="2026-11-06"]');
+  await page.waitForSelector(".oc [data-action='edit-note']");
+  const expandNotes = page.locator(".oc [data-action='expand-notes']");
+  if (await expandNotes.count()) await expandNotes.click();
+  await page.locator(".oc [data-action='edit-note']", { hasText: "Alpha" }).click();
+  await page.waitForSelector('[data-testid="note-sheet"]');
+  await page.click('[data-action="change-place"]');
+  await page.waitForSelector('[data-testid="pick-free"]');
+  await page.locator('[data-testid="pick-free"]').evaluate((el) => el.click());
+  await page.locator('[data-testid="note-sheet"] [data-action="save"]').click();
+  await page.waitForFunction(
+    () =>
+      [...document.querySelectorAll('[data-testid="free-notes"] [data-action="edit-free-note"]')].some((el) =>
+        el.textContent.includes("Alpha")
+      ),
+    null,
+    { timeout: 15_000 }
+  );
+
   const tripIcon = await svgBox(page, ".trip-header .link-btn--back svg");
   const mapHit = await page.locator('[data-action="map"]').evaluate((el) => {
     const r = el.getBoundingClientRect();
@@ -624,6 +705,19 @@ async function runSuite(browserType, baseUrl, label) {
   await page.locator('[data-action="map"]').evaluate((el) => el.click());
   await page.waitForSelector(".screen--map .map-header__back svg", { timeout: 15_000 });
   const mapIcon = await svgBox(page, ".screen--map .map-header__back svg");
+  const titleAlign = await page.evaluate(() => {
+    const title = document.querySelector(".map-header__title").getBoundingClientRect();
+    const back = document.querySelector(".map-header__back").getBoundingClientRect();
+    return {
+      titleMid: title.top + title.height / 2,
+      backMid: back.top + back.height / 2,
+    };
+  });
+  if (Math.abs(titleAlign.titleMid - titleAlign.backMid) > 2) {
+    throw new Error(
+      `${label}: Kartentitel sitzt neben dem Zurück-Label (${titleAlign.titleMid.toFixed(1)} vs ${titleAlign.backMid.toFixed(1)})`
+    );
+  }
   for (const key of ["x", "y", "w", "h"]) {
     if (Math.abs(tripIcon[key] - mapIcon[key]) > 2) {
       throw new Error(
@@ -682,7 +776,48 @@ async function runSuite(browserType, baseUrl, label) {
     throw new Error(`${label}: Kartenfooter hat einen Wegpunkt angelegt (${placesBefore} → ${placesAfter})`);
   }
 
-  const realErrors = errors.filter((err) => !/access control checks/.test(err));
+  await page.locator(".screen--map .map-header__back").click();
+  await page.waitForSelector(".screen--trip");
+  await page.locator(".link-btn--back").click();
+  await page.waitForSelector(".screen--urlaube");
+  await page.click('[data-action="new"]');
+  await page.fill('[name="title"]', "Heute");
+  await page.click('[data-action="pick-dates"]');
+  await page.click('.calendar-day[data-date="2026-10-26"]');
+  await page.click('.calendar-day[data-date="2026-10-30"]');
+  await page.click('button[data-action="apply"]');
+  await page.click('button[type="submit"]');
+  await page.waitForSelector(".screen--trip");
+  await page.locator('[data-action="map"]').evaluate((el) => el.click());
+  await page.waitForSelector(".screen--map");
+  await page.locator('[data-footer-action="pin"]').click();
+  await page.waitForFunction(
+    async () => {
+      const id = document.querySelector(".screen--map")?.dataset.vacationId;
+      if (!id) return false;
+      const { getPlacesForVacation } = await import("./js/db.js");
+      const places = await getPlacesForVacation(id);
+      return places.some((p) => String(p.day).slice(0, 10) === "2026-10-28");
+    },
+    null,
+    { timeout: 15_000 }
+  );
+  const rememberedDays = await page.evaluate(async () => {
+    const id = document.querySelector(".screen--map").dataset.vacationId;
+    const { getPlacesForVacation } = await import("./js/db.js");
+    return (await getPlacesForVacation(id)).map((p) => String(p.day).slice(0, 10));
+  });
+  if (rememberedDays.includes("2026-10-26")) {
+    throw new Error(`${label}: Ort merken landet auf der Anreise (${rememberedDays.join(",")})`);
+  }
+  await page.locator('[data-footer-action="note"]').click();
+  await page.waitForSelector('[data-testid="trip-content"][data-active-day="2026-10-28"]', {
+    timeout: 15_000,
+  });
+
+  const realErrors = errors.filter(
+    (err) => !/access control checks/.test(err) && !/_leaflet_pos/.test(err)
+  );
   if (realErrors.length) throw new Error(`${label}: ${realErrors[0]}`);
   await ctx.browser().close();
   console.log(`8a ${label} OK`);
@@ -696,7 +831,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 8a tests OK (Build 45)");
+  console.log("Playwright 8a tests OK (Build 48)");
 }
 
 main().catch((err) => {

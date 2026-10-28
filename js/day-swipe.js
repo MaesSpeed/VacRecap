@@ -20,7 +20,8 @@ function ensureStructure(root) {
         <div class="day-swipe__page day-swipe__page--current" data-page="current"></div>
         <div class="day-swipe__page" data-page="next" aria-hidden="true"></div>
       </div>
-    </div>`;
+    </div>
+    <div class="place-list-fade" aria-hidden="true"></div>`;
   const track = trackOf(root);
   if (track) {
     track.style.transition = "none";
@@ -44,12 +45,11 @@ export function setDaySwipePage(root, html) {
 }
 
 export function setDaySwipeNeighbor(root, which, html) {
-  if (root.dataset.swipeLock === "1") return;
   const page = root.querySelector(`[data-page="${which}"]`);
   if (page) page.innerHTML = html || "";
 }
 
-export function installDaySwipe(root, onShift) {
+export function installDaySwipe(root, onShift, hooks = {}) {
   ensureStructure(root);
   if (root.dataset.swipeBound === "1") return;
   root.dataset.swipeBound = "1";
@@ -126,6 +126,7 @@ export function installDaySwipe(root, onShift) {
       mode = Math.abs(dx) > Math.abs(dy) * 1.2 ? "h" : "v";
       if (mode === "h") {
         if (event?.pointerId != null) root.setPointerCapture?.(event.pointerId);
+        hooks.onLock?.();
         armDocBlock();
       }
     }
@@ -165,6 +166,7 @@ export function installDaySwipe(root, onShift) {
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (!dir) {
       rest();
+      hooks.onRest?.();
       return;
     }
     if (reduce) {
@@ -185,6 +187,7 @@ export function installDaySwipe(root, onShift) {
       const incoming = root.querySelector(`[data-page="${dir > 0 ? "next" : "prev"}"]`);
       const current = root.querySelector("[data-page='current']");
       if (incoming && current && incoming.innerHTML.trim()) current.innerHTML = incoming.innerHTML;
+      hooks.onRest?.();
       track.style.transition = "none";
       track.style.transform = REST;
       onShift(dir);

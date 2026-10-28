@@ -3393,6 +3393,10 @@ body {
   display: block;
 }
 
+.screen--map .map-header__title {
+  top: 20px;
+}
+
 .screen--login .login-main,
 .screen--login .login-form,
 .screen--login .field,
