@@ -65,7 +65,7 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
           </div>
         </div>
         <div class="cover-picker" role="list" data-testid="cover-picker">
-          <button type="button" class="cover-thumb cover-thumb--custom" data-preset="custom">
+          <button type="button" class="cover-thumb cover-thumb--custom" data-preset="custom" hidden aria-hidden="true">
             <span class="cover-thumb__img cover-thumb__img--custom">${ICON_COVER_CUSTOM}</span>
             <span class="cover-thumb__label">Eigenes Foto</span>
           </button>
