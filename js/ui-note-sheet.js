@@ -2,7 +2,7 @@ import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { createNote, moveNoteToPlace, removeNote, updateNoteText } from "./note-service.js";
 import { dayRoleLabel, vacationDays } from "./days.js";
 import { openConfirmDialog } from "./ui-confirm.js";
-import { CloudOfflineError } from "./cloud-errors.js";
+import { CloudNetworkError, CloudOfflineError } from "./cloud-errors.js";
 import { showToast } from "./toast.js";
 import { escapeHtml } from "./utils.js";
 
@@ -196,26 +196,25 @@ export function openNoteSheet({
   saveBtn.addEventListener("click", async () => {
     if (saving || saveBtn.disabled) return;
     saving = true;
-    const text = textarea.value.trim();
-    let captureResult = null;
-    let placeToUse = activePlace;
-
-    const useGpsResolve = !isEdit && resolvePlaceOnSave && !placeToUse;
-    if (useGpsResolve) {
-      captureResult = await resolvePlaceOnSave();
-      placeToUse = captureResult.place;
-    }
-
-    if (!placeToUse && isEdit) {
-      placeToUse = activePlace;
-    }
-    if (!placeToUse) {
-      saving = false;
-      showToast("Kein Ort gewählt");
-      return;
-    }
-
     try {
+      const text = textarea.value.trim();
+      let captureResult = null;
+      let placeToUse = activePlace;
+
+      const useGpsResolve = !isEdit && resolvePlaceOnSave && !placeToUse;
+      if (useGpsResolve) {
+        captureResult = await resolvePlaceOnSave();
+        placeToUse = captureResult.place;
+      }
+
+      if (!placeToUse && isEdit) {
+        placeToUse = activePlace;
+      }
+      if (!placeToUse) {
+        showToast("Kein Ort gewählt");
+        return;
+      }
+
       if (isEdit) {
         await updateNoteText(note, text);
         if (placeToUse.id !== note.placeId) {
@@ -230,7 +229,7 @@ export function openNoteSheet({
       await onSaved?.(captureResult);
     } catch (err) {
       showToast(
-        err instanceof CloudOfflineError
+        err instanceof CloudOfflineError || err instanceof CloudNetworkError
           ? err.message
           : err?.message || "Notiz konnte nicht gespeichert werden."
       );

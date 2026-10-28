@@ -7,6 +7,13 @@ let activeUserId = null;
 
 export function setCacheUserId(userId) {
   activeUserId = userId || null;
+  if (activeUserId) {
+    try {
+      localStorage.removeItem(LEGACY_CACHE_KEY);
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 function cacheKey() {
@@ -46,12 +53,9 @@ function trimPayload(obj) {
 }
 
 export function readCache() {
+  if (!activeUserId) return null;
   try {
-    const key = cacheKey();
-    let raw = localStorage.getItem(key);
-    if (!raw && key !== LEGACY_CACHE_KEY) {
-      raw = localStorage.getItem(LEGACY_CACHE_KEY);
-    }
+    const raw = localStorage.getItem(cacheKey());
     if (!raw) return null;
     return JSON.parse(raw);
   } catch {

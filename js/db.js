@@ -1,4 +1,4 @@
-import { CloudOfflineError, mapApiError } from "./cloud-errors.js";
+import { CloudNetworkError, CloudOfflineError, isFetchNetworkFailure, mapApiError } from "./cloud-errors.js";
 import {
   noteRowToApp,
   noteToRow,
@@ -20,6 +20,33 @@ function assertWritable() {
   }
 }
 
+async function upsertRow(supabase, table, row, id) {
+  const payload = id ? { ...row, id } : row;
+  const { data, error } = await supabase
+    .from(table)
+    .upsert(payload, { onConflict: "id" })
+    .select()
+    .single();
+  if (error) throw mapApiError(error);
+  return data;
+}
+
+function tripIdForWaypointFromCache(waypointId) {
+  const cache = readCache();
+  for (const [tripId, places] of Object.entries(cache?.waypoints || {})) {
+    if (places.some((p) => p.id === waypointId)) return tripId;
+  }
+  return null;
+}
+
+function notesForWaypointFromCache(waypointId) {
+  for (const list of Object.values(readCache()?.notes || {})) {
+    const hit = list.filter((n) => n.placeId === waypointId);
+    if (hit.length) return hit;
+  }
+  return [];
+}
+
 function cacheTrips(rows) {
   const trips = rows.map(tripRowToVacation);
   writeCache({ trips });
@@ -35,28 +62,18 @@ export async function putVacation(vacation) {
   const v = normalizeVacation(vacation);
   const supabase = getSupabase();
   const row = vacationToTripRow(v);
+  let data;
   if (v.id) {
-    const { data: existing } = await supabase.from("trips").select("id").eq("id", v.id).maybeSingle();
-    if (existing?.id) {
-      const { data, error } = await supabase
-        .from("trips")
-        .update(row)
-        .eq("id", v.id)
-        .select()
-        .single();
-      if (error) throw mapApiError(error);
-      const mapped = tripRowToVacation(data);
-      writeCache({ trips: (readCache()?.trips || []).map((t) => (t.id === mapped.id ? mapped : t)) });
-      window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
-      return mapped;
-    }
+    data = await upsertRow(supabase, "trips", row, v.id);
+  } else {
+    const { data: inserted, error } = await supabase.from("trips").insert(row).select().single();
+    if (error) throw mapApiError(error);
+    data = inserted;
   }
-  const insertRow = v.id ? { ...row, id: v.id } : row;
-  const { data, error } = await supabase.from("trips").insert(insertRow).select().single();
-  if (error) throw mapApiError(error);
   const mapped = tripRowToVacation(data);
   const prev = readCache()?.trips || [];
-  writeCache({ trips: [...prev, mapped] });
+  const idx = prev.findIndex((t) => t.id === mapped.id);
+  writeCache({ trips: idx >= 0 ? prev.map((t, i) => (i === idx ? mapped : t)) : [...prev, mapped] });
   window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
   return mapped;
 }
@@ -78,16 +95,24 @@ export async function getAllVacations() {
     const cached = readCache()?.trips || [];
     return cached.map(normalizeVacation);
   }
-  const { data, error } = await getSupabase()
-    .from("trips")
-    .select("*")
-    .order("start_date", { ascending: true });
-  if (error) {
+  try {
+    const { data, error } = await getSupabase()
+      .from("trips")
+      .select("*")
+      .order("start_date", { ascending: true });
+    if (error) {
+      const cached = readCache()?.trips;
+      if (cached?.length) return cached.map(normalizeVacation);
+      throw mapApiError(error);
+    }
+    return cacheTrips(data || []).map(normalizeVacation);
+  } catch (err) {
     const cached = readCache()?.trips;
     if (cached?.length) return cached.map(normalizeVacation);
-    throw mapApiError(error);
+    if (err instanceof CloudOfflineError || err instanceof CloudNetworkError) throw err;
+    if (isFetchNetworkFailure(err)) throw new CloudNetworkError();
+    throw err;
   }
-  return cacheTrips(data || []).map(normalizeVacation);
 }
 
 export async function deleteVacation(id) {
@@ -131,6 +156,10 @@ export async function getSetting(key) {
 
 export async function putSetting(key, value) {
   localStorage.setItem(SETTINGS_PREFIX + key, JSON.stringify(value));
+}
+
+export async function deleteSetting(key) {
+  localStorage.removeItem(SETTINGS_PREFIX + key);
 }
 
 export async function getRouteCacheRecord(key) {
@@ -194,29 +223,14 @@ export async function putPlace(place) {
   const p = normalizePlace(place);
   const supabase = getSupabase();
   const row = placeToWaypointRow(p);
+  let data;
   if (p.id) {
-    const { data: existing } = await supabase
-      .from("waypoints")
-      .select("id")
-      .eq("id", p.id)
-      .maybeSingle();
-    if (existing?.id) {
-      const { data, error } = await supabase
-        .from("waypoints")
-        .update(row)
-        .eq("id", p.id)
-        .select()
-        .single();
-      if (error) throw mapApiError(error);
-      const mapped = normalizePlace(waypointRowToPlace(data));
-      mergeWaypointCache(mapped);
-      window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
-      return mapped;
-    }
+    data = await upsertRow(supabase, "waypoints", row, p.id);
+  } else {
+    const { data: inserted, error } = await supabase.from("waypoints").insert(row).select().single();
+    if (error) throw mapApiError(error);
+    data = inserted;
   }
-  const insertRow = p.id ? { ...row, id: p.id } : row;
-  const { data, error } = await supabase.from("waypoints").insert(insertRow).select().single();
-  if (error) throw mapApiError(error);
   const mapped = normalizePlace(waypointRowToPlace(data));
   mergeWaypointCache(mapped);
   window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
@@ -253,24 +267,29 @@ export async function deletePlacesForVacation() {
 
 async function fetchNotesForWaypoint(waypointId) {
   if (!navigator.onLine) {
-    for (const list of Object.values(readCache()?.notes || {})) {
-      const hit = list.filter((n) => n.placeId === waypointId);
-      if (hit.length) return hit;
+    return notesForWaypointFromCache(waypointId);
+  }
+  try {
+    const { data, error } = await getSupabase()
+      .from("notes")
+      .select("*")
+      .eq("waypoint_id", waypointId)
+      .is("deleted_at", null)
+      .order("updated_at", { ascending: true });
+    if (error) throw mapApiError(error);
+    const notes = (data || []).map(noteRowToApp);
+    const tripId = notes[0]?.vacationId ?? tripIdForWaypointFromCache(waypointId);
+    if (tripId) {
+      cacheNotesForWaypoint(waypointId, notes, tripId);
     }
-    return [];
+    return notes;
+  } catch (err) {
+    const cached = notesForWaypointFromCache(waypointId);
+    if (cached.length) return cached;
+    if (err instanceof CloudOfflineError || err instanceof CloudNetworkError) return [];
+    if (isFetchNetworkFailure(err)) return [];
+    throw err;
   }
-  const { data, error } = await getSupabase()
-    .from("notes")
-    .select("*")
-    .eq("waypoint_id", waypointId)
-    .is("deleted_at", null)
-    .order("updated_at", { ascending: true });
-  if (error) throw mapApiError(error);
-  const notes = (data || []).map(noteRowToApp);
-  if (notes.length) {
-    cacheNotesForWaypoint(waypointId, notes, notes[0].vacationId);
-  }
-  return notes;
 }
 
 function cacheNotesForWaypoint(waypointId, notes, tripId) {
@@ -289,26 +308,14 @@ export async function putNote(record) {
   assertWritable();
   const row = noteToRow(record);
   const supabase = getSupabase();
-  let existing = false;
+  let data;
   if (record.id) {
-    const { data: hit } = await supabase.from("notes").select("id").eq("id", record.id).maybeSingle();
-    existing = Boolean(hit?.id);
-  }
-  if (existing) {
-    const { data, error } = await supabase
-      .from("notes")
-      .update({ body: row.body, day: row.day, waypoint_id: row.waypoint_id })
-      .eq("id", record.id)
-      .select()
-      .single();
+    data = await upsertRow(supabase, "notes", row, record.id);
+  } else {
+    const { data: inserted, error } = await supabase.from("notes").insert(row).select().single();
     if (error) throw mapApiError(error);
-    const mapped = noteRowToApp(data);
-    mergeNoteCache(mapped);
-    window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
-    return mapped;
+    data = inserted;
   }
-  const { data, error } = await supabase.from("notes").insert(row).select().single();
-  if (error) throw mapApiError(error);
   const mapped = noteRowToApp(data);
   mergeNoteCache(mapped);
   window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));

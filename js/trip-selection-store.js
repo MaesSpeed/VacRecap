@@ -13,3 +13,8 @@ export async function saveTripSelection(vacationId, { selectedByDay, activeDay }
   all[vacationId] = { selectedByDay, activeDay };
   await putSetting(KEY, all);
 }
+
+export async function clearTripSelectionStore() {
+  const { deleteSetting } = await import("./db.js");
+  await deleteSetting(KEY);
+}

@@ -12,7 +12,7 @@ import { renderUrlaubeScreen } from "./ui-urlaube.js";
 import { installVisualViewportKeyboard } from "./visual-viewport.js";
 import { dismissOverlayOnly, initOverlayHistory } from "./overlay-stack.js";
 import { showWarnToast } from "./toast.js";
-import { CloudOfflineError } from "./cloud-errors.js";
+import { CloudNetworkError, CloudOfflineError } from "./cloud-errors.js";
 
 const appEl = document.getElementById("app");
 
@@ -108,6 +108,10 @@ function scheduleRender() {
     void renderNow().catch((err) => {
       if (err instanceof CloudOfflineError) {
         showWarnToast(err.message);
+        return;
+      }
+      if (err instanceof CloudNetworkError) {
+        renderCloudLoadError(scheduleRender);
         return;
       }
       renderCloudLoadError(scheduleRender);

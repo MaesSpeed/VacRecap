@@ -29,7 +29,12 @@ function startServer() {
       let rel = decodeURIComponent(new URL(req.url, "http://localhost").pathname);
       if (rel.endsWith("/")) rel += "index.html";
       try {
-        const data = await readFile(path.join(root, rel.replace(/^\//, "")));
+        let filePath = path.join(root, rel.replace(/^\//, ""));
+        const cinexRel = rel.replace(/^\//, "");
+        if (cinexRel.startsWith("Cinex/")) {
+          filePath = path.join(root, "tests/fixtures/cinex", cinexRel.slice("Cinex/".length));
+        }
+        const data = await readFile(filePath);
         res.writeHead(200, { "Content-Type": MIME[path.extname(rel)] || "application/octet-stream" });
         res.end(data);
       } catch {
@@ -96,20 +101,25 @@ function createMockSupabaseState() {
         const raw = url.searchParams.get(key);
         return raw?.replace(/^eq\./, "");
       };
+      const upsertRow = (list, row, extra) => {
+        const id = row.id || crypto.randomUUID();
+        const hit = list.find((x) => x.id === id);
+        const full = {
+          created_by: userId,
+          created_at: hit?.created_at || new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          ...extra,
+          ...row,
+          id,
+        };
+        if (hit) Object.assign(hit, full);
+        else list.push(full);
+        return full;
+      };
       if (table === "trips") {
         if (method === "POST") {
           const row = JSON.parse(body);
-          const id = row.id || crypto.randomUUID();
-          const full = {
-            id,
-            created_by: userId,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            companions: row.companions || [],
-            ...row,
-            id,
-          };
-          trips.push(full);
+          const full = upsertRow(trips, row, { companions: row.companions || [] });
           return { status: 201, json: prefer.includes("return=representation") ? [full] : null };
         }
         if (method === "GET") {
@@ -150,17 +160,7 @@ function createMockSupabaseState() {
         }
         if (method === "POST") {
           const row = JSON.parse(body);
-          const id = row.id || crypto.randomUUID();
-          const full = {
-            id,
-            created_by: userId,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            deleted_at: null,
-            ...row,
-            id,
-          };
-          waypoints.push(full);
+          const full = upsertRow(waypoints, row, { deleted_at: null });
           return { status: 201, json: [full] };
         }
         if (method === "PATCH") {
@@ -182,17 +182,7 @@ function createMockSupabaseState() {
         }
         if (method === "POST") {
           const row = JSON.parse(body);
-          const id = row.id || crypto.randomUUID();
-          const full = {
-            id,
-            created_by: userId,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            deleted_at: null,
-            ...row,
-            id,
-          };
-          notes.push(full);
+          const full = upsertRow(notes, row, { deleted_at: null });
           return { status: 201, json: [full] };
         }
         if (method === "PATCH") {
@@ -364,34 +354,65 @@ async function assertLegacyCleanup(page, baseUrl) {
   if (clean.sw > 0) throw new Error("VacRecap-SW nicht deregistriert");
 }
 
-async function assertV38KillSwitchUpgrade(page, baseUrl) {
-  const v38Path = path.join(root, "tests/fixtures/sw-v38-minimal.js");
-  const v38Body = await readFile(v38Path, "utf8");
-  await page.route("**/sw.js", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/javascript",
-      body: v38Body,
-    });
+async function assertN1KillSwitch(browserType, baseUrl, label) {
+  const v38Body = await readFile(path.join(root, "tests/fixtures/sw-v38-main.js"), "utf8");
+  const cinexBody = await readFile(path.join(root, "tests/fixtures/cinex/sw.js"), "utf8");
+  const userData = path.join("/tmp", `vacrecap-n1-${label}-${Date.now()}`);
+  const ctx = await browserType.launchPersistentContext(userData, {
+    baseURL: baseUrl,
+    ...devices["iPhone 8"],
   });
+  const page = await ctx.newPage();
+  page.setDefaultTimeout(45_000);
+
+  await page.route("**/Cinex/sw.js", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/javascript", body: cinexBody });
+  });
+  await page.route("**/sw.js", async (route) => {
+    const url = route.request().url();
+    if (url.includes("/Cinex/")) return route.continue();
+    await route.fulfill({ status: 200, contentType: "application/javascript", body: v38Body });
+  });
+
   await page.goto(baseUrl);
   await page.evaluate(async () => {
     await caches.open("vacrecap-v38");
     await navigator.serviceWorker.register("./sw.js");
+    await navigator.serviceWorker.register("/Cinex/sw.js", { scope: "/Cinex/" });
   });
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(800);
   await page.unroute("**/sw.js");
   await page.evaluate(async () => {
     const reg = await navigator.serviceWorker.getRegistration();
     if (reg) await reg.update();
   });
-  await page.waitForSelector('[data-testid="login-screen"]', { timeout: 20_000 });
-  const clean = await page.evaluate(async () => ({
-    caches: (await caches.keys()).filter((k) => k.startsWith("vacrecap-")),
-    sw: (await navigator.serviceWorker.getRegistrations()).length,
-  }));
-  if (clean.caches.length) throw new Error(`6b-B1: Caches übrig ${clean.caches.join(",")}`);
-  if (clean.sw > 0) throw new Error("6b-B1: SW noch aktiv nach Kill-Switch");
+  await page.waitForSelector('[data-testid="login-screen"]', { timeout: 30_000 });
+
+  const afterSwitch = await page.evaluate(async () => {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    return {
+      vacrecapSw: regs.filter((r) => !r.scope.includes("/Cinex/")).length,
+      cinexSw: regs.filter((r) => r.scope.includes("/Cinex/")).length,
+      caches: (await caches.keys()).filter((k) => k.startsWith("vacrecap-")),
+    };
+  });
+  if (afterSwitch.vacrecapSw > 0) throw new Error(`N1-${label}: VacRecap-SW noch aktiv`);
+  if (afterSwitch.caches.length) throw new Error(`N1-${label}: vacrecap-Caches übrig`);
+  if (afterSwitch.cinexSw < 1) throw new Error(`N1-${label}: Cinex-SW fehlt`);
+
+  for (let i = 0; i < 3; i++) {
+    await page.reload();
+    await page.waitForSelector('[data-testid="login-screen"]', { timeout: 15_000 });
+  }
+  await page.waitForTimeout(2000);
+
+  const afterPause = await page.evaluate(async () => {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    return regs.filter((r) => !r.scope.includes("/Cinex/")).length;
+  });
+  if (afterPause > 0) throw new Error(`N1-${label}: VacRecap-SW nach Pause/Reloads zurück`);
+
+  await ctx.close();
 }
 
 async function main() {
@@ -412,7 +433,7 @@ async function main() {
   for (const vp of VIEWPORTS) {
     await page.setViewportSize({ width: vp.width, height: vp.height });
     const v = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-    if (v !== 41) throw new Error(`Version ${v} in ${vp.name}`);
+    if (v !== 42) throw new Error(`Version ${v} in ${vp.name}`);
   }
 
   const offlineOk = await page.evaluate(async () => {
@@ -470,10 +491,27 @@ async function main() {
   });
   await page.waitForSelector('[data-testid="global-settings-sheet"]');
   await page.click('[data-action="close"]');
-  await page.waitForSelector('[data-testid="global-settings-sheet"]', { state: "hidden" });
+  await page.waitForTimeout(600);
+  await page.evaluate(async () => {
+    const { openGlobalSettingsSheet } = await import("./js/ui-global-settings.js");
+    openGlobalSettingsSheet(document.getElementById("app"));
+  });
+  await page.waitForSelector('[data-testid="global-settings-sheet"]');
+  await page.waitForTimeout(600);
+  await page.click('[data-action="sign-out"]');
+  await page.waitForSelector('[data-testid="login-screen"]', { timeout: 20_000 });
+  const afterSignOut = await page.evaluate(() => ({
+    caches: Object.keys(localStorage).filter((k) => k.startsWith("vr-cloud-read-cache")),
+    tripSel: localStorage.getItem("vr-setting:tripSelectionByVacation"),
+    auth: Object.keys(localStorage).some((k) => k.includes("auth-token")),
+  }));
+  if (afterSignOut.caches.length) throw new Error("6c-signout: Cache nicht gelöscht");
+  if (afterSignOut.tripSel) throw new Error("6c-signout: tripSelection nicht gelöscht");
+  if (afterSignOut.auth) throw new Error("6c-signout: Auth-Token noch da");
 
   const heapBefore = await page.evaluate(() => performance.memory?.usedJSHeapSize ?? 0);
-  await assertV38KillSwitchUpgrade(page, baseUrl);
+  await assertN1KillSwitch(chromium, baseUrl, "chromium");
+  await assertN1KillSwitch(webkit, baseUrl, "webkit");
   await assertLegacyCleanup(page, baseUrl);
   const heapAfter = await page.evaluate(() => performance.memory?.usedJSHeapSize ?? 0);
   if (heapBefore && heapAfter && heapAfter - heapBefore > 8_000_000) {
@@ -492,7 +530,7 @@ async function main() {
 
   await ctx.close();
   server.close();
-  console.log("Playwright 6b tests OK");
+  console.log("Playwright 6c tests OK");
 }
 
 main().catch((err) => {

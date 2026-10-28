@@ -37,6 +37,8 @@ export async function verifyEmailOtp(email, token) {
 export async function signOut() {
   clearReadCache();
   setCacheUserId(null);
+  const { clearTripSelectionStore } = await import("./trip-selection-store.js");
+  await clearTripSelectionStore();
   await getSupabase().auth.signOut();
 }
 

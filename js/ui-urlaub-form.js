@@ -3,7 +3,7 @@ import { ICON_COVER_CUSTOM } from "./icons.js";
 import { deleteBlob, getBlob, getVacation, putBlob, putVacation } from "./db.js";
 import { navigate } from "./router.js";
 import { clearTripUiState } from "./ui-urlaub-detail.js";
-import { CloudOfflineError } from "./cloud-errors.js";
+import { CloudNetworkError, CloudOfflineError } from "./cloud-errors.js";
 import { showToast } from "./toast.js";
 import { COMPANION_TAGS, createEmptyVacation, normalizeVacation } from "./vacation.js";
 import {
@@ -269,7 +269,7 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
       await putVacation(vacation);
     } catch (err) {
       showToast(
-        err instanceof CloudOfflineError
+        err instanceof CloudOfflineError || err instanceof CloudNetworkError
           ? err.message
           : err?.message || "Speichern fehlgeschlagen."
       );

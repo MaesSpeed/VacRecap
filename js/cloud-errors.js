@@ -5,17 +5,30 @@ export class CloudOfflineError extends Error {
   }
 }
 
+export class CloudNetworkError extends Error {
+  constructor(message = "Netzwerkfehler. Bitte Verbindung prüfen.") {
+    super(message);
+    this.name = "CloudNetworkError";
+  }
+}
+
+export function isFetchNetworkFailure(err) {
+  const msg = (err?.message || String(err || "")).toLowerCase();
+  return (
+    msg.includes("failed to fetch") ||
+    msg.includes("networkerror") ||
+    msg.includes("load failed") ||
+    msg.includes("network request failed")
+  );
+}
+
 export function mapAuthError(err) {
   const msg = (err?.message || "").toLowerCase();
   const code = String(err?.code || err?.status || "").toLowerCase();
   if (!navigator.onLine) {
     return "Keine Internetverbindung. Bitte später erneut versuchen.";
   }
-  if (
-    msg.includes("failed to fetch") ||
-    msg.includes("networkerror") ||
-    msg.includes("load failed")
-  ) {
+  if (isFetchNetworkFailure(err)) {
     return "Netzwerkfehler. Bitte Verbindung prüfen und erneut versuchen.";
   }
   if (
@@ -43,9 +56,8 @@ export function mapApiError(err) {
   if (!navigator.onLine) {
     return new CloudOfflineError();
   }
-  const msg = (err?.message || "").toLowerCase();
-  if (msg.includes("failed to fetch") || msg.includes("networkerror")) {
-    return new CloudOfflineError("Netzwerkfehler. Bitte Verbindung prüfen.");
+  if (isFetchNetworkFailure(err)) {
+    return new CloudNetworkError();
   }
   const userMsg = err?.message || "Speichern fehlgeschlagen.";
   return new Error(userMsg);

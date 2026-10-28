@@ -31,25 +31,25 @@ async function clearVacrecapCaches() {
   );
 }
 
-function vacrecapScopePrefix() {
+function isVacrecapServiceWorkerScope(scopeUrl) {
   try {
-    return new URL(getBasePath(), window.location.href).href;
+    const scopePath = new URL(scopeUrl).pathname;
+    if (scopePath.includes("/VacRecap")) return true;
+    const basePath = new URL(getBasePath(), window.location.href).pathname;
+    if (basePath.includes("/VacRecap")) {
+      return scopePath === basePath || scopePath.startsWith(basePath);
+    }
+    return scopePath === basePath;
   } catch {
-    return null;
+    return false;
   }
 }
 
 async function unregisterVacrecapServiceWorkers() {
   if (!("serviceWorker" in navigator)) return;
-  const prefix = vacrecapScopePrefix();
   const regs = await navigator.serviceWorker.getRegistrations();
   await Promise.all(
-    regs
-      .filter((r) => {
-        if (!prefix) return r.scope.includes("/VacRecap/");
-        return r.scope === prefix || r.scope.startsWith(prefix);
-      })
-      .map((r) => r.unregister())
+    regs.filter((r) => isVacrecapServiceWorkerScope(r.scope)).map((r) => r.unregister())
   );
 }
 
