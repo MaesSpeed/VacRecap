@@ -9,7 +9,8 @@
 -- Pfadkonvention: {trip_id}/{media_id}.jpg
 --
 -- RLS media: select trip member; insert/update/delete owner|editor
--- Storage objects: select trip member; insert/update/delete owner|editor (trip_id_from_path)
+-- Paket 7a-fix: Beim Löschen von Fotos entfernt die App auch Storage-Objekte
+-- (media-originals + media-thumbs), sofern RLS Owner/Editor-Löschrecht erlaubt.
 --
 -- Falls Buckets fehlen (nur dann ausführen):
 -- insert into storage.buckets (id, name, public) values

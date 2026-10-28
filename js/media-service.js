@@ -25,11 +25,11 @@ export async function savePhotoForPlace({
       place,
       vacationId,
       day,
-      ts,
+      ts: processed.takenAt ?? ts,
       originalBlob: processed.blob,
       thumbBlob: processed.thumbBlob,
       width: processed.w,
-      height: processed.height,
+      height: processed.h,
       sourceKey,
       onStatus,
     });

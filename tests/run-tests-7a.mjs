@@ -69,6 +69,7 @@ function createMockSupabaseState(baseUrl) {
   const uploadLog = [];
   let otp = "123456";
   let failOriginalUploads = 0;
+  let failAllOriginalUploads = false;
 
   return {
     userId,
@@ -80,6 +81,9 @@ function createMockSupabaseState(baseUrl) {
     uploadLog,
     setFailOriginalUploads(n) {
       failOriginalUploads = n;
+    },
+    setFailAllOriginalUploads(v) {
+      failAllOriginalUploads = Boolean(v);
     },
     setOtp(code) {
       otp = code;
@@ -131,8 +135,8 @@ function createMockSupabaseState(baseUrl) {
         const bucket = rest.slice(0, slash);
         const objectPath = decodeURIComponent(rest.slice(slash + 1));
         const key = `${bucket}/${objectPath}`;
-        if (bucket === "media-originals" && failOriginalUploads > 0) {
-          failOriginalUploads -= 1;
+        if (bucket === "media-originals" && (failAllOriginalUploads || failOriginalUploads > 0)) {
+          if (failOriginalUploads > 0) failOriginalUploads -= 1;
           return { status: 500, json: { message: "mock upload fail" } };
         }
         storageObjects.set(key, body ? Buffer.from(body, "binary") : TINY_PNG);
@@ -225,8 +229,16 @@ function createMockSupabaseState(baseUrl) {
       if (table === "media") {
         if (method === "GET") {
           const wp = qp("waypoint_id");
-          const rows = media.filter((m) => m.waypoint_id === wp && !m.deleted_at);
-          return { status: 200, json: rows };
+          if (wp) {
+            const rows = media.filter((m) => m.waypoint_id === wp && !m.deleted_at);
+            return { status: 200, json: rows };
+          }
+          const id = qp("id");
+          if (id) {
+            const m = media.find((x) => x.id === id);
+            return { status: 200, json: m ? [m] : [] };
+          }
+          return { status: 200, json: media.filter((m) => !m.deleted_at) };
         }
         if (method === "POST") {
           const row = JSON.parse(body);
@@ -240,6 +252,11 @@ function createMockSupabaseState(baseUrl) {
           if (!m) return { status: 406, json: { code: "PGRST116", message: "0 rows" } };
           Object.assign(m, row, { updated_at: new Date().toISOString() });
           return { status: 200, json: [m] };
+        }
+      }
+      if (table === "trip_members") {
+        if (method === "GET") {
+          return { status: 200, json: [{ role: "owner" }] };
         }
       }
       return { status: 404, json: { message: "not found" } };
@@ -326,10 +343,11 @@ async function seedTripWithPlace(page) {
   return { tripId, day, placeId: wp };
 }
 
-async function runPhotoSuite(page, baseUrl, state, fixturePath, label) {
+async function runPhotoSuite(page, baseUrl, state, fixturePaths, label) {
+  const [fixturePath, fixturePathB, fixturePathC] = fixturePaths;
   await page.goto(baseUrl);
   const v = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  if (Number(v) !== 45) throw new Error(`${label}: Build ${v} != 45`);
+  if (Number(v) !== 46) throw new Error(`${label}: Build ${v} != 46`);
   await login(page);
   const { tripId, day, placeId } = await seedTripWithPlace(page);
 
@@ -351,7 +369,9 @@ async function runPhotoSuite(page, baseUrl, state, fixturePath, label) {
   }
 
   state.uploadLog.length = 0;
-  await page.setInputFiles('[data-testid="gallery-input"]', [fixturePath, fixturePath, fixturePath]);
+  state.media.length = 0;
+  const fixtures = [fixturePath, fixturePathB, fixturePathC];
+  await page.setInputFiles('[data-testid="gallery-input"]', fixtures);
   await page.waitForSelector('[data-testid="photo-upload-sheet"]', { timeout: 15_000 });
   await page.waitForFunction(
     () => {
@@ -361,6 +381,12 @@ async function runPhotoSuite(page, baseUrl, state, fixturePath, label) {
     null,
     { timeout: 60_000 }
   );
+  if (state.media.length !== 3) {
+    throw new Error(`${label}: erwartet 3 media-Zeilen, got ${state.media.length}`);
+  }
+  if (state.media.some((m) => !m.height || !m.width)) {
+    throw new Error(`${label}: width/height fehlt in media (${JSON.stringify(state.media.map((m) => ({ w: m.width, h: m.height })))})`);
+  }
 
   const thumbBefore = state.uploadLog.filter((k) => k.startsWith("media-thumbs/")).length;
   const origAfter = state.uploadLog.filter((k) => k.startsWith("media-originals/")).length;
@@ -385,18 +411,26 @@ async function runPhotoSuite(page, baseUrl, state, fixturePath, label) {
   await page.waitForSelector('[data-testid="media-viewer-img"]');
   await page.click('[data-testid="media-viewer-close"]');
 
-  state.setFailOriginalUploads(3);
+  state.setFailAllOriginalUploads(true);
   state.uploadLog.length = 0;
-  await page.setInputFiles('[data-testid="gallery-input"]', [fixturePath]);
+  const mediaBeforeRetry = state.media.length;
+  await page.setInputFiles('[data-testid="gallery-input"]', [fixturePathB]);
   await page.waitForSelector('[data-testid="photo-upload-sheet"]');
   await page.waitForSelector('.photo-upload-item [data-action="retry"]', { timeout: 60_000 });
-  state.setFailOriginalUploads(0);
+  if (state.media.length !== mediaBeforeRetry + 1) {
+    throw new Error(`${label}: Retry legte extra media an (${mediaBeforeRetry} -> ${state.media.length})`);
+  }
+  const failedId = state.media[state.media.length - 1]?.id;
+  state.setFailAllOriginalUploads(false);
   await page.click('.photo-upload-item [data-action="retry"]');
   await page.waitForFunction(
     () => document.querySelector(".photo-upload-item__status")?.textContent?.includes("✓"),
     null,
     { timeout: 60_000 }
   );
+  if (state.media.filter((m) => m.id === failedId).length !== 1) {
+    throw new Error(`${label}: media_id nach Retry nicht wiederverwendet`);
+  }
   await page.click('[data-testid="photo-upload-sheet"] [data-action="close"]');
   await page.waitForFunction(() => document.getElementById("overlay-root")?.hidden);
 
@@ -457,7 +491,11 @@ async function main() {
   const fixtureDir = path.join(root, "tests/fixtures");
   await mkdir(fixtureDir, { recursive: true });
   const fixturePath = path.join(fixtureDir, "test-photo.png");
+  const fixturePathB = path.join(fixtureDir, "test-photo-b.png");
+  const fixturePathC = path.join(fixtureDir, "test-photo-c.png");
   await writeFile(fixturePath, TINY_PNG);
+  await writeFile(fixturePathB, Buffer.concat([TINY_PNG, Buffer.from([1])]));
+  await writeFile(fixturePathC, Buffer.concat([TINY_PNG, Buffer.from([2, 3])]));
 
   const { server, baseUrl } = await startServer();
 
@@ -478,7 +516,7 @@ async function main() {
       page.setDefaultTimeout(30_000);
       await page.setViewportSize({ width: vp.width, height: vp.height });
       await installSupabaseMocks(page, state, baseUrl);
-      await runPhotoSuite(page, baseUrl, state, fixturePath, `7a-${browser.name}-${vp.name}`);
+      await runPhotoSuite(page, baseUrl, state, [fixturePath, fixturePathB, fixturePathC], `7a-${browser.name}-${vp.name}`);
       await ctx.close();
     }
   }

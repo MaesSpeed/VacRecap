@@ -143,6 +143,16 @@ export async function previewNoteCaptureTarget({ vacationId, day, selectedPlaceI
   return { label: OHNE_ORT, kind: "fallback" };
 }
 
+/** Galerie: ausgewählter Ort vor GPS/Fallback. */
+export async function resolveGalleryPhotoTarget({ vacationId, day, selectedPlaceId }) {
+  const fb = await fallbackPlace({ vacationId, day, selectedPlaceId });
+  return {
+    ...fb,
+    needsRefresh: fb.createdOhneOrt,
+    toast: { title: "Foto gespeichert", line: `«${fb.place.name}»` },
+  };
+}
+
 /** Footer-Kamera/Video: immer GPS (wie Ort merken), sonst Fallback auf Auswahl/Ohne Ort. */
 export async function resolveFooterCaptureTarget({
   vacationId,

@@ -16,6 +16,7 @@ import {
   previewNoteCaptureTarget,
   resolveCaptureTarget,
   resolveFooterCaptureTarget,
+  resolveGalleryPhotoTarget,
   resolvePlaceCardCaptureTarget,
 } from "./target-place.js";
 import { consumePendingFooter } from "./pending-footer.js";
@@ -25,6 +26,7 @@ import { blockTripFooter, isTripFooterBlocked, SHEET_INPUT_BLOCK_MS } from "./ov
 import { dismissActiveToast, showToast, showTwoLineToast, showWarnToast } from "./toast.js";
 import { openNoteSheet } from "./ui-note-sheet.js";
 import {
+  filterViewableMedia,
   loadDayPlacesEnriched,
   renderPlaceListHtml,
   resolveThumbUrlMap,
@@ -32,6 +34,9 @@ import {
   visibleThumbMediaIds,
   wrapPlaceList,
 } from "./ui-place-list.js";
+import { canEditTripMedia, getMyTripRole } from "./trip-role.js";
+import { deleteMedia } from "./db.js";
+import { openConfirmDialog } from "./ui-confirm.js";
 import { openPhotoUploadSheet } from "./ui-photo-upload-sheet.js";
 import { openMediaViewer } from "./ui-media-viewer.js";
 
@@ -198,6 +203,8 @@ export async function renderUrlaubDetail(appEl, id) {
     const nextThumbUrls = await resolveThumbUrlMap(allMedia, visibleIds);
     const previousThumbUrls = state.thumbUrls;
 
+    const canEditMedia = canEditTripMedia(await getMyTripRole(id));
+
     let html;
     if (items.length === 0) {
       html = `
@@ -206,13 +213,13 @@ export async function renderUrlaubDetail(appEl, id) {
           <p class="trip-empty__hint">Ort merken, Foto machen oder Notiz schreiben.</p>
         </div>`;
     } else {
-      html = wrapPlaceList(
-        renderPlaceListHtml(items, {
+      const { listHtml, mediaErrorHtml } = renderPlaceListHtml(items, {
           selectedId,
           notesExpanded: state.notesExpanded,
           thumbUrls: nextThumbUrls,
-        })
-      );
+          canEditMedia,
+        });
+      html = wrapPlaceList(listHtml, mediaErrorHtml);
     }
     if (token !== state.listRefreshToken) {
       revokeThumbUrls(nextThumbUrls);
@@ -310,12 +317,22 @@ export async function renderUrlaubDetail(appEl, id) {
     showToast("Videos kommen in einem späteren Paket.", { icon: "none" });
   }
 
-  async function beginPhotoUpload(files) {
+  async function beginPhotoUpload(files, { preferSelectedPlace = false } = {}) {
     if (!files?.length || state.captureBusy) return;
     state.captureBusy = true;
     appEl.dataset.captureBusy = "1";
     try {
-      const r = await resolveTargetPlace("photo");
+      const selectedPlaceId = state.selectedByDay[state.activeDay];
+      const r = preferSelectedPlace
+        ? await resolveGalleryPhotoTarget({
+            vacationId: id,
+            day: state.activeDay,
+            selectedPlaceId,
+          })
+        : await resolveTargetPlace("photo");
+      state.selectedByDay[state.activeDay] = r.place.id;
+      persistSelection(id, state);
+      if (r.needsRefresh) await refreshDayList();
       openPhotoUploadSheet({
         files,
         place: r.place,
@@ -429,16 +446,45 @@ export async function renderUrlaubDetail(appEl, id) {
       return;
     }
 
+    const removeFailed = e.target.closest('[data-action="remove-failed-media"]');
+    if (removeFailed) {
+      e.preventDefault();
+      e.stopPropagation();
+      const mediaId = removeFailed.dataset.mediaId;
+      const placeHost = e.target.closest(".oc[data-place-id]");
+      if (!mediaId || !placeHost) return;
+      const ok = await openConfirmDialog({
+        title: "Fehlgeschlagenes Foto entfernen?",
+        message: "Der Eintrag wird gelöscht. Du kannst das Foto erneut hochladen.",
+        testId: "confirm-remove-failed-media",
+      });
+      if (!ok) return;
+      await deleteMedia(mediaId);
+      await refreshDayList();
+      return;
+    }
+
     const tile = e.target.closest(".tile[data-media-id]");
     if (tile) {
+      const status = tile.dataset.uploadStatus || "uploaded";
+      if (status !== "uploaded") {
+        return;
+      }
       const placeId = e.target.closest(".oc[data-place-id]")?.dataset.placeId;
       if (!placeId) return;
       const items = await loadDayPlacesEnriched(id, state.activeDay);
       const item = items.find((i) => i.place.id === placeId);
       if (!item) return;
-      openMediaViewer(item.media, tile.dataset.mediaId, {
+      const viewable = filterViewableMedia(item.media);
+      openMediaViewer(viewable, tile.dataset.mediaId, {
         onChanged: () => refreshDayList(),
       });
+      return;
+    }
+
+    const retryMedia = e.target.closest('[data-action="retry-media-load"]');
+    if (retryMedia) {
+      await refreshDayList();
       return;
     }
 
@@ -596,7 +642,7 @@ export async function renderUrlaubDetail(appEl, id) {
     const files = [...(galleryInput.files || [])].filter((f) => f.type.startsWith("image/"));
     galleryInput.value = "";
     if (!files.length) return;
-    void beginPhotoUpload(files);
+    void beginPhotoUpload(files, { preferSelectedPlace: true });
   });
 
   mountTripFooter(footerMount, {

@@ -58,6 +58,7 @@ function createMockSupabaseState() {
   const trips = [];
   const waypoints = [];
   const notes = [];
+  const media = [];
   let otp = "123456";
   return {
     userId,
@@ -65,6 +66,7 @@ function createMockSupabaseState() {
     trips,
     waypoints,
     notes,
+    media,
     setOtp(code) {
       otp = code;
     },
@@ -216,6 +218,31 @@ function createMockSupabaseState() {
             const n = notes.find((x) => x.id === id);
             return { status: 200, json: n ? [n] : [] };
           }
+        }
+      }
+      if (table === "media") {
+        if (method === "GET") {
+          const wp = qp("waypoint_id");
+          const rows = media.filter((m) => m.waypoint_id === wp && !m.deleted_at);
+          return { status: 200, json: rows };
+        }
+        if (method === "POST") {
+          const row = JSON.parse(body);
+          const full = upsertRow(media, row, { kind: row.kind || "photo", upload_status: row.upload_status || "pending" });
+          return { status: 201, json: [full] };
+        }
+        if (method === "PATCH") {
+          const id = qp("id");
+          const row = JSON.parse(body);
+          const m = media.find((x) => x.id === id);
+          if (!m) return { status: 406, json: { code: "PGRST116", message: "0 rows" } };
+          Object.assign(m, row, { updated_at: new Date().toISOString() });
+          return { status: 200, json: [m] };
+        }
+      }
+      if (table === "trip_members") {
+        if (method === "GET") {
+          return { status: 200, json: [{ role: "owner" }] };
         }
       }
       return { status: 404, json: { message: "not found" } };
@@ -594,7 +621,7 @@ async function main() {
   for (const vp of VIEWPORTS) {
     await page.setViewportSize({ width: vp.width, height: vp.height });
     const v = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-    if (Number(v) !== 45) throw new Error(`Version ${v} in ${vp.name}`);
+    if (Number(v) !== 46) throw new Error(`Version ${v} in ${vp.name}`);
   }
 
   for (const vp of [
@@ -717,7 +744,7 @@ async function main() {
 
   await ctx.close();
   server.close();
-  console.log("Playwright 6e tests OK (Build 45)");
+  console.log("Playwright 6e tests OK (Build 46)");
 }
 
 main().catch((err) => {

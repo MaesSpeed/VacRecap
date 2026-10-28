@@ -5,34 +5,66 @@ import { getSupabase } from "./supabase-client.js";
 import { createId } from "./utils.js";
 
 const RETRY_DELAYS_MS = [500, 1500, 3500];
+const UPLOAD_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
+const UPLOAD_TIMEOUT_MS = 15_000;
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function uploadBlobWithRetry(bucket, path, blob, contentType) {
+function uploadTimeoutError() {
+  return new CloudNetworkError("Upload-Zeitüberschreitung. Bitte erneut versuchen.");
+}
+
+async function uploadBlobOnce(bucket, path, blob, contentType) {
   const supabase = getSupabase();
+  let timer = null;
+  try {
+    const uploadPromise = supabase.storage.from(bucket).upload(path, blob, {
+      contentType,
+      upsert: true,
+    });
+    const result = await Promise.race([
+      uploadPromise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(uploadTimeoutError()), UPLOAD_TIMEOUT_MS);
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
+    const { error } = result;
+    if (error) throw error;
+  } catch (err) {
+    if (timer) clearTimeout(timer);
+    throw err;
+  }
+}
+
+async function uploadBlobWithRetry(bucket, path, blob, contentType) {
   let lastErr = null;
-  for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt++) {
+  for (let attempt = 0; attempt < UPLOAD_ATTEMPTS; attempt++) {
     if (!navigator.onLine) throw new CloudOfflineError();
     try {
-      const { error } = await supabase.storage.from(bucket).upload(path, blob, {
-        contentType,
-        upsert: true,
-      });
-      if (error) throw error;
+      await uploadBlobOnce(bucket, path, blob, contentType);
       return;
     } catch (err) {
       lastErr = err;
       if (!navigator.onLine || isFetchNetworkFailure(err)) {
-        throw new CloudOfflineError();
+        throw err instanceof CloudOfflineError ? err : new CloudOfflineError();
       }
-      if (attempt < RETRY_DELAYS_MS.length - 1) {
+      if (attempt < UPLOAD_ATTEMPTS - 1) {
         await sleep(RETRY_DELAYS_MS[attempt]);
       }
     }
   }
   throw lastErr || new CloudNetworkError();
+}
+
+export class CloudUploadFailedError extends Error {
+  constructor(message, mediaRecord) {
+    super(message);
+    this.name = "CloudUploadFailedError";
+    this.mediaRecord = mediaRecord;
+  }
 }
 
 export async function uploadCloudPhoto({
@@ -45,9 +77,10 @@ export async function uploadCloudPhoto({
   width,
   height,
   sourceKey = null,
+  existingMediaId = null,
   onStatus,
 }) {
-  const mediaId = createId();
+  const mediaId = existingMediaId || createId();
   const path = mediaStoragePath(vacationId, mediaId);
   const record = {
     id: mediaId,
@@ -67,7 +100,17 @@ export async function uploadCloudPhoto({
   };
 
   onStatus?.({ phase: "db", mediaId, status: "pending" });
-  await insertMediaRow(record);
+  if (existingMediaId) {
+    await updateMediaRow(mediaId, {
+      upload_status: "pending",
+      width,
+      height,
+      size_bytes: originalBlob.size,
+      taken_at: new Date(ts).toISOString(),
+    });
+  } else {
+    await insertMediaRow(record);
+  }
 
   try {
     onStatus?.({ phase: "thumb", mediaId, status: "uploading" });
@@ -82,7 +125,7 @@ export async function uploadCloudPhoto({
     record.uploadStatus = "failed";
     await updateMediaRow(mediaId, { upload_status: "failed" }).catch(() => {});
     onStatus?.({ phase: "failed", mediaId, status: "failed", error: err });
-    throw err;
+    throw new CloudUploadFailedError(err?.message || "Upload fehlgeschlagen", record);
   }
 }
 
@@ -100,6 +143,9 @@ export async function retryCloudPhotoUpload(media, { originalBlob, thumbBlob, on
   } catch (err) {
     await updateMediaRow(media.id, { upload_status: "failed" }).catch(() => {});
     onStatus?.({ phase: "failed", mediaId: media.id, status: "failed", error: err });
-    throw err;
+    throw new CloudUploadFailedError(err?.message || "Upload fehlgeschlagen", {
+      ...media,
+      uploadStatus: "failed",
+    });
   }
 }

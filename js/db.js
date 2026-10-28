@@ -1,4 +1,6 @@
 import { CloudNetworkError, CloudOfflineError, isFetchNetworkFailure, mapApiError } from "./cloud-errors.js";
+import { deleteMediaStorageObjects } from "./cloud-media-storage.js";
+import { getUserId } from "./auth-service.js";
 import {
   mediaRowToApp,
   mediaToRow,
@@ -403,12 +405,76 @@ export async function getMedia(id) {
 
 export async function deleteMedia(id) {
   assertWritable();
+  const existing = await getMedia(id);
+  if (existing?.storagePath) {
+    await deleteMediaStorageObjects(existing.storagePath, existing.thumbPath);
+  }
   const { error } = await getSupabase()
     .from("media")
     .update({ deleted_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw mapApiError(error);
   window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+}
+
+const STALE_PENDING_MS = 10 * 60 * 1000;
+
+async function reconcileStalePendingRows(rows) {
+  if (!rows?.length || !navigator.onLine) return rows;
+  let userId = null;
+  try {
+    userId = await getUserId();
+  } catch {
+    return rows;
+  }
+  if (!userId) return rows;
+  const now = Date.now();
+  const out = [];
+  for (const row of rows) {
+    if (row.upload_status !== "pending" || row.created_by !== userId) {
+      out.push(row);
+      continue;
+    }
+    const age = now - (Date.parse(row.updated_at) || Date.parse(row.created_at) || now);
+    if (age > STALE_PENDING_MS) {
+      try {
+        await updateMediaRow(row.id, { upload_status: "failed" });
+        out.push({ ...row, upload_status: "failed" });
+      } catch {
+        out.push({ ...row, upload_status: "failed" });
+      }
+    } else {
+      out.push(row);
+    }
+  }
+  return out;
+}
+
+export async function fetchMediaForPlace(placeId) {
+  if (!placeId) return { media: [], error: null };
+  if (!navigator.onLine) {
+    return { media: [], error: null };
+  }
+  try {
+    const { data, error } = await getSupabase()
+      .from("media")
+      .select("*")
+      .eq("waypoint_id", placeId)
+      .eq("kind", "photo")
+      .is("deleted_at", null)
+      .order("taken_at", { ascending: true });
+    if (error) throw mapApiError(error);
+    const reconciled = await reconcileStalePendingRows(data || []);
+    return { media: reconciled.map(mediaRowToApp), error: null };
+  } catch (err) {
+    if (err instanceof CloudOfflineError || err instanceof CloudNetworkError) {
+      return { media: [], error: err };
+    }
+    if (isFetchNetworkFailure(err)) {
+      return { media: [], error: new CloudNetworkError() };
+    }
+    return { media: [], error: err };
+  }
 }
 
 export async function getMediaBySourceKey(vacationId, sourceKey) {
@@ -436,25 +502,8 @@ export async function getAllMediaForVacation(vacationId) {
 }
 
 export async function getMediaForPlace(placeId) {
-  if (!placeId) return [];
-  if (!navigator.onLine) {
-    return [];
-  }
-  try {
-    const { data, error } = await getSupabase()
-      .from("media")
-      .select("*")
-      .eq("waypoint_id", placeId)
-      .eq("kind", "photo")
-      .is("deleted_at", null)
-      .order("taken_at", { ascending: true });
-    if (error) throw mapApiError(error);
-    return (data || []).map(mediaRowToApp);
-  } catch (err) {
-    if (err instanceof CloudOfflineError || err instanceof CloudNetworkError) return [];
-    if (isFetchNetworkFailure(err)) return [];
-    throw err;
-  }
+  const { media } = await fetchMediaForPlace(placeId);
+  return media;
 }
 export async function saveMediaThumb() {}
 export async function deleteMediaThumb() {}

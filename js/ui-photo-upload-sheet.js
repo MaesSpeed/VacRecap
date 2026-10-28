@@ -1,30 +1,43 @@
 import { CloudOfflineError } from "./cloud-errors.js";
-import { retryCloudPhotoUpload, uploadCloudPhoto } from "./cloud-photo-upload.js";
+import {
+  CloudUploadFailedError,
+  retryCloudPhotoUpload,
+  uploadCloudPhoto,
+} from "./cloud-photo-upload.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { processPhotoForCloud } from "./media-process.js";
-import { showWarnToast } from "./toast.js";
+import { canEditTripMedia, getMyTripRole } from "./trip-role.js";
+import { showToast, showWarnToast } from "./toast.js";
 
 /**
- * @typedef {{ file: File, name: string, status: string, error?: string, processed?: { blob: Blob, thumbBlob: Blob, w: number, h: number }, media?: object }} UploadItem
+ * @typedef {{ file: File, name: string, status: string, error?: string, processed?: { blob: Blob, thumbBlob: Blob, w: number, h: number, takenAt?: number }, media?: object }} UploadItem
  */
 
 export function openPhotoUploadSheet({ files, place, vacationId, day, onDone }) {
   const overlay = document.getElementById("overlay-root");
   if (!overlay || !files?.length) return;
 
+  const imageFiles = files.filter((f) => f.type.startsWith("image/"));
+  const videoCount = files.length - imageFiles.length;
+  if (videoCount > 0) {
+    showToast("Videos kommen in einem späteren Paket.", { icon: "none" });
+  }
+  if (!imageFiles.length) return;
+
   /** @type {UploadItem[]} */
-  const items = files.map((file) => ({
+  const items = imageFiles.map((file) => ({
     file,
     name: file.name || "Foto",
     status: "queued",
   }));
 
   overlay.hidden = false;
+  let onlineHandler = null;
 
   const render = () => {
     overlay.innerHTML = `
       <div class="sheet sheet--photo-upload" data-testid="photo-upload-sheet">
-        <div class="sheet__header">
+        <div class="sheet__header sheet__header--photo-upload">
           <h2 class="sheet__title">Fotos hochladen</h2>
           <button type="button" class="sheet__close" data-action="close" aria-label="Schließen">×</button>
         </div>
@@ -37,7 +50,7 @@ export function openPhotoUploadSheet({ files, place, vacationId, day, onDone }) 
                 <span class="photo-upload-item__name">${escapeHtml(it.name)}</span>
                 <span class="photo-upload-item__status" data-role="status">${statusLabel(it)}</span>
                 ${
-                  it.status === "failed"
+                  it.status === "failed" || it.status === "offline"
                     ? `<button type="button" class="notes-more" data-action="retry" data-idx="${i}">Erneut versuchen</button>`
                     : ""
                 }
@@ -58,6 +71,9 @@ export function openPhotoUploadSheet({ files, place, vacationId, day, onDone }) 
   }
 
   function statusLabel(it) {
+    if (it.error && it.status === "failed") {
+      return `⚠ ${escapeHtml(it.error.slice(0, 80))}`;
+    }
     switch (it.status) {
       case "queued":
         return "Wartet…";
@@ -77,17 +93,33 @@ export function openPhotoUploadSheet({ files, place, vacationId, day, onDone }) 
   }
 
   const closeDom = () => {
+    if (onlineHandler) {
+      window.removeEventListener("online", onlineHandler);
+      onlineHandler = null;
+    }
     overlay.hidden = true;
     overlay.innerHTML = "";
   };
   const activeClose = bindOverlay(overlay, closeDom);
 
-  async function runItem(index, retry = false) {
+  async function runItem(index, forceRetry = false) {
+    void forceRetry;
     const item = items[index];
     if (!item || item.status === "uploaded") return;
+
+    const role = await getMyTripRole(vacationId);
+    if (!canEditTripMedia(role)) {
+      item.status = "failed";
+      item.error = "Du hast nur Lesezugriff auf diese Reise.";
+      render();
+      bindActions();
+      showWarnToast(item.error);
+      return;
+    }
+
     if (!navigator.onLine) {
       item.status = "offline";
-      item.error = "offline";
+      item.error = "Offline";
       render();
       bindActions();
       showWarnToast("Du bist offline. Upload erst wieder online möglich.");
@@ -95,6 +127,7 @@ export function openPhotoUploadSheet({ files, place, vacationId, day, onDone }) 
     }
     try {
       item.status = "processing";
+      item.error = undefined;
       render();
       bindActions();
       const processed = await processPhotoForCloud(item.file);
@@ -102,7 +135,8 @@ export function openPhotoUploadSheet({ files, place, vacationId, day, onDone }) 
       item.status = "uploading";
       render();
       bindActions();
-      if (retry && item.media) {
+
+      if (item.media?.id) {
         item.media = await retryCloudPhotoUpload(item.media, {
           originalBlob: processed.blob,
           thumbBlob: processed.thumbBlob,
@@ -112,10 +146,11 @@ export function openPhotoUploadSheet({ files, place, vacationId, day, onDone }) 
           place,
           vacationId,
           day,
+          ts: processed.takenAt ?? Date.now(),
           originalBlob: processed.blob,
           thumbBlob: processed.thumbBlob,
           width: processed.w,
-          height: processed.height,
+          height: processed.h,
           onStatus: () => {
             item.status = "uploading";
             render();
@@ -125,10 +160,21 @@ export function openPhotoUploadSheet({ files, place, vacationId, day, onDone }) 
       }
       item.status = "uploaded";
     } catch (err) {
-      item.status = err instanceof CloudOfflineError ? "offline" : "failed";
-      item.error = err?.message || "failed";
-      if (item.status === "offline") {
+      if (err instanceof CloudUploadFailedError && err.mediaRecord) {
+        item.media = err.mediaRecord;
+      }
+      if (err instanceof CloudOfflineError) {
+        item.status = "offline";
+        item.error = err.message || "Offline";
         showWarnToast(err.message || "Offline – Upload nicht möglich.");
+      } else {
+        item.status = "failed";
+        item.error =
+          err?.message ||
+          (err instanceof CloudUploadFailedError ? "Upload fehlgeschlagen" : "Verarbeitung fehlgeschlagen");
+        if (item.status === "failed" && item.error) {
+          showWarnToast(item.error.length > 120 ? `${item.error.slice(0, 117)}…` : item.error);
+        }
       }
     } finally {
       if (item.processed?.blob) item.processed.blob = null;
@@ -156,6 +202,13 @@ export function openPhotoUploadSheet({ files, place, vacationId, day, onDone }) 
       });
     });
   }
+
+  onlineHandler = () => {
+    items.forEach((it, idx) => {
+      if (it.status === "offline") void runItem(idx, true);
+    });
+  };
+  window.addEventListener("online", onlineHandler);
 
   render();
   bindActions();

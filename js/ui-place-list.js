@@ -1,4 +1,4 @@
-import { getMediaForPlace, getNotesForPlace } from "./db.js";
+import { fetchMediaForPlace, getNotesForPlace } from "./db.js";
 import { formatMediaDuration } from "./media-process.js";
 import { buildPlaceMetaLine } from "./place-stats.js";
 import { filterSoftPointsHidden, softPointLabel } from "./place-service.js";
@@ -21,31 +21,43 @@ function sortNotesNewestFirst(notes) {
   });
 }
 
+function isUploadedPhoto(m) {
+  return m.type !== "video" && (m.uploadStatus || "uploaded") === "uploaded";
+}
+
+function newestUploadedPhoto(media) {
+  const uploaded = media.filter(isUploadedPhoto);
+  if (!uploaded.length) return null;
+  return uploaded.slice().sort((a, b) => a.ts - b.ts)[uploaded.length - 1];
+}
+
 export async function loadDayPlacesEnriched(vacationId, day) {
   const { getPlacesForDay } = await import("./db.js");
   const places = sortPlacesChronologicalDesc(await getPlacesForDay(vacationId, day));
   const enriched = await Promise.all(
     places.map(async (p) => {
-      if (p.soft) return { place: p, photos: 0, videos: 0, notes: [], media: [] };
-      const [media, notes] = await Promise.all([getMediaForPlace(p.id), getNotesForPlace(p.id)]);
-      const sortedMedia = media.slice().sort((a, b) => a.ts - b.ts);
-      const photos = media.filter((m) => m.type !== "video").length;
-      const videos = media.filter((m) => m.type === "video").length;
+      if (p.soft) return { place: p, photos: 0, videos: 0, notes: [], media: [], mediaLoadError: false };
+      const [mediaResult, notes] = await Promise.all([
+        fetchMediaForPlace(p.id),
+        getNotesForPlace(p.id),
+      ]);
+      const sortedMedia = mediaResult.media.slice().sort((a, b) => a.ts - b.ts);
+      const photos = mediaResult.media.filter(isUploadedPhoto).length;
+      const videos = mediaResult.media.filter((m) => m.type === "video").length;
       return {
         place: p,
         photos,
         videos,
         notes: sortNotesNewestFirst(notes),
         media: sortedMedia,
+        mediaLoadError: Boolean(mediaResult.error),
       };
     })
   );
   return filterSoftPointsHidden(enriched, vacationId, day);
 }
 
-export async function ensurePhotoThumbs() {
-  /* Cloud-Thumbs kommen aus Storage */
-}
+export async function ensurePhotoThumbs() {}
 
 export async function forceRebuildPhotoThumb() {
   return false;
@@ -66,42 +78,47 @@ function uploadStateBadge(media) {
   return "";
 }
 
-export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrls = {} }) {
-  if (!items.length) return "";
+export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrls = {}, canEditMedia = true }) {
+  if (!items.length) return { listHtml: "", mediaErrorHtml: "" };
 
-  return items
-    .map(({ place, photos, videos, notes, media }) => {
-      if (place.soft) {
-        const time = softPointLabel(place).split(" · ")[0];
-        const street = place.name || "Unbekannt";
-        return `
+  const anyMediaError = items.some((i) => i.mediaLoadError);
+  const mediaErrorHtml = anyMediaError
+    ? `<div class="place-media-error" data-testid="place-media-error">
+        <span>Fotos konnten nicht geladen werden.</span>
+        <button type="button" class="notes-more" data-action="retry-media-load">Erneut laden</button>
+      </div>`
+    : "";
+
+  const listHtml = items
+      .map(({ place, photos, videos, notes, media }) => {
+        if (place.soft) {
+          const time = softPointLabel(place).split(" · ")[0];
+          const street = place.name || "Unbekannt";
+          return `
         <li class="soft" data-place-id="${place.id}" data-soft="1">
           <span class="soft__dot" aria-hidden="true"></span>
           <span class="soft__text"><strong>${escapeHtml(time)}</strong> · Weicher Punkt · ${escapeHtml(street)} · beim Öffnen</span>
         </li>`;
-      }
+        }
 
-      const selected = place.id === selectedId;
-      const dim = selectedId && !selected;
-      const meta = buildPlaceMetaLine(place, {
-        photos,
-        videos,
-        notes: notes.length,
-      });
-      const hasMedia = media.length > 0;
-      const expanded = notesExpanded.has(place.id);
-      const sortedNotes = sortNotesNewestFirst(notes);
-      const previewNotes = expanded ? sortedNotes : sortedNotes.slice(0, 2);
-      const hiddenCount = Math.max(0, sortedNotes.length - 2);
-      const newestMedia = hasMedia ? media[media.length - 1] : null;
-      const dimThumb =
-        dim && newestMedia && (newestMedia.uploadStatus || "uploaded") === "uploaded"
-          ? thumbUrls[newestMedia.id]
-          : null;
+        const selected = place.id === selectedId;
+        const dim = selectedId && !selected;
+        const meta = buildPlaceMetaLine(place, {
+          photos,
+          videos,
+          notes: notes.length,
+        });
+        const hasMedia = media.length > 0;
+        const expanded = notesExpanded.has(place.id);
+        const sortedNotes = sortNotesNewestFirst(notes);
+        const previewNotes = expanded ? sortedNotes : sortedNotes.slice(0, 2);
+        const hiddenCount = Math.max(0, sortedNotes.length - 2);
+        const dimMedia = dim ? newestUploadedPhoto(media) : null;
+        const dimThumb = dimMedia ? thumbUrls[dimMedia.id] : null;
 
-      const notesBlock =
-        sortedNotes.length || selected
-          ? `<div class="np">
+        const notesBlock =
+          sortedNotes.length || selected
+            ? `<div class="np">
               ${previewNotes
                 .map(
                   (n) => `
@@ -123,14 +140,14 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
               }
               ${selected ? renderAddNoteLink() : ""}
             </div>`
-          : "";
+            : "";
 
-      return `
+        return `
       <li>
         <article class="oc${selected ? " oc--selected" : ""}${dim ? " oc--dim" : ""}" data-place-id="${place.id}">
           <div class="pinb${selected ? " pinb--selected" : ""}">
             ${PIN_SVG}
-            ${hasMedia ? `<span class="cb" aria-hidden="true">${PIN_CAM_BADGE}</span>` : ""}
+            ${photos > 0 ? `<span class="cb" aria-hidden="true">${PIN_CAM_BADGE}</span>` : ""}
           </div>
           <div class="oc__body">
             <div class="oc__head">
@@ -142,28 +159,36 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
                 selected
                   ? `<div class="qa">
                 <button type="button" class="qa__btn" data-action="edit-place" aria-label="Bearbeiten">${ICON_EDIT}</button>
-                <button type="button" class="qa__btn" data-action="camera-place" aria-label="Kamera">${ICON_CAM}</button>
+                ${
+                  canEditMedia
+                    ? `<button type="button" class="qa__btn" data-action="camera-place" aria-label="Kamera">${ICON_CAM}</button>`
+                    : ""
+                }
               </div>`
                   : ""
               }
             </div>
-            ${selected && hasMedia ? `<div class="tiles">${renderTiles(media, thumbUrls)}</div>` : ""}
+            ${selected && hasMedia ? `<div class="tiles">${renderTiles(media, thumbUrls, canEditMedia)}</div>` : ""}
             ${notesBlock}
           </div>
           ${
-            dim && hasMedia
+            dim && dimMedia
               ? dimThumb
-                ? `<div class="th"><img class="th__img" src="${dimThumb}" alt="" decoding="async" data-media-id="${newestMedia.id}" /></div>`
-                : `<div class="th th--ph" aria-hidden="true" data-media-id="${newestMedia.id}">${uploadStateBadge(newestMedia)}</div>`
-              : ""
+                ? `<div class="th"><img class="th__img" src="${dimThumb}" alt="" decoding="async" data-media-id="${dimMedia.id}" /></div>`
+                : `<div class="th th--ph" aria-hidden="true" data-media-id="${dimMedia.id}"></div>`
+              : dim && hasMedia && !dimMedia
+                ? ""
+                : ""
           }
         </article>
       </li>`;
-    })
-    .join("");
+      })
+      .join("");
+
+  return { listHtml, mediaErrorHtml };
 }
 
-function renderTiles(media, thumbUrls) {
+function renderTiles(media, thumbUrls, canEditMedia) {
   const sorted = media.slice().sort((a, b) => b.ts - a.ts);
   const visible = sorted.slice(0, 4).sort((a, b) => a.ts - b.ts);
   const extra = media.length - visible.length;
@@ -175,8 +200,10 @@ function renderTiles(media, thumbUrls) {
       const thumb = thumbUrls[m.id];
       const isVideo = m.type === "video";
       const status = m.uploadStatus || "uploaded";
+      const uploaded = status === "uploaded";
+      const failed = status === "failed";
       const img =
-        thumb && status === "uploaded"
+        thumb && uploaded
           ? `<img class="tile__img" src="${thumb}" alt="" decoding="async" data-media-id="${m.id}" />`
           : "";
       const dur =
@@ -185,7 +212,12 @@ function renderTiles(media, thumbUrls) {
           : "";
       const play = isVideo ? `<span class="tile__play-wrap">${PLAY_SVG}</span>` : "";
       const badge = uploadStateBadge(m);
-      return `<button type="button" class="tile tile--btn" data-media-id="${m.id}" aria-label="Medium anzeigen">${img}${badge}${play}${dur}${overlayExtra}</button>`;
+      const removeBtn =
+        failed && canEditMedia
+          ? `<span class="tile__remove" data-action="remove-failed-media" data-media-id="${m.id}" aria-label="Entfernen">×</span>`
+          : "";
+      const openable = uploaded && !failed;
+      return `<button type="button" class="tile tile--btn${failed ? " tile--failed" : ""}${openable ? "" : " tile--no-open"}" data-media-id="${m.id}" data-upload-status="${status}" aria-label="${failed ? "Fehlgeschlagenes Foto entfernen" : "Medium anzeigen"}">${img}${badge}${removeBtn}${play}${dur}${overlayExtra}</button>`;
     })
     .join("");
 }
@@ -206,7 +238,6 @@ export async function resolveThumbUrlMap(mediaList, onlyIds = null) {
   return map;
 }
 
-/** @deprecated Nutze resolveThumbUrlMap für Cloud-Signatur-URLs */
 export function buildThumbUrlMap(mediaList, onlyIds = null) {
   void mediaList;
   void onlyIds;
@@ -219,11 +250,13 @@ export function visibleThumbMediaIds(items, selectedId) {
     if (!media?.length) continue;
     const sorted = media.slice().sort((a, b) => b.ts - a.ts);
     const visible = sorted.slice(0, 4);
-    const dim = place.id !== selectedId ? sorted[sorted.length - 1] : null;
+    const dimMedia = place.id !== selectedId ? newestUploadedPhoto(media) : null;
     if (place.id === selectedId) {
-      visible.forEach((m) => ids.add(m.id));
+      visible.forEach((m) => {
+        if ((m.uploadStatus || "uploaded") === "uploaded") ids.add(m.id);
+      });
     }
-    if (dim) ids.add(dim.id);
+    if (dimMedia) ids.add(dimMedia.id);
   }
   return ids;
 }
@@ -234,10 +267,15 @@ export function revokeThumbUrls(map) {
   });
 }
 
-export function wrapPlaceList(innerHtml) {
+export function wrapPlaceList(innerHtml, mediaErrorHtml = "") {
   return `
+    ${mediaErrorHtml}
     <div class="place-list-wrap">
       <ul class="place-list" data-testid="place-list">${innerHtml}</ul>
       <div class="place-list-fade" aria-hidden="true"></div>
     </div>`;
+}
+
+export function filterViewableMedia(media) {
+  return media.filter((m) => (m.uploadStatus || "uploaded") === "uploaded");
 }

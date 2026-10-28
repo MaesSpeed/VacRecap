@@ -1,3 +1,5 @@
+import { readPhotoTakenAt } from "./exif-taken-at.js";
+
 const PHOTO_MAX_EDGE = 2048;
 const PHOTO_QUALITY = 0.82;
 const THUMB_EDGE = 400;
@@ -12,11 +14,23 @@ export function formatMediaDuration(seconds) {
 }
 
 async function loadImageBitmap(file) {
+  const mime = (file.type || "").toLowerCase();
+  const name = (file.name || "").toLowerCase();
+  if (mime.includes("heic") || mime.includes("heif") || name.endsWith(".heic") || name.endsWith(".heif")) {
+    throw new Error("HEIC-Fotos werden hier noch nicht unterstützt. Bitte in den Fotos als JPEG speichern.");
+  }
   if (typeof createImageBitmap === "function") {
     try {
       return await createImageBitmap(file, { imageOrientation: "from-image" });
-    } catch {
-      return await createImageBitmap(file);
+    } catch (err) {
+      if (mime.includes("heic") || name.endsWith(".heic")) {
+        throw new Error("HEIC-Fotos werden hier noch nicht unterstützt. Bitte in den Fotos als JPEG speichern.");
+      }
+      try {
+        return await createImageBitmap(file);
+      } catch {
+        throw new Error("Bild konnte nicht gelesen werden. Anderes Format oder kleinere Datei versuchen.");
+      }
     }
   }
   const url = URL.createObjectURL(file);
@@ -57,6 +71,7 @@ function canvasToJpegBlob(canvas, quality) {
 }
 
 export async function processPhotoForCloud(file) {
+  const takenAt = (await readPhotoTakenAt(file)) ?? (file.lastModified || Date.now());
   const bitmap = await loadImageBitmap(file);
   const full = drawToCanvas(bitmap, PHOTO_MAX_EDGE);
   const thumb = drawToCanvas(bitmap, THUMB_EDGE);
@@ -68,6 +83,7 @@ export async function processPhotoForCloud(file) {
     thumbBlob,
     w: full.w,
     h: full.h,
+    takenAt,
     type: "photo",
   };
 }
