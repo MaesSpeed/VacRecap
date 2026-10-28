@@ -41,6 +41,8 @@ export async function signOut() {
   await clearTripSelectionStore();
   const { clearSignedUrlCache } = await import("./media-signed-url-cache.js");
   clearSignedUrlCache();
+  const { clearTripRoleCache } = await import("./trip-role.js");
+  clearTripRoleCache();
   await getSupabase().auth.signOut();
 }
 
