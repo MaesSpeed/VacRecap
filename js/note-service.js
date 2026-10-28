@@ -4,7 +4,7 @@ import { createId } from "./utils.js";
 export async function createNote({ place, vacationId, day, text }) {
   const record = {
     id: createId(),
-    placeId: place.id,
+    placeId: place?.id || null,
     vacationId,
     day,
     ts: Date.now(),
@@ -20,10 +20,10 @@ export async function updateNoteText(note, text) {
   return record;
 }
 
-export async function moveNoteToPlace(note, place, { day, vacationId }) {
+export async function moveNoteToPlace(note, place, { day, vacationId } = {}) {
   const record = {
     ...note,
-    placeId: place.id,
+    placeId: place?.id || null,
     day: day ?? note.day,
     vacationId: vacationId ?? note.vacationId,
     ts: note.ts ?? Date.now(),

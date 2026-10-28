@@ -64,7 +64,47 @@ export async function forceRebuildPhotoThumb() {
 }
 
 function renderAddNoteLink() {
-  return `<button type="button" class="notes-more" data-action="add-note">+ Notiz</button>`;
+  return `<button type="button" class="notes-add" data-action="add-note">+ Notiz</button>`;
+}
+
+export function renderFreeNotesHtml(notes, { expanded = false } = {}) {
+  if (!notes?.length) return "";
+  const sorted = sortNotesNewestFirst(notes);
+  const preview = expanded ? sorted : sorted.slice(0, 2);
+  const hiddenCount = Math.max(0, sorted.length - 2);
+  return `
+    <section class="free-notes" data-testid="free-notes">
+      <h3 class="free-notes__title">Kein Ort / freie Notiz</h3>
+      <div class="np">
+        ${preview
+          .map(
+            (n) => `
+          <div class="nr" data-note-id="${n.id}" data-free-note="1">
+            <span class="nr__icon">${ICON_NOTE}</span>
+            <button type="button" class="nr__text nr__text--btn" data-action="edit-free-note">${escapeHtml(n.text || "")}</button>
+          </div>`
+          )
+          .join("")}
+        ${
+          !expanded && hiddenCount > 0
+            ? `<button type="button" class="notes-more" data-action="expand-free-notes">+${hiddenCount} weitere ${hiddenCount === 1 ? "Notiz" : "Notizen"} ⌄</button>`
+            : ""
+        }
+        ${
+          expanded && sorted.length > 2
+            ? `<button type="button" class="notes-more" data-action="collapse-free-notes">Weniger ⌃</button>`
+            : ""
+        }
+        <button type="button" class="notes-add" data-action="add-free-note">+ Notiz</button>
+      </div>
+    </section>`;
+}
+
+export function withFreeNotesHtml(placeHtml, freeNotes, { expanded = false, replaceEmpty = false } = {}) {
+  const freeHtml = renderFreeNotesHtml(freeNotes, { expanded });
+  if (!freeHtml) return placeHtml;
+  if (replaceEmpty) return freeHtml;
+  return `${freeHtml}${placeHtml}`;
 }
 
 function uploadStateBadge(media) {

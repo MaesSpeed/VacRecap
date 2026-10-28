@@ -3372,3 +3372,208 @@ body {
   font-size: 0.9rem;
   border-bottom: 1px solid #f0d9b5;
 }
+
+/* Paket 8a — Zurück-Icon auf der Karte wie „Reisen“ in der Tagesübersicht */
+.screen--map .map-header {
+  min-height: 0;
+  padding: 2px 14px 8px;
+}
+
+.screen--map .map-header__back {
+  padding: 8px 4px;
+  gap: 2px;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 20px;
+}
+
+.screen--map .map-header__back svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+.screen--login .login-main,
+.screen--login .login-form,
+.screen--login .field,
+.screen--login .login-hint {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.screen--login .field input[type="email"] {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.screen--login .login-hint,
+.screen--login .login-hint strong {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.screen--login .btn-emaille.btn-emaille--ghost {
+  background: #fff;
+  background-image: none;
+  color: #0066b3;
+  border: 2px solid #0066b3;
+  box-shadow: none;
+}
+
+.notes-add {
+  align-self: flex-start;
+  margin: 6px 0 0 27px;
+  border: 1.5px solid #0066b3;
+  background: #fff;
+  color: #0066b3;
+  font-size: 12.5px;
+  font-weight: 800;
+  line-height: 1.2;
+  border-radius: 999px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+.free-notes {
+  margin: 4px 14px 12px;
+  background: #fff;
+  border: 1px dashed #c5d0dc;
+  border-radius: 18px;
+  padding: 11px 12px;
+}
+
+.free-notes__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+  color: #14202b;
+}
+
+.free-notes .np {
+  border-top: none;
+  margin-top: 6px;
+  padding-top: 0;
+}
+
+body:has(.screen--trip-swipe) {
+  overflow: hidden;
+  height: 100vh;
+  height: 100dvh;
+}
+
+.app:has(.screen--trip-swipe) {
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100vh;
+  max-height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.screen--trip.screen--trip-swipe {
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.trip-content.trip-content--swipe {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  touch-action: pan-y;
+}
+
+.day-swipe {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.day-swipe__track {
+  display: flex;
+  height: 100%;
+  width: 300%;
+  transform: translate3d(-33.333333%, 0, 0);
+  will-change: transform;
+}
+
+.day-swipe__page {
+  flex: 0 0 33.333333%;
+  width: 33.333333%;
+  height: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  overscroll-behavior-y: contain;
+  box-sizing: border-box;
+  padding-bottom: 16px;
+}
+
+.day-swipe__page[data-page="prev"],
+.day-swipe__page[data-page="next"] {
+  pointer-events: none;
+}
+
+.note-sheet__pick-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(16, 32, 48, 0.35);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.note-sheet__pick-layer .sheet.sheet--note-places {
+  width: 100%;
+  max-width: 480px;
+  max-height: min(70dvh, 520px);
+  margin: 0;
+  border-radius: 18px 18px 0 0;
+  padding: 8px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transform: translate3d(0, 0, 0);
+}
+
+.sheet--note-places .sheet-handle,
+.sheet--note-places .sheet__header {
+  touch-action: none;
+  flex: 0 0 auto;
+}
+
+.note-place-pick {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  overflow-y: auto;
+  max-height: 42vh;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+
+.note-place-pick button {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 12px 4px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #14202b;
+  border-bottom: 1px solid #e6eef5;
+  cursor: pointer;
+}
+
+.note-place-pick button[data-action="pick-free"] {
+  color: #0066b3;
+}

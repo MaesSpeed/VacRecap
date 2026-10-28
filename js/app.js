@@ -6,6 +6,7 @@ import { isOfflineReadOnly, setCacheUserId, setOfflineReadOnly } from "./local-c
 import { getRoute, navigate, onRouteChange, startRouter } from "./router.js";
 import { renderLoginScreen } from "./ui-login.js";
 import { renderUrlaubDetail } from "./ui-urlaub-detail.js";
+import { renderMapScreen } from "./ui-map.js";
 import { renderUrlaubSettings } from "./ui-urlaub-settings.js";
 import { renderUrlaubForm } from "./ui-urlaub-form.js";
 import { renderUrlaubeScreen } from "./ui-urlaube.js";
@@ -88,9 +89,11 @@ async function renderNow() {
     case "urlaub-settings":
       await renderUrlaubSettings(appEl, route.id);
       break;
-    case "urlaub-mediathek":
     case "urlaub-map":
-      showWarnToast("Karte und Mediathek kommen mit den Cloud-Fotos im nächsten Schritt.");
+      await renderMapScreen(appEl, route.id);
+      break;
+    case "urlaub-mediathek":
+      showWarnToast("Mediathek kommt mit den Cloud-Fotos im nächsten Schritt.");
       navigate({ name: "urlaub-detail", id: route.id }, { replace: true });
       break;
     case "urlaube":

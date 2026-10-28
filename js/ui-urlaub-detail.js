@@ -6,7 +6,7 @@ import {
   defaultActiveDay,
   vacationDays,
 } from "./days.js";
-import { getVacation } from "./db.js";
+import { getFreeNotesForDay, getVacation } from "./db.js";
 import { ICON_BACK_CHEVRON, ICON_GEAR, ICON_MAP } from "./icons.js";
 import { rememberPlaceFromGps, trySoftPointOnOpen } from "./place-service.js";
 import { newestHardPlace } from "./places.js";
@@ -25,6 +25,7 @@ import { prefetchCaptureGps, resetCaptureGpsPrefetch } from "./capture-gps-prefe
 import { blockTripFooter, isTripFooterBlocked, SHEET_INPUT_BLOCK_MS } from "./overlay-stack.js";
 import { dismissActiveToast, showToast, showTwoLineToast, showWarnToast } from "./toast.js";
 import { openNoteSheet } from "./ui-note-sheet.js";
+import { installDaySwipe, setDaySwipeNeighbor, setDaySwipePage } from "./day-swipe.js";
 import {
   filterViewableMedia,
   loadDayPlacesEnriched,
@@ -32,6 +33,7 @@ import {
   resolveThumbUrlMap,
   revokeThumbUrls,
   visibleThumbMediaIds,
+  withFreeNotesHtml,
   wrapPlaceList,
 } from "./ui-place-list.js";
 import { canEditTripMedia, getMyTripRole } from "./trip-role.js";
@@ -81,6 +83,7 @@ async function getState(id, vacation) {
       activeDay: saved?.activeDay ?? defaultActiveDay(vacation),
       selectedByDay: saved?.selectedByDay ?? {},
       notesExpanded: new Set(),
+      freeNotesExpanded: false,
       openGeoDone: new Set(),
       captureBusy: false,
       listRefreshToken: 0,
@@ -110,7 +113,7 @@ export async function renderUrlaubDetail(appEl, id) {
   const days = vacationDays(vacation);
   const state = await getState(id, vacation);
 
-  appEl.className = "screen screen--trip";
+  appEl.className = "screen screen--trip screen--trip-swipe";
   appEl.dataset.vacationId = id;
 
   appEl.innerHTML = `
@@ -136,6 +139,7 @@ export async function renderUrlaubDetail(appEl, id) {
 
   const chipsEl = appEl.querySelector('[data-role="chips"]');
   const contentEl = appEl.querySelector('[data-role="day-content"]');
+  installDaySwipe(contentEl, (dir) => shiftDay(dir));
   const footerMount = appEl.querySelector('[data-role="footer-mount"]');
   const capturePhotoInput = appEl.querySelector('[data-role="capture-photo-input"]');
   const captureVideoInput = appEl.querySelector('[data-role="capture-video-input"]');
@@ -189,50 +193,79 @@ export async function renderUrlaubDetail(appEl, id) {
     });
   }
 
-  async function refreshDayList() {
-    const token = ++state.listRefreshToken;
-    await maybeSoftOnOpen();
-    if (token !== state.listRefreshToken) return;
-    const items = await loadDayPlacesEnriched(id, state.activeDay);
-    if (token !== state.listRefreshToken) return;
-    const selectedId = await ensureSelectedForDay(items);
-    if (token !== state.listRefreshToken) return;
-
-    const allMedia = items.flatMap((i) => i.media);
-    const visibleIds = visibleThumbMediaIds(items, selectedId);
-    const nextThumbUrls = await resolveThumbUrlMap(allMedia, visibleIds);
-    const previousThumbUrls = state.thumbUrls;
-
-    const canEditMedia = canEditTripMedia(await getMyTripRole(id));
-
-    let html;
-    if (items.length === 0) {
-      html = `
+  const emptyDayHtml = `
         <div class="trip-empty" data-testid="trip-empty">
           <p class="trip-empty__title">Noch keine Orte heute</p>
           <p class="trip-empty__hint">Ort merken, Foto machen oder Notiz schreiben.</p>
         </div>`;
-    } else {
+
+  async function buildDayHtml(dayIso) {
+    const items = await loadDayPlacesEnriched(id, dayIso);
+    const active = dayIso === state.activeDay;
+    const selectedId = active ? await ensureSelectedForDay(items) : (state.selectedByDay[dayIso] ?? null);
+    const freeNotes = await getFreeNotesForDay(id, dayIso);
+    const allMedia = items.flatMap((i) => i.media);
+    const visibleIds = visibleThumbMediaIds(items, selectedId);
+    const thumbUrls = active ? await resolveThumbUrlMap(allMedia, visibleIds) : {};
+    const canEditMedia = active ? canEditTripMedia(await getMyTripRole(id)) : false;
+    let placeHtml = emptyDayHtml;
+    if (items.length) {
       const { listHtml, mediaErrorHtml } = renderPlaceListHtml(items, {
-          selectedId,
-          notesExpanded: state.notesExpanded,
-          thumbUrls: nextThumbUrls,
-          canEditMedia,
-        });
-      html = wrapPlaceList(listHtml, mediaErrorHtml);
+        selectedId,
+        notesExpanded: active ? state.notesExpanded : new Set(),
+        thumbUrls,
+        canEditMedia,
+      });
+      placeHtml = wrapPlaceList(listHtml, mediaErrorHtml);
     }
+    return {
+      html: withFreeNotesHtml(placeHtml, freeNotes, {
+        expanded: active && state.freeNotesExpanded,
+        replaceEmpty: items.length === 0,
+      }),
+      thumbUrls,
+    };
+  }
+
+  async function prefetchNeighbors(token) {
+    const idx = days.indexOf(state.activeDay);
+    const prev = idx > 0 ? days[idx - 1] : null;
+    const next = idx < days.length - 1 ? days[idx + 1] : null;
+    const prevBuilt = prev ? await buildDayHtml(prev) : null;
+    const nextBuilt = next ? await buildDayHtml(next) : null;
+    if (token !== state.listRefreshToken || !contentEl.isConnected) {
+      revokeThumbUrls(prevBuilt?.thumbUrls);
+      revokeThumbUrls(nextBuilt?.thumbUrls);
+      return;
+    }
+    setDaySwipeNeighbor(contentEl, "prev", prevBuilt?.html || "");
+    setDaySwipeNeighbor(contentEl, "next", nextBuilt?.html || "");
+    revokeThumbUrls(prevBuilt?.thumbUrls);
+    revokeThumbUrls(nextBuilt?.thumbUrls);
+  }
+
+  async function refreshDayList() {
+    const token = ++state.listRefreshToken;
+    await maybeSoftOnOpen();
+    if (token !== state.listRefreshToken) return;
+    const built = await buildDayHtml(state.activeDay);
     if (token !== state.listRefreshToken) {
-      revokeThumbUrls(nextThumbUrls);
+      revokeThumbUrls(built.thumbUrls);
       return;
     }
     if (!contentEl.isConnected) {
-      revokeThumbUrls(nextThumbUrls);
+      revokeThumbUrls(built.thumbUrls);
       return;
     }
-    state.thumbUrls = nextThumbUrls;
-    contentEl.innerHTML = html;
+    const previousThumbUrls = state.thumbUrls;
+    state.thumbUrls = built.thumbUrls;
+    const idx = days.indexOf(state.activeDay);
+    contentEl.dataset.canPrev = idx > 0 ? "1" : "0";
+    contentEl.dataset.canNext = idx < days.length - 1 ? "1" : "0";
+    setDaySwipePage(contentEl, built.html);
     contentEl.dataset.activeDay = state.activeDay;
     revokeThumbUrls(previousThumbUrls);
+    void prefetchNeighbors(token);
   }
 
   async function setActiveDay(dayIso) {
@@ -537,6 +570,49 @@ export async function renderUrlaubDetail(appEl, id) {
       return;
     }
 
+    const freeHost = e.target.closest('[data-testid="free-notes"]');
+    if (freeHost) {
+      if (e.target.closest('[data-action="expand-free-notes"]')) {
+        state.freeNotesExpanded = true;
+        await refreshDayList();
+        return;
+      }
+      if (e.target.closest('[data-action="collapse-free-notes"]')) {
+        state.freeNotesExpanded = false;
+        await refreshDayList();
+        return;
+      }
+      const editFree = e.target.closest('[data-action="edit-free-note"]');
+      const addFree = e.target.closest('[data-action="add-free-note"]');
+      if (editFree || addFree) {
+        const notes = await getFreeNotesForDay(id, state.activeDay);
+        const note = editFree
+          ? notes.find((n) => n.id === editFree.closest("[data-note-id]")?.dataset.noteId)
+          : null;
+        if (editFree && !note) return;
+        openNoteSheet({
+          place: null,
+          initialFree: true,
+          vacationId: id,
+          vacation,
+          day: state.activeDay,
+          dayIndex: dayIndexInTrip(vacation, state.activeDay),
+          placesForDay: async () => {
+            const list = await loadDayPlacesEnriched(id, state.activeDay);
+            return list.map((i) => i.place).filter((p) => !p.soft);
+          },
+          note: note || undefined,
+          onSaved: () => refreshDayList(),
+          onPlaceChange: (pid) => {
+            if (!pid) return;
+            state.selectedByDay[state.activeDay] = pid;
+            persistSelection(id, state);
+          },
+        });
+      }
+      return;
+    }
+
     const addNoteBtn = e.target.closest('[data-action="add-note"]');
     if (addNoteBtn) {
       const host = e.target.closest(".oc[data-place-id]");
@@ -681,7 +757,6 @@ export async function renderUrlaubDetail(appEl, id) {
     if (chip) setActiveDay(chip.dataset.day);
   });
 
-  bindSwipe(contentEl, shiftDay);
 
   const pendingFooter = consumePendingFooter();
   if (pendingFooter === "note") {
@@ -693,42 +768,3 @@ export async function renderUrlaubDetail(appEl, id) {
   }
 }
 
-function bindSwipe(element, shiftDay) {
-  let startX = 0;
-  let startY = 0;
-  let tracking = false;
-
-  element.addEventListener(
-    "touchstart",
-    (e) => {
-      if (e.touches.length !== 1) return;
-      startX = e.touches[0].clientX;
-      startY = e.touches[0].clientY;
-      tracking = true;
-    },
-    { passive: true }
-  );
-
-  element.addEventListener("touchend", (e) => {
-    if (!tracking) return;
-    tracking = false;
-    const dx = e.changedTouches[0].clientX - startX;
-    const dy = e.changedTouches[0].clientY - startY;
-    if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
-    shiftDay(dx < 0 ? 1 : -1);
-  });
-
-  element.addEventListener("mousedown", (e) => {
-    startX = e.clientX;
-    startY = e.clientY;
-    tracking = true;
-  });
-  element.addEventListener("mouseup", (e) => {
-    if (!tracking) return;
-    tracking = false;
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
-    if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
-    shiftDay(dx < 0 ? 1 : -1);
-  });
-}

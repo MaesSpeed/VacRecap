@@ -637,7 +637,7 @@ async function main() {
   for (const vp of VIEWPORTS) {
     await page.setViewportSize({ width: vp.width, height: vp.height });
     const v = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-    if (Number(v) !== 46) throw new Error(`Version ${v} in ${vp.name}`);
+    if (Number(v) !== 47) throw new Error(`Version ${v} in ${vp.name}`);
   }
 
   for (const vp of [
