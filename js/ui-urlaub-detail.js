@@ -639,10 +639,20 @@ export async function renderUrlaubDetail(appEl, id) {
   }
 
   galleryInput.addEventListener("change", () => {
-    const files = [...(galleryInput.files || [])].filter((f) => f.type.startsWith("image/"));
+    const all = [...(galleryInput.files || [])];
     galleryInput.value = "";
-    if (!files.length) return;
-    void beginPhotoUpload(files, { preferSelectedPlace: true });
+    if (!all.length) return;
+    const hasVideo = all.some(
+      (f) =>
+        f.type.startsWith("video/") ||
+        /\.(mov|mp4|m4v|webm|hevc)$/i.test(f.name || "")
+    );
+    if (hasVideo) {
+      showToast("Videos kommen in einem späteren Paket.", { icon: "none" });
+    }
+    const images = all.filter((f) => f.type.startsWith("image/"));
+    if (!images.length) return;
+    void beginPhotoUpload(images, { preferSelectedPlace: true });
   });
 
   mountTripFooter(footerMount, {

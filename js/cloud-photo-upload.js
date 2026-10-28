@@ -60,10 +60,11 @@ async function uploadBlobWithRetry(bucket, path, blob, contentType) {
 }
 
 export class CloudUploadFailedError extends Error {
-  constructor(message, mediaRecord) {
+  constructor(message, mediaRecord, { cause } = {}) {
     super(message);
     this.name = "CloudUploadFailedError";
     this.mediaRecord = mediaRecord;
+    this.cause = cause ?? null;
   }
 }
 
@@ -122,10 +123,16 @@ export async function uploadCloudPhoto({
     onStatus?.({ phase: "done", mediaId, status: "uploaded" });
     return record;
   } catch (err) {
+    if (err instanceof CloudOfflineError) {
+      record.uploadStatus = "failed";
+      await updateMediaRow(mediaId, { upload_status: "failed" }).catch(() => {});
+      onStatus?.({ phase: "failed", mediaId, status: "offline", error: err });
+      throw err;
+    }
     record.uploadStatus = "failed";
     await updateMediaRow(mediaId, { upload_status: "failed" }).catch(() => {});
     onStatus?.({ phase: "failed", mediaId, status: "failed", error: err });
-    throw new CloudUploadFailedError(err?.message || "Upload fehlgeschlagen", record);
+    throw new CloudUploadFailedError(err?.message || "Upload fehlgeschlagen", record, { cause: err });
   }
 }
 
@@ -142,10 +149,15 @@ export async function retryCloudPhotoUpload(media, { originalBlob, thumbBlob, on
     return { ...media, uploadStatus: "uploaded" };
   } catch (err) {
     await updateMediaRow(media.id, { upload_status: "failed" }).catch(() => {});
+    if (err instanceof CloudOfflineError) {
+      onStatus?.({ phase: "failed", mediaId: media.id, status: "offline", error: err });
+      throw err;
+    }
     onStatus?.({ phase: "failed", mediaId: media.id, status: "failed", error: err });
-    throw new CloudUploadFailedError(err?.message || "Upload fehlgeschlagen", {
-      ...media,
-      uploadStatus: "failed",
-    });
+    throw new CloudUploadFailedError(
+      err?.message || "Upload fehlgeschlagen",
+      { ...media, uploadStatus: "failed" },
+      { cause: err }
+    );
   }
 }

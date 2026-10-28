@@ -70,6 +70,7 @@ function createMockSupabaseState(baseUrl) {
   let otp = "123456";
   let failOriginalUploads = 0;
   let failAllOriginalUploads = false;
+  let failMediaList = false;
 
   return {
     userId,
@@ -84,6 +85,9 @@ function createMockSupabaseState(baseUrl) {
     },
     setFailAllOriginalUploads(v) {
       failAllOriginalUploads = Boolean(v);
+    },
+    setFailMediaList(v) {
+      failMediaList = Boolean(v);
     },
     setOtp(code) {
       otp = code;
@@ -228,6 +232,10 @@ function createMockSupabaseState(baseUrl) {
       }
       if (table === "media") {
         if (method === "GET") {
+          const tripId = qp("trip_id");
+          if (tripId && failMediaList) {
+            return { status: 500, json: { message: "mock media list fail" } };
+          }
           const wp = qp("waypoint_id");
           if (wp) {
             const rows = media.filter((m) => m.waypoint_id === wp && !m.deleted_at);
@@ -350,6 +358,58 @@ async function runPhotoSuite(page, baseUrl, state, fixturePaths, label) {
   if (Number(v) !== 46) throw new Error(`${label}: Build ${v} != 46`);
   await login(page);
   const { tripId, day, placeId } = await seedTripWithPlace(page);
+
+  state.setFailMediaList(true);
+  await page.evaluate(() => {
+    location.hash = "#/urlaube";
+  });
+  await page.waitForSelector(".screen--urlaube", { timeout: 15_000 });
+  const cloudBlocked = await page.locator("text=Cloud ist gerade nicht erreichbar").count();
+  if (cloudBlocked > 0) {
+    throw new Error(`${label}: Reisen-Übersicht blockiert bei Media-500`);
+  }
+  state.setFailMediaList(false);
+  await page.evaluate(
+    (id) => {
+      location.hash = `#/urlaub/${id}`;
+    },
+    tripId
+  );
+  await page.waitForSelector('[data-testid="trip-content"]', { timeout: 15_000 });
+
+  await page.setInputFiles('[data-testid="gallery-input"]', [
+    { name: "clip.mp4", mimeType: "video/mp4", buffer: Buffer.from([0, 0, 0, 0]) },
+    { name: "mix.png", mimeType: "image/png", buffer: TINY_PNG },
+  ]);
+  await page.waitForFunction(
+    () =>
+      document.querySelector('[data-testid="app-toast"]')?.textContent?.includes("Videos kommen") ||
+      document.body.innerText.includes("Videos kommen"),
+    null,
+    { timeout: 10_000 }
+  );
+  await page.waitForSelector('[data-testid="photo-upload-sheet"]', { state: "visible", timeout: 15_000 });
+  await page.waitForFunction(
+    () => {
+      const items = document.querySelectorAll(".photo-upload-item__status");
+      return items.length >= 1 && [...items].every((el) => el.textContent?.includes("✓"));
+    },
+    null,
+    { timeout: 60_000 }
+  );
+  await page.click('[data-testid="photo-upload-sheet"] [data-action="close"]');
+  await page.waitForFunction(() => document.getElementById("overlay-root")?.hidden, null, {
+    timeout: 10_000,
+  });
+  state.media.length = 0;
+
+  const offlineErrOk = await page.evaluate(async () => {
+    const { CloudOfflineError } = await import("./js/cloud-errors.js");
+    const { CloudUploadFailedError } = await import("./js/cloud-photo-upload.js");
+    const wrapped = new CloudUploadFailedError("fail", { id: "x" }, { cause: new CloudOfflineError() });
+    return wrapped.cause instanceof CloudOfflineError;
+  });
+  if (!offlineErrOk) throw new Error(`${label}: CloudOfflineError nicht als cause erhalten`);
 
   const resize = await page.evaluate(async () => {
     const blob = await (await fetch("./tests/fixtures/test-photo.png")).blob();

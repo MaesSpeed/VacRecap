@@ -578,8 +578,24 @@ async function assertN1KillSwitch(browserType, baseUrl, label) {
       caches: (await caches.keys()).filter((k) => k.startsWith("vacrecap-")),
     };
   });
+
+  async function waitVacrecapCachesClear(maxMs = 20_000) {
+    const deadline = Date.now() + maxMs;
+    while (Date.now() < deadline) {
+      const keys = await page.evaluate(async () =>
+        (await caches.keys()).filter((k) => k.startsWith("vacrecap-"))
+      );
+      if (!keys.length) return;
+      await page.waitForTimeout(400);
+    }
+    const left = await page.evaluate(async () =>
+      (await caches.keys()).filter((k) => k.startsWith("vacrecap-"))
+    );
+    throw new Error(`N1-${label}: vacrecap-Caches übrig (${left.join(",")})`);
+  }
+
   if (afterSwitch.vacrecapSw > 0) throw new Error(`N1-${label}: VacRecap-SW noch aktiv`);
-  if (afterSwitch.caches.length) throw new Error(`N1-${label}: vacrecap-Caches übrig`);
+  await waitVacrecapCachesClear();
   if (afterSwitch.cinexSw < 1) throw new Error(`N1-${label}: Cinex-SW fehlt`);
 
   for (let i = 0; i < 3; i++) {

@@ -6,12 +6,17 @@ export function formatCountLabel(n, singular, plural) {
 
 export async function computeVacationStats(vacationId) {
   const places = (await getPlacesForVacation(vacationId)).filter((p) => !p.soft);
-  const media = await getAllMediaForVacation(vacationId);
+  let media = [];
+  try {
+    media = await getAllMediaForVacation(vacationId);
+  } catch {
+    media = [];
+  }
   let notes = 0;
   for (const p of places) {
     notes += (await getNotesForPlace(p.id)).length;
   }
-  const photos = media.filter((m) => m.type !== "video").length;
+  const photos = media.filter((m) => m.type !== "video" && (m.uploadStatus || "uploaded") === "uploaded").length;
   const videos = media.filter((m) => m.type === "video").length;
   return {
     places: places.length,

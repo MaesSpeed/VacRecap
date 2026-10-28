@@ -491,14 +491,22 @@ export async function getMediaBySourceKey(vacationId, sourceKey) {
 }
 
 export async function getAllMediaForVacation(vacationId) {
-  const { data, error } = await getSupabase()
-    .from("media")
-    .select("*")
-    .eq("trip_id", vacationId)
-    .is("deleted_at", null)
-    .order("taken_at", { ascending: true });
-  if (error) throw mapApiError(error);
-  return (data || []).map(mediaRowToApp).filter((m) => m.type === "photo");
+  if (!vacationId) return [];
+  if (!navigator.onLine) return [];
+  try {
+    const { data, error } = await getSupabase()
+      .from("media")
+      .select("*")
+      .eq("trip_id", vacationId)
+      .is("deleted_at", null)
+      .order("taken_at", { ascending: true });
+    if (error) throw mapApiError(error);
+    return (data || []).map(mediaRowToApp).filter((m) => m.type === "photo");
+  } catch (err) {
+    if (err instanceof CloudOfflineError || err instanceof CloudNetworkError) return [];
+    if (isFetchNetworkFailure(err)) return [];
+    return [];
+  }
 }
 
 export async function getMediaForPlace(placeId) {
