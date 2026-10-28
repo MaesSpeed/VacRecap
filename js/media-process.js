@@ -1,7 +1,7 @@
-const PHOTO_MAX_EDGE = 2000;
-const PHOTO_QUALITY = 0.85;
-const THUMB_EDGE = 200;
-const THUMB_QUALITY = 0.8;
+const PHOTO_MAX_EDGE = 2048;
+const PHOTO_QUALITY = 0.82;
+const THUMB_EDGE = 400;
+const THUMB_QUALITY = 0.82;
 
 export function formatMediaDuration(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
@@ -56,6 +56,23 @@ function canvasToJpegBlob(canvas, quality) {
   });
 }
 
+export async function processPhotoForCloud(file) {
+  const bitmap = await loadImageBitmap(file);
+  const full = drawToCanvas(bitmap, PHOTO_MAX_EDGE);
+  const thumb = drawToCanvas(bitmap, THUMB_EDGE);
+  if (bitmap.close) bitmap.close();
+  const blob = await canvasToJpegBlob(full.canvas, PHOTO_QUALITY);
+  const thumbBlob = await canvasToJpegBlob(thumb.canvas, THUMB_QUALITY);
+  return {
+    blob,
+    thumbBlob,
+    w: full.w,
+    h: full.h,
+    type: "photo",
+  };
+}
+
+/** @deprecated Cloud nutzt processPhotoForCloud */
 export async function processPhotoFile(file) {
   const bitmap = await loadImageBitmap(file);
   const full = drawToCanvas(bitmap, PHOTO_MAX_EDGE);

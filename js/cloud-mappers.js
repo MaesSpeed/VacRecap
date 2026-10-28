@@ -95,3 +95,43 @@ export function noteToRow(note) {
   if (note.id) row.id = note.id;
   return row;
 }
+
+export function mediaRowToApp(row) {
+  if (!row) return null;
+  const ts = Date.parse(row.taken_at) || Date.parse(row.created_at) || Date.now();
+  return {
+    id: row.id,
+    placeId: row.waypoint_id,
+    vacationId: row.trip_id,
+    day: row.day,
+    ts,
+    type: row.kind === "video" ? "video" : "photo",
+    uploadStatus: row.upload_status || "uploaded",
+    storagePath: row.storage_path || null,
+    thumbPath: row.thumb_path || null,
+    mime: row.mime || "image/jpeg",
+    w: row.width ?? null,
+    h: row.height ?? null,
+    sizeBytes: row.size_bytes ?? null,
+    sourceKey: row.source_key ?? null,
+  };
+}
+
+export function mediaToRow(media) {
+  return {
+    id: media.id,
+    trip_id: media.vacationId,
+    waypoint_id: media.placeId,
+    day: media.day,
+    taken_at: media.ts ? new Date(media.ts).toISOString() : null,
+    kind: media.type === "video" ? "video" : "photo",
+    storage_path: media.storagePath ?? null,
+    thumb_path: media.thumbPath ?? null,
+    mime: media.mime ?? "image/jpeg",
+    size_bytes: media.sizeBytes ?? null,
+    width: media.w ?? null,
+    height: media.h ?? null,
+    upload_status: media.uploadStatus ?? "pending",
+    source_key: media.sourceKey ?? null,
+  };
+}

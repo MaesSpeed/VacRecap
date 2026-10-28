@@ -1,0 +1,18 @@
+-- Paket 7a: Keine Schema-Änderung nötig, wenn SUPABASE-GRUNDLAGE bereits eingespielt wurde.
+-- Zur Kontrolle (nur lesen/ausführen in Supabase SQL Editor, nicht automatisch):
+--
+-- Tabellen-Spalten public.media:
+--   id, trip_id, waypoint_id, day, taken_at, kind, storage_path, thumb_path,
+--   mime, size_bytes, width, height, upload_status, created_by, created_at, updated_at, deleted_at
+--
+-- Buckets (privat): media-originals, media-thumbs
+-- Pfadkonvention: {trip_id}/{media_id}.jpg
+--
+-- RLS media: select trip member; insert/update/delete owner|editor
+-- Storage objects: select trip member; insert/update/delete owner|editor (trip_id_from_path)
+--
+-- Falls Buckets fehlen (nur dann ausführen):
+-- insert into storage.buckets (id, name, public) values
+--   ('media-originals', 'media-originals', false),
+--   ('media-thumbs', 'media-thumbs', false)
+-- on conflict (id) do nothing;

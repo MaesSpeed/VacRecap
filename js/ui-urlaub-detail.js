@@ -27,8 +27,13 @@ import { openNoteSheet } from "./ui-note-sheet.js";
 import {
   loadDayPlacesEnriched,
   renderPlaceListHtml,
+  resolveThumbUrlMap,
+  revokeThumbUrls,
+  visibleThumbMediaIds,
   wrapPlaceList,
 } from "./ui-place-list.js";
+import { openPhotoUploadSheet } from "./ui-photo-upload-sheet.js";
+import { openMediaViewer } from "./ui-media-viewer.js";
 
 import { openEditPlaceSheet, openSoftPointSheet } from "./ui-place-sheets.js";
 import { mountTripFooter } from "./ui-trip-footer.js";
@@ -37,6 +42,8 @@ import { escapeHtml, todayIso } from "./utils.js";
 const tripUiState = new Map();
 
 export function clearTripUiState(vacationId) {
+  const state = tripUiState.get(vacationId);
+  if (state?.thumbUrls) revokeThumbUrls(state.thumbUrls);
   tripUiState.delete(vacationId);
 }
 
@@ -72,6 +79,7 @@ async function getState(id, vacation) {
       openGeoDone: new Set(),
       captureBusy: false,
       listRefreshToken: 0,
+      thumbUrls: {},
     };
     tripUiState.set(id, state);
   }
@@ -117,7 +125,7 @@ export async function renderUrlaubDetail(appEl, id) {
     <main class="trip-content trip-content--places" data-role="day-content" data-testid="trip-content"></main>
     <input type="file" accept="image/*" capture="environment" hidden data-role="capture-photo-input" data-testid="capture-photo-input" />
     <input type="file" accept="video/*" capture="environment" hidden data-role="capture-video-input" data-testid="capture-video-input" />
-    <input type="file" accept="image/*,video/*" multiple hidden data-role="gallery-input" />
+    <input type="file" accept="image/*" multiple hidden data-role="gallery-input" data-testid="gallery-input" />
     <div data-role="footer-mount"></div>
   `;
 
@@ -185,26 +193,39 @@ export async function renderUrlaubDetail(appEl, id) {
     const selectedId = await ensureSelectedForDay(items);
     if (token !== state.listRefreshToken) return;
 
+    const allMedia = items.flatMap((i) => i.media);
+    const visibleIds = visibleThumbMediaIds(items, selectedId);
+    const nextThumbUrls = await resolveThumbUrlMap(allMedia, visibleIds);
+    const previousThumbUrls = state.thumbUrls;
+
     let html;
     if (items.length === 0) {
       html = `
         <div class="trip-empty" data-testid="trip-empty">
           <p class="trip-empty__title">Noch keine Orte heute</p>
-          <p class="trip-empty__hint">Ort merken oder Notiz schreiben.</p>
+          <p class="trip-empty__hint">Ort merken, Foto machen oder Notiz schreiben.</p>
         </div>`;
     } else {
       html = wrapPlaceList(
         renderPlaceListHtml(items, {
           selectedId,
           notesExpanded: state.notesExpanded,
-          thumbUrls: {},
+          thumbUrls: nextThumbUrls,
         })
       );
     }
-    if (token !== state.listRefreshToken) return;
-    if (!contentEl.isConnected) return;
+    if (token !== state.listRefreshToken) {
+      revokeThumbUrls(nextThumbUrls);
+      return;
+    }
+    if (!contentEl.isConnected) {
+      revokeThumbUrls(nextThumbUrls);
+      return;
+    }
+    state.thumbUrls = nextThumbUrls;
     contentEl.innerHTML = html;
     contentEl.dataset.activeDay = state.activeDay;
+    revokeThumbUrls(previousThumbUrls);
   }
 
   async function setActiveDay(dayIso) {
@@ -286,15 +307,42 @@ export async function renderUrlaubDetail(appEl, id) {
   }
 
   function openNativeVideoCamera() {
-    if (state.captureBusy || isTripFooterBlocked()) return;
-    captureTargetPlaceId = null;
-    blockTripFooter(SHEET_INPUT_BLOCK_MS);
-    prefetchCaptureGps();
-    captureVideoInput.click();
+    showToast("Videos kommen in einem späteren Paket.", { icon: "none" });
   }
 
-  async function handleMediaFile() {
-    showToast("Fotos und Videos kommen im nächsten Schritt", { icon: "none" });
+  async function beginPhotoUpload(files) {
+    if (!files?.length || state.captureBusy) return;
+    state.captureBusy = true;
+    appEl.dataset.captureBusy = "1";
+    try {
+      const r = await resolveTargetPlace("photo");
+      openPhotoUploadSheet({
+        files,
+        place: r.place,
+        vacationId: id,
+        day: state.activeDay,
+        onDone: () => refreshDayList(),
+      });
+    } catch (err) {
+      showWarnToast(err?.message || "Foto konnte nicht zugeordnet werden.");
+    } finally {
+      state.captureBusy = false;
+      appEl.dataset.captureBusy = "0";
+      captureTargetPlaceId = null;
+      capturePhotoInput.value = "";
+      galleryInput.value = "";
+      resetCaptureGpsPrefetch();
+    }
+  }
+
+  async function handleMediaFile(file, kind) {
+    if (!file || state.captureBusy) return;
+    if (kind === "video") {
+      openNativeVideoCamera();
+      captureVideoInput.value = "";
+      return;
+    }
+    await beginPhotoUpload([file]);
   }
 
   const onCaptureInputAborted = () => {
@@ -372,7 +420,25 @@ export async function renderUrlaubDetail(appEl, id) {
   contentEl.addEventListener("click", async (e) => {
     const camBtn = e.target.closest('[data-action="camera-place"]');
     if (camBtn) {
-      showToast("Fotos kommen im nächsten Schritt", { icon: "none" });
+      const host = e.target.closest(".oc[data-place-id]");
+      if (!host) return;
+      const placeId = host.dataset.placeId;
+      state.selectedByDay[state.activeDay] = placeId;
+      persistSelection(id, state);
+      openCapturePhotoInput(placeId);
+      return;
+    }
+
+    const tile = e.target.closest(".tile[data-media-id]");
+    if (tile) {
+      const placeId = e.target.closest(".oc[data-place-id]")?.dataset.placeId;
+      if (!placeId) return;
+      const items = await loadDayPlacesEnriched(id, state.activeDay);
+      const item = items.find((i) => i.place.id === placeId);
+      if (!item) return;
+      openMediaViewer(item.media, tile.dataset.mediaId, {
+        onChanged: () => refreshDayList(),
+      });
       return;
     }
 
@@ -520,9 +586,25 @@ export async function renderUrlaubDetail(appEl, id) {
   await refreshDayList();
   if (appEl?.dataset?.appRenderGen !== mountGen) return;
 
+  function openGalleryPicker() {
+    if (state.captureBusy || isTripFooterBlocked()) return;
+    blockTripFooter(SHEET_INPUT_BLOCK_MS);
+    galleryInput.click();
+  }
+
+  galleryInput.addEventListener("change", () => {
+    const files = [...(galleryInput.files || [])].filter((f) => f.type.startsWith("image/"));
+    galleryInput.value = "";
+    if (!files.length) return;
+    void beginPhotoUpload(files);
+  });
+
   mountTripFooter(footerMount, {
     onRememberPlace,
+    onCamera: openNativeCamera,
+    onCameraVideo: openNativeVideoCamera,
     onNote: onNoteFooter,
+    onGallery: openGalleryPicker,
   });
 
   appEl.querySelector('[data-action="back"]').addEventListener("click", () => {
@@ -548,6 +630,10 @@ export async function renderUrlaubDetail(appEl, id) {
   const pendingFooter = consumePendingFooter();
   if (pendingFooter === "note") {
     requestAnimationFrame(() => void onNoteFooter());
+  } else if (pendingFooter === "gallery") {
+    requestAnimationFrame(() => openGalleryPicker());
+  } else if (pendingFooter === "camera") {
+    requestAnimationFrame(() => openNativeCamera());
   }
 }
 

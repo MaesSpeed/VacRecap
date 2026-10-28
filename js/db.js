@@ -1,5 +1,7 @@
 import { CloudNetworkError, CloudOfflineError, isFetchNetworkFailure, mapApiError } from "./cloud-errors.js";
 import {
+  mediaRowToApp,
+  mediaToRow,
   noteRowToApp,
   noteToRow,
   placeToWaypointRow,
@@ -359,21 +361,100 @@ export async function deletePlaceCascade(id) {
   await deletePlace(id);
 }
 
-export async function putMedia() {
-  throw new Error("Medien kommen im nächsten Schritt.");
+export async function putMedia(record) {
+  return insertMediaRow(record);
 }
-export async function getMedia() {
-  return null;
+
+export async function insertMediaRow(record) {
+  assertWritable();
+  const row = mediaToRow(record);
+  const { data, error } = await getSupabase().from("media").insert(row).select().single();
+  if (error) throw mapApiError(error);
+  const mapped = mediaRowToApp(data);
+  window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  return mapped;
 }
-export async function deleteMedia() {}
-export async function getMediaBySourceKey() {
-  return null;
+
+export async function updateMediaRow(id, patch) {
+  assertWritable();
+  const { data, error } = await getSupabase()
+    .from("media")
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw mapApiError(error);
+  const mapped = mediaRowToApp(data);
+  window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  return mapped;
 }
-export async function getAllMediaForVacation() {
-  return [];
+
+export async function getMedia(id) {
+  if (!id) return null;
+  const { data, error } = await getSupabase()
+    .from("media")
+    .select("*")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) throw mapApiError(error);
+  return data ? mediaRowToApp(data) : null;
 }
-export async function getMediaForPlace() {
-  return [];
+
+export async function deleteMedia(id) {
+  assertWritable();
+  const { error } = await getSupabase()
+    .from("media")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw mapApiError(error);
+  window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+}
+
+export async function getMediaBySourceKey(vacationId, sourceKey) {
+  if (!sourceKey) return null;
+  const { data, error } = await getSupabase()
+    .from("media")
+    .select("*")
+    .eq("trip_id", vacationId)
+    .eq("source_key", sourceKey)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) throw mapApiError(error);
+  return data ? mediaRowToApp(data) : null;
+}
+
+export async function getAllMediaForVacation(vacationId) {
+  const { data, error } = await getSupabase()
+    .from("media")
+    .select("*")
+    .eq("trip_id", vacationId)
+    .is("deleted_at", null)
+    .order("taken_at", { ascending: true });
+  if (error) throw mapApiError(error);
+  return (data || []).map(mediaRowToApp).filter((m) => m.type === "photo");
+}
+
+export async function getMediaForPlace(placeId) {
+  if (!placeId) return [];
+  if (!navigator.onLine) {
+    return [];
+  }
+  try {
+    const { data, error } = await getSupabase()
+      .from("media")
+      .select("*")
+      .eq("waypoint_id", placeId)
+      .eq("kind", "photo")
+      .is("deleted_at", null)
+      .order("taken_at", { ascending: true });
+    if (error) throw mapApiError(error);
+    return (data || []).map(mediaRowToApp);
+  } catch (err) {
+    if (err instanceof CloudOfflineError || err instanceof CloudNetworkError) return [];
+    if (isFetchNetworkFailure(err)) return [];
+    throw err;
+  }
 }
 export async function saveMediaThumb() {}
 export async function deleteMediaThumb() {}
