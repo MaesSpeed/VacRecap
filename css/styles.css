@@ -464,6 +464,7 @@ body {
 }
 
 .field input[type="text"],
+.field input[type="email"],
 .name-chip-input input {
   width: 100%;
   border: 1px solid var(--border);
@@ -475,6 +476,7 @@ body {
 }
 
 .field input[type="text"]:focus,
+.field input[type="email"]:focus,
 .name-chip-input input:focus {
   outline: none;
   border-color: var(--emaille);
@@ -3234,6 +3236,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.login-form[hidden] {
+  display: none;
 }
 
 .login-error {

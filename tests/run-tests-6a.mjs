@@ -231,6 +231,32 @@ async function installSupabaseMocks(page, state) {
   });
 }
 
+async function assertLoginScreenInitial(page, label) {
+  await page.waitForSelector('[data-testid="login-screen"]');
+  const ui = await page.evaluate(() => {
+    const emailForm = document.querySelector('form[data-step="email"]');
+    const otpForm = document.querySelector('form[data-step="otp"]');
+    const email = document.querySelector('input[name="email"]');
+    const field = email?.closest(".field");
+    return {
+      otpHidden: Boolean(otpForm?.hidden),
+      otpDisplay: otpForm ? getComputedStyle(otpForm).display : "",
+      emailFormDisplay: emailForm ? getComputedStyle(emailForm).display : "",
+      emailWidth: email?.offsetWidth ?? 0,
+      fieldWidth: field?.clientWidth ?? 0,
+    };
+  });
+  if (!ui.otpHidden || ui.otpDisplay !== "none") {
+    throw new Error(`${label}: OTP-Schritt vor Code senden sichtbar`);
+  }
+  if (ui.emailFormDisplay === "none") {
+    throw new Error(`${label}: E-Mail-Schritt nicht sichtbar`);
+  }
+  if (ui.emailWidth < ui.fieldWidth - 2) {
+    throw new Error(`${label}: E-Mail-Feld zu schmal (${ui.emailWidth}/${ui.fieldWidth})`);
+  }
+}
+
 async function login(page, email = "test@example.com") {
   await page.waitForSelector('[data-testid="login-screen"]');
   await page.fill('input[name="email"]', email);
@@ -429,11 +455,17 @@ async function main() {
   page.setDefaultTimeout(30_000);
   await installSupabaseMocks(page, state);
 
+  for (const vp of VIEWPORTS) {
+    await page.setViewportSize({ width: vp.width, height: vp.height });
+    await page.goto(baseUrl);
+    await assertLoginScreenInitial(page, `6d-login-chromium-${vp.name}`);
+  }
+
   await runFlow(page, baseUrl, "6a-flow");
   for (const vp of VIEWPORTS) {
     await page.setViewportSize({ width: vp.width, height: vp.height });
     const v = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-    if (v !== 42) throw new Error(`Version ${v} in ${vp.name}`);
+    if (v !== 43) throw new Error(`Version ${v} in ${vp.name}`);
   }
 
   const offlineOk = await page.evaluate(async () => {
@@ -478,6 +510,12 @@ async function main() {
     });
   });
   if (!rateMsg.includes("Zu viele Anfragen")) throw new Error("6b-B12: Rate-Limit-Text fehlt");
+
+  const n8Ok = await page.evaluate(async () => {
+    const { isFetchNetworkFailure } = await import("./js/cloud-errors.js");
+    return isFetchNetworkFailure({ message: "access control checks" });
+  });
+  if (!n8Ok) throw new Error("6d-N8: access control checks nicht als Netzfehler");
 
   await page.evaluate(async () => {
     const { setOfflineReadOnly } = await import("./js/local-cache.js");
@@ -525,12 +563,17 @@ async function main() {
   });
   const wPage = await wk.newPage();
   await installSupabaseMocks(wPage, createMockSupabaseState());
+  for (const vp of VIEWPORTS) {
+    await wPage.setViewportSize({ width: vp.width, height: vp.height });
+    await wPage.goto(baseUrl);
+    await assertLoginScreenInitial(wPage, `6d-login-webkit-${vp.name}`);
+  }
   await runFlow(wPage, baseUrl, "6b-webkit");
   await wk.close();
 
   await ctx.close();
   server.close();
-  console.log("Playwright 6c tests OK");
+  console.log("Playwright 6d tests OK");
 }
 
 main().catch((err) => {

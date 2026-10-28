@@ -18,7 +18,8 @@ export function isFetchNetworkFailure(err) {
     msg.includes("failed to fetch") ||
     msg.includes("networkerror") ||
     msg.includes("load failed") ||
-    msg.includes("network request failed")
+    msg.includes("network request failed") ||
+    msg.includes("access control checks")
   );
 }
 
