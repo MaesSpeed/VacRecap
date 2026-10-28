@@ -521,6 +521,54 @@ export async function fetchMediaForPlace(placeId) {
   }
 }
 
+const LIBRARY_PAGE = 400;
+
+export async function fetchUploadedPhotosForTrip(vacationId) {
+  if (!vacationId) return { media: [], error: null };
+  if (!navigator.onLine) {
+    return { media: [], error: new CloudOfflineError() };
+  }
+  try {
+    const supabase = getSupabase();
+    const rows = [];
+    let offset = 0;
+    for (let page = 0; page < 40; page += 1) {
+      const { data, error } = await supabase
+        .from("media")
+        .select("*")
+        .eq("trip_id", vacationId)
+        .eq("kind", "photo")
+        .eq("upload_status", "uploaded")
+        .is("deleted_at", null)
+        .order("taken_at", { ascending: true })
+        .range(offset, offset + LIBRARY_PAGE - 1);
+      if (error) throw mapApiError(error);
+      const batch = data || [];
+      if (!batch.length) break;
+      const seen = new Set(rows.map((row) => row.id));
+      const fresh = batch.filter((row) => row?.id && !seen.has(row.id));
+      if (!fresh.length) break;
+      rows.push(...fresh);
+      if (batch.length < LIBRARY_PAGE) break;
+      offset += LIBRARY_PAGE;
+    }
+    return {
+      media: rows
+        .map(mediaRowToApp)
+        .filter((m) => m.type === "photo" && m.uploadStatus === "uploaded"),
+      error: null,
+    };
+  } catch (err) {
+    if (err instanceof CloudOfflineError || err instanceof CloudNetworkError) {
+      return { media: [], error: err };
+    }
+    if (isFetchNetworkFailure(err)) {
+      return { media: [], error: new CloudNetworkError() };
+    }
+    return { media: [], error: err };
+  }
+}
+
 export async function getMediaBySourceKey(vacationId, sourceKey) {
   if (!sourceKey) return null;
   const { data, error } = await getSupabase()

@@ -557,7 +557,9 @@ export async function renderUrlaubDetail(appEl, id) {
       const item = items.find((i) => i.place.id === placeId);
       if (!item) return;
       const viewable = filterViewableMedia(item.media);
+      const canDelete = canEditTripMedia(await getMyTripRole(id));
       openMediaViewer(viewable, tile.dataset.mediaId, {
+        canDelete,
         onChanged: () => refreshDayList(),
       });
       return;
@@ -757,12 +759,6 @@ export async function renderUrlaubDetail(appEl, id) {
   await refreshDayList();
   if (appEl?.dataset?.appRenderGen !== mountGen) return;
 
-  function openGalleryPicker() {
-    if (state.captureBusy || isTripFooterBlocked()) return;
-    blockTripFooter(SHEET_INPUT_BLOCK_MS);
-    galleryInput.click();
-  }
-
   galleryInput.addEventListener("change", () => {
     const all = [...(galleryInput.files || [])];
     galleryInput.value = "";
@@ -785,7 +781,10 @@ export async function renderUrlaubDetail(appEl, id) {
     onCamera: openNativeCamera,
     onCameraVideo: openNativeVideoCamera,
     onNote: onNoteFooter,
-    onGallery: openGalleryPicker,
+    onGallery: () => {
+      if (state.captureBusy || isTripFooterBlocked()) return;
+      navigate({ name: "urlaub-mediathek", id });
+    },
   });
 
   chipsEl.addEventListener("click", (e) => {
@@ -798,7 +797,7 @@ export async function renderUrlaubDetail(appEl, id) {
   if (pendingFooter === "note") {
     requestAnimationFrame(() => void onNoteFooter());
   } else if (pendingFooter === "gallery") {
-    requestAnimationFrame(() => openGalleryPicker());
+    requestAnimationFrame(() => navigate({ name: "urlaub-mediathek", id }));
   } else if (pendingFooter === "camera") {
     requestAnimationFrame(() => openNativeCamera());
   }

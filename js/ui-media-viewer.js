@@ -107,7 +107,9 @@ function hideViewerShareSnack(overlay) {
   snack.hidden = true;
 }
 
-export function openMediaViewer(mediaItems, startId, { onChanged }) {
+export function openMediaViewer(mediaItems, startId, options = {}) {
+  const { onChanged } = options;
+  const canDelete = options.canDelete !== false;
   const sorted = mediaItems.slice().sort((a, b) => a.ts - b.ts);
   let index = sorted.findIndex((m) => m.id === startId);
   if (index < 0) index = 0;
@@ -150,11 +152,15 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
       <div class="media-viewer" data-testid="media-viewer">
         <header class="media-viewer__bar">
           <button type="button" class="media-viewer__back" data-action="close" data-testid="media-viewer-close" aria-label="Zurück">${ICON_BACK_CHEVRON_WHITE}</button>
-          <button type="button" class="media-viewer__delete" data-action="delete" aria-label="Löschen">
+          ${
+            canDelete
+              ? `<button type="button" class="media-viewer__delete" data-action="delete" data-testid="media-viewer-delete" aria-label="Löschen">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m-7 4v7m4-7v7M6 7l1 12a1 1 0 0 0 1 .9h8a1 1 0 0 0 1-.9L18 7"/>
             </svg>
-          </button>
+          </button>`
+              : `<span class="media-viewer__delete" aria-hidden="true"></span>`
+          }
         </header>
         <div class="media-viewer__stage" data-role="stage">
           ${body}
@@ -195,7 +201,7 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
           scheduleShareSnackDismiss(overlay, shareSnackTimerRef, tapAt);
         });
     });
-    overlay.querySelector('[data-action="delete"]').addEventListener("click", async () => {
+    if (canDelete) overlay.querySelector('[data-action="delete"]').addEventListener("click", async () => {
       const title = isVideo ? "Video löschen?" : "Foto löschen?";
       const ok = await openConfirmDialog({
         title,
@@ -221,7 +227,7 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
               index = removedIndex;
               void render();
             } else {
-              openMediaViewer(sorted, snapshot.id, { onChanged });
+              openMediaViewer(sorted, snapshot.id, { onChanged, canDelete });
             }
           },
         });

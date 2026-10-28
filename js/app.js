@@ -7,6 +7,7 @@ import { getRoute, navigate, onRouteChange, startRouter } from "./router.js";
 import { renderLoginScreen } from "./ui-login.js";
 import { renderUrlaubDetail } from "./ui-urlaub-detail.js";
 import { renderMapScreen } from "./ui-map.js";
+import { renderTripLibrary } from "./ui-trip-library.js";
 import { renderUrlaubSettings } from "./ui-urlaub-settings.js";
 import { renderUrlaubForm } from "./ui-urlaub-form.js";
 import { renderUrlaubeScreen } from "./ui-urlaube.js";
@@ -76,6 +77,10 @@ async function renderNow() {
   if (appEl?._mapCleanup) {
     appEl._mapCleanup();
   }
+  if (appEl?._libraryCleanup) {
+    appEl._libraryCleanup();
+    delete appEl._libraryCleanup;
+  }
 
   updateOnlineBanner();
 
@@ -93,8 +98,7 @@ async function renderNow() {
       await renderMapScreen(appEl, route.id);
       break;
     case "urlaub-mediathek":
-      showWarnToast("Mediathek kommt mit den Cloud-Fotos im nächsten Schritt.");
-      navigate({ name: "urlaub-detail", id: route.id }, { replace: true });
+      await renderTripLibrary(appEl, route.id);
       break;
     case "urlaube":
     default:

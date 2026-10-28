@@ -1190,6 +1190,77 @@ body {
   line-height: 1.45;
 }
 
+.screen--library {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+  background: var(--bg);
+  padding-bottom: 0;
+}
+
+.library-main {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 0 calc(18px + var(--safe-bottom));
+}
+
+.library-day__title {
+  margin: 0;
+  padding: 14px 16px 6px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--emaille);
+}
+
+.library-places {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 14px;
+}
+
+.library-place .oc__meta {
+  margin-bottom: 0;
+}
+
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.library-thumb {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 0;
+  padding: 0 0 100%;
+  border: none;
+  border-radius: 11px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #c5d4e8, #9fb3cc);
+  cursor: pointer;
+}
+
+.library-thumb__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.library-retry {
+  margin-top: 16px;
+}
+
 .trip-footer {
   position: fixed;
   left: 0;

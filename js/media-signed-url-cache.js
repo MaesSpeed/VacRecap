@@ -51,3 +51,7 @@ export function clearSignedUrlCache() {
   thumbCache.clear();
   originalCache.clear();
 }
+
+export function signedUrlCacheCounts() {
+  return { thumbs: thumbCache.size, originals: originalCache.size, max: MAX_ENTRIES };
+}
