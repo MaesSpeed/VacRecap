@@ -1,26 +1,7 @@
-import {
-  putMedia,
-  requestPersistentStorage,
-} from "./db.js";
-import { inferPhotoExt, inferPhotoMime, inferVideoExt, inferVideoMime } from "./media-file-meta.js";
-import { processPhotoOriginal, processVideoFile } from "./media-process.js";
-import { createId } from "./utils.js";
-
-let persistRequested = false;
-
-async function ensurePersist() {
-  if (persistRequested) return;
-  persistRequested = true;
-  await requestPersistentStorage();
-}
-
-function isQuotaError(err) {
-  return (
-    err?.name === "QuotaExceededError" ||
-    err?.code === 22 ||
-    err?.code === 20
-  );
-}
+import { CLOUD_MEDIA_ENABLED } from "./config.js";
+import { uploadCloudPhoto } from "./cloud-photo-upload.js";
+import { getMediaBySourceKey } from "./db.js";
+import { processPhotoForCloud } from "./media-process.js";
 
 export async function savePhotoForPlace({
   file,
@@ -29,65 +10,35 @@ export async function savePhotoForPlace({
   day,
   ts = Date.now(),
   sourceKey,
+  onStatus,
 }) {
-  await ensurePersist();
-  const processed = await processPhotoOriginal(file);
-  const record = {
-    id: createId(),
-    placeId: place.id,
-    vacationId,
-    day,
-    ts,
-    type: "photo",
-    blob: processed.blob,
-    thumbBlob: processed.thumbBlob,
-    w: processed.w,
-    h: processed.h,
-    mime: inferPhotoMime(file),
-    ext: inferPhotoExt(file),
-    sourceKey: sourceKey ?? null,
-  };
+  if (!CLOUD_MEDIA_ENABLED) {
+    throw new Error("Cloud-Fotos sind deaktiviert.");
+  }
+  if (sourceKey) {
+    const existing = await getMediaBySourceKey(vacationId, sourceKey);
+    if (existing) return existing;
+  }
+  const processed = await processPhotoForCloud(file);
   try {
-    await putMedia(record);
-    return record;
-  } catch (err) {
-    if (isQuotaError(err)) throw Object.assign(new Error("quota"), { quota: true });
-    throw err;
+    return await uploadCloudPhoto({
+      place,
+      vacationId,
+      day,
+      ts: processed.takenAt ?? ts,
+      originalBlob: processed.blob,
+      thumbBlob: processed.thumbBlob,
+      width: processed.w,
+      height: processed.h,
+      sourceKey,
+      onStatus,
+    });
+  } finally {
+    processed.blob = null;
+    processed.thumbBlob = null;
   }
 }
 
-export async function saveVideoForPlace({
-  file,
-  place,
-  vacationId,
-  day,
-  ts = Date.now(),
-  sourceKey,
-}) {
-  await ensurePersist();
-  const processed = await processVideoFile(file);
-  const record = {
-    id: createId(),
-    placeId: place.id,
-    vacationId,
-    day,
-    ts,
-    type: "video",
-    blob: processed.blob,
-    thumbBlob: processed.thumbBlob,
-    w: processed.w,
-    h: processed.h,
-    duration: processed.duration,
-    durationLabel: processed.durationLabel,
-    mime: inferVideoMime(file),
-    ext: inferVideoExt(file),
-    sourceKey: sourceKey ?? null,
-  };
-  try {
-    await putMedia(record);
-    return record;
-  } catch (err) {
-    if (isQuotaError(err)) throw Object.assign(new Error("quota"), { quota: true });
-    throw err;
-  }
+export async function saveVideoForPlace() {
+  throw new Error("Videos kommen in einem späteren Paket.");
 }

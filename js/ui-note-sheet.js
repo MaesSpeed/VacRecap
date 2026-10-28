@@ -3,7 +3,7 @@ import { createNote, moveNoteToPlace, removeNote, updateNoteText } from "./note-
 import { dayRoleLabel, vacationDays } from "./days.js";
 import { openConfirmDialog } from "./ui-confirm.js";
 import { CloudNetworkError, CloudOfflineError } from "./cloud-errors.js";
-import { showToast } from "./toast.js";
+import { showToast, showWarnToast } from "./toast.js";
 import { escapeHtml } from "./utils.js";
 
 const PIN_ICON = `<svg width="18" height="18" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M16 2.8c-5.8 0-10 4.3-10 9.7 0 6.9 10 15.7 10 15.7s10-8.8 10-15.7c0-5.4-4.2-9.7-10-9.7z" fill="#d4523e"/><circle cx="16" cy="12.6" r="3.8" fill="#fff"/></svg>`;
@@ -228,11 +228,11 @@ export function openNoteSheet({
       closeOverlayHistory(activeClose);
       await onSaved?.(captureResult);
     } catch (err) {
-      showToast(
-        err instanceof CloudOfflineError || err instanceof CloudNetworkError
-          ? err.message
-          : err?.message || "Notiz konnte nicht gespeichert werden."
-      );
+      if (err instanceof CloudOfflineError || err instanceof CloudNetworkError) {
+        showWarnToast(err.message);
+      } else {
+        showToast(err?.message || "Notiz konnte nicht gespeichert werden.");
+      }
     } finally {
       saving = false;
     }

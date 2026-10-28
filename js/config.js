@@ -23,5 +23,5 @@ export const SUPABASE_PUBLISHABLE_KEY =
   "sb_publishable_0xW8Ns4iyXiRJQRc8xeMIQ_CQIQx9I2";
 export const SUPABASE_JS_VERSION = "2.49.4";
 
-/** Paket 6a: Fotos/Videos noch nicht in der Cloud. */
-export const CLOUD_MEDIA_ENABLED = false;
+/** Paket 7a: Cloud-Fotos (Storage); Videos später. */
+export const CLOUD_MEDIA_ENABLED = true;

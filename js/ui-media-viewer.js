@@ -1,9 +1,11 @@
 import { deleteMedia, putMedia } from "./db.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { formatMediaDuration } from "./media-process.js";
-import { createShareFileFromMedia } from "./media-file-meta.js";
+import { createShareFileFromMedia, shareFileNameForMedia } from "./media-file-meta.js";
+import { getSignedOriginalUrl } from "./media-signed-url-cache.js";
 import { ICON_BACK_CHEVRON_WHITE } from "./icons.js";
 import { openConfirmDialog } from "./ui-confirm.js";
+import { getSupabase } from "./supabase-client.js";
 import { showToast } from "./toast.js";
 
 const PLAY_ICON = `<svg class="tile__play" width="18" height="18" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>`;
@@ -19,11 +21,32 @@ function revokeAll() {
   objectUrls = [];
 }
 
-function mediaUrl(item) {
-  const blob = item.type === "video" ? item.blob : item.blob;
-  const url = URL.createObjectURL(blob);
-  objectUrls.push(url);
-  return url;
+async function resolveDisplayUrl(item) {
+  if (item.storagePath) {
+    const supabase = getSupabase();
+    const url = await getSignedOriginalUrl(supabase, item.storagePath);
+    if (url) return url;
+  }
+  if (item.blob) {
+    const url = URL.createObjectURL(item.blob);
+    objectUrls.push(url);
+    return url;
+  }
+  return "";
+}
+
+async function resolveShareFile(item) {
+  if (item.blob) return createShareFileFromMedia(item);
+  if (item.storagePath) {
+    const url = await resolveDisplayUrl(item);
+    if (!url) throw new Error("no url");
+    const res = await fetch(url);
+    const blob = await res.blob();
+    const name = shareFileNameForMedia(item);
+    const mime = item.mime || blob.type || "image/jpeg";
+    return new File([blob], name, { type: mime });
+  }
+  throw new Error("no media");
 }
 
 function shareHintMessage(isVideo, mode = "share") {
@@ -105,7 +128,7 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
 
   const activeClose = bindOverlay(overlay, close);
 
-  const render = () => {
+  const render = async () => {
     revokeAll();
     if (shareSnackTimerRef.timer) {
       clearTimeout(shareSnackTimerRef.timer);
@@ -117,12 +140,11 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
       closeOverlayHistory(activeClose);
       return;
     }
-    const url = mediaUrl(item);
+    const url = await resolveDisplayUrl(item);
     const isVideo = item.type === "video";
-    const shareFile = createShareFileFromMedia(item);
     const body = isVideo
       ? `<video class="media-viewer__video" src="${url}" controls playsinline></video>`
-      : `<img class="media-viewer__img" src="${url}" alt="" />`;
+      : `<img class="media-viewer__img" src="${url}" alt="" data-testid="media-viewer-img" />`;
 
     overlay.innerHTML = `
       <div class="media-viewer" data-testid="media-viewer">
@@ -156,13 +178,15 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
         clearTimeout(shareSnackTimerRef.timer);
         shareSnackTimerRef.timer = null;
       }
-      const useShare = Boolean(navigator.canShare?.({ files: [shareFile] }));
-      showViewerShareSnack(overlay, isVideo, useShare ? "share" : "download");
-      beginShareOriginal(shareFile)
-        .then((result) => {
-          if (result?.fallback === "download") {
-            showViewerShareSnack(overlay, isVideo, "download");
-          }
+      void resolveShareFile(item)
+        .then((shareFile) => {
+          const useShare = Boolean(navigator.canShare?.({ files: [shareFile] }));
+          showViewerShareSnack(overlay, isVideo, useShare ? "share" : "download");
+          return beginShareOriginal(shareFile).then((result) => {
+            if (result?.fallback === "download") {
+              showViewerShareSnack(overlay, isVideo, "download");
+            }
+          });
         })
         .catch((err) => {
           if (err?.name === "AbortError") return;
@@ -195,7 +219,7 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
             onChanged?.();
             if (viewerOpen()) {
               index = removedIndex;
-              render();
+              void render();
             } else {
               openMediaViewer(sorted, snapshot.id, { onChanged });
             }
@@ -208,25 +232,29 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
         }
         if (index >= sorted.length) index = sorted.length - 1;
         onChanged?.();
-        render();
+        void render();
       });
     });
 
     const stage = overlay.querySelector('[data-role="stage"]');
-    bindSwipe(stage, () => {
-      if (index < sorted.length - 1) {
-        index += 1;
-        render();
+    bindSwipe(
+      stage,
+      () => {
+        if (index < sorted.length - 1) {
+          index += 1;
+          void render();
+        }
+      },
+      () => {
+        if (index > 0) {
+          index -= 1;
+          void render();
+        }
       }
-    }, () => {
-      if (index > 0) {
-        index -= 1;
-        render();
-      }
-    });
+    );
   };
 
-  render();
+  void render();
 }
 
 function bindSwipe(el, onLeft, onRight) {
