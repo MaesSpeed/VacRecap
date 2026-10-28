@@ -7,7 +7,7 @@ import { peekRouteSegment, resolveRouteSegment } from "./route-service.js";
 import { getMapRoutesEnabled } from "./settings-store.js";
 import { ICON_BACK_CHEVRON } from "./icons.js";
 import { getMapSegment, setMapSegment } from "./map-session.js";
-import { prefetchCaptureGps, resetCaptureGpsPrefetch } from "./capture-gps-prefetch.js";
+import { resetCaptureGpsPrefetch } from "./capture-gps-prefetch.js";
 import { savePhotoForPlace, saveVideoForPlace } from "./media-service.js";
 import { leaveMapScreen, returnToTripFromMap } from "./map-nav.js";
 import { queuePendingFooter } from "./pending-footer.js";
@@ -480,18 +480,10 @@ export async function renderMapScreen(appEl, vacationId) {
       drawMarkers();
     },
     onCamera: () => {
-      const day = dayForFooter();
-      setTripSelection(vacationId, day, null);
-      void storeTripSelection(vacationId, day, null);
-      prefetchCaptureGps();
-      capturePhotoInput?.click();
+      showToast("Fotos und Videos kommen im nächsten Schritt", { icon: "none" });
     },
     onCameraVideo: () => {
-      const day = dayForFooter();
-      setTripSelection(vacationId, day, null);
-      void storeTripSelection(vacationId, day, null);
-      prefetchCaptureGps();
-      captureVideoInput?.click();
+      showToast("Fotos und Videos kommen im nächsten Schritt", { icon: "none" });
     },
     onNote: () => {
       const day = dayForFooter();
@@ -502,12 +494,7 @@ export async function renderMapScreen(appEl, vacationId) {
       });
     },
     onGallery: () => {
-      const day = dayForFooter();
-      void storeTripSelection(vacationId, day, null).then(() => {
-        setTripSelection(vacationId, day, null);
-        queuePendingFooter("gallery");
-        returnToTripFromMap(vacationId);
-      });
+      showToast("Fotos und Videos kommen im nächsten Schritt", { icon: "none" });
     },
   });
 

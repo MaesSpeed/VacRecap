@@ -521,7 +521,7 @@ export async function renderUrlaubDetail(appEl, id) {
       return;
     }
 
-    const noteRowClick = e.target.closest(".nr[data-note-id]");
+    const noteRowClick = e.target.closest(".oc .nr[data-note-id]");
     if (noteRowClick && !e.target.closest('[data-action="edit-note"]')) {
       const placeHost = e.target.closest(".oc[data-place-id]");
       if (!placeHost) return;
@@ -582,7 +582,8 @@ export async function renderUrlaubDetail(appEl, id) {
         await refreshDayList();
         return;
       }
-      const editFree = e.target.closest('[data-action="edit-free-note"]');
+      const editFree =
+        e.target.closest('[data-action="edit-free-note"]') || e.target.closest("[data-free-note]");
       const addFree = e.target.closest('[data-action="add-free-note"]');
       if (editFree || addFree) {
         const notes = await getFreeNotesForDay(id, state.activeDay);

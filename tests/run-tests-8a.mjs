@@ -46,7 +46,10 @@ function createMockSupabaseState() {
   const session = {
     access_token: "test-access",
     refresh_token: "test-refresh",
-    user: { id: userId, email: LONG_EMAIL },
+    expires_in: 3600,
+    expires_at: Math.floor(Date.now() / 1000) + 3600,
+    token_type: "bearer",
+    user: { id: userId, aud: "authenticated", role: "authenticated", email: LONG_EMAIL },
   };
   const trips = [];
   const waypoints = [];
@@ -156,7 +159,7 @@ function createMockSupabaseState() {
 }
 
 async function installSupabaseMocks(page, state) {
-  await page.route(`**/${SUPABASE_HOST}/**`, async (route) => {
+  await page.context().route(`**/${SUPABASE_HOST}/**`, async (route) => {
     const req = route.request();
     const url = new URL(req.url());
     const result = url.pathname.includes("/auth/v1/")
@@ -562,6 +565,47 @@ async function runSuite(browserType, baseUrl, label) {
   const inPlace = await page.locator(".oc .nr__text--btn", { hasText: "Blick ohne Pin" }).count();
   if (inPlace) throw new Error(`${label}: freie Notiz hängt an einer Ortskarte`);
 
+  await page.locator('[data-testid="free-notes"] [data-action="edit-free-note"]').click();
+  await page.waitForSelector('[data-testid="note-sheet"]');
+  const editTitle = (await page.locator(".note-sheet__title").innerText()).trim();
+  if (editTitle !== "Notiz bearbeiten") {
+    throw new Error(`${label}: freie Notiz öffnet kein Bearbeiten-Sheet (${editTitle})`);
+  }
+  await page.fill('[data-testid="note-sheet"] textarea', "Blick geändert");
+  await page.locator('[data-testid="note-sheet"] [data-action="save"]').click();
+  await page.waitForFunction(
+    () => document.querySelector('[data-testid="free-notes"]')?.textContent?.includes("Blick geändert"),
+    null,
+    { timeout: 15_000 }
+  );
+
+  await page.locator('[data-testid="free-notes"] [data-action="edit-free-note"]').click();
+  await page.waitForSelector('[data-testid="note-sheet"] [data-action="delete"]');
+  await page.locator('[data-testid="note-sheet"] [data-action="delete"]').click();
+  await page.locator('[data-testid="confirm-delete-note"] [data-action="confirm"]').click();
+  await page.waitForFunction(() => !document.querySelector('[data-testid="free-notes"]'), null, {
+    timeout: 15_000,
+  });
+  await page.reload();
+  try {
+    await page.waitForSelector('[data-testid="trip-content"]', { timeout: 15_000 });
+  } catch (err) {
+    const info = await page.evaluate(() => ({
+      href: location.href,
+      text: document.body.innerText.slice(0, 300),
+    }));
+    throw new Error(`${label}: nach Reload keine Tagesübersicht ${JSON.stringify(info)} ${err.message}`);
+  }
+  await page.waitForFunction(
+    (name) => document.querySelector('[data-testid="trip-content"]')?.innerText?.includes(name),
+    placeName,
+    { timeout: 15_000 }
+  );
+  const afterReload = await page.locator('[data-testid="trip-content"]').innerText();
+  if (afterReload.includes("Blick geändert") || afterReload.includes("Blick ohne Pin")) {
+    throw new Error(`${label}: gelöschte freie Notiz ist nach Reload noch da`);
+  }
+
   const tripIcon = await svgBox(page, ".trip-header .link-btn--back svg");
   const mapHit = await page.locator('[data-action="map"]').evaluate((el) => {
     const r = el.getBoundingClientRect();
@@ -588,7 +632,58 @@ async function runSuite(browserType, baseUrl, label) {
     }
   }
 
-  if (errors.length) throw new Error(`${label}: ${errors[0]}`);
+  const placesBefore = await page.evaluate(async () => {
+    const id = document.querySelector(".screen--map")?.dataset.vacationId;
+    const { getPlacesForVacation } = await import("./js/db.js");
+    return (await getPlacesForVacation(id)).length;
+  });
+  await page.evaluate(() => {
+    window.__mapCaptureClicks = 0;
+    document.querySelectorAll("[data-testid='map-capture-photo-input'], [data-testid='map-capture-video-input']").forEach((input) => {
+      input.addEventListener("click", () => {
+        window.__mapCaptureClicks += 1;
+      });
+    });
+  });
+  let fileChooser = false;
+  const onChooser = () => {
+    fileChooser = true;
+  };
+  page.on("filechooser", onChooser);
+  const expectMuted = async (action) => {
+    await action();
+    await page.waitForFunction(
+      () => document.querySelector('[data-testid="app-toast"]')?.textContent?.includes("Fotos und Videos kommen im nächsten Schritt"),
+      null,
+      { timeout: 8_000 }
+    );
+    if (!(await page.locator(".screen--map").count())) {
+      throw new Error(`${label}: Karte nach Medien-Aktion verlassen`);
+    }
+  };
+  await expectMuted(() => page.locator('[data-footer-action="camera"]').click());
+  await expectMuted(() => page.locator('[data-footer-action="gallery"]').click());
+  await expectMuted(async () => {
+    const cam = page.locator('[data-footer-action="camera"]');
+    await cam.dispatchEvent("pointerdown");
+    await page.waitForTimeout(650);
+    await cam.dispatchEvent("pointerup");
+  });
+  page.off("filechooser", onChooser);
+  if (fileChooser) throw new Error(`${label}: Kartenfooter hat die Kamera geöffnet`);
+  const captureClicks = await page.evaluate(() => window.__mapCaptureClicks || 0);
+  if (captureClicks) throw new Error(`${label}: Kartenfooter hat den Datei-Input geöffnet (${captureClicks})`);
+  const placesAfter = await page.evaluate(async () => {
+    const id = document.querySelector(".screen--map")?.dataset.vacationId;
+    const { getPlacesForVacation } = await import("./js/db.js");
+    return (await getPlacesForVacation(id)).length;
+  });
+  if (placesAfter !== placesBefore) {
+    throw new Error(`${label}: Kartenfooter hat einen Wegpunkt angelegt (${placesBefore} → ${placesAfter})`);
+  }
+
+  const realErrors = errors.filter((err) => !/access control checks/.test(err));
+  if (realErrors.length) throw new Error(`${label}: ${realErrors[0]}`);
   await ctx.browser().close();
   console.log(`8a ${label} OK`);
 }
