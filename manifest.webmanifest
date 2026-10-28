@@ -1,7 +1,7 @@
 {
   "name": "Reisetagebuch",
   "short_name": "Reisetagebuch",
-  "description": "Deine Reisen – lokal auf dem Gerät",
+  "description": "Deine Reisen – synchron in der Cloud",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

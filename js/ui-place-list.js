@@ -8,20 +8,7 @@ import { escapeHtml } from "./utils.js";
 const PIN_SVG = `<svg width="19" height="19" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M16 2.8c-5.8 0-10 4.3-10 9.7 0 6.9 10 15.7 10 15.7s10-8.8 10-15.7c0-5.4-4.2-9.7-10-9.7z" fill="#d4523e"/><circle cx="16" cy="12.6" r="3.8" fill="#fff"/></svg>`;
 
 const ICON_EDIT = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>`;
-const ICON_CAM = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>`;
-const PIN_CAM_BADGE = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>`;
 const ICON_NOTE = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>`;
-const PLAY_SVG = `<svg class="tile__play" width="14" height="14" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>`;
-
-import {
-  clearThumbDecodeFailed,
-  isThumbDecodeFailed,
-  markThumbDecodeFailed,
-} from "./thumb-decode-state.js";
-
-export { isThumbDecodeFailed, markThumbDecodeFailed, clearThumbDecodeFailed };
-
-const thumbForceRebuildAttempted = new Set();
 
 export async function loadDayPlacesEnriched(vacationId, day) {
   const { getPlacesForDay } = await import("./db.js");
@@ -42,67 +29,12 @@ export async function loadDayPlacesEnriched(vacationId, day) {
   return filterSoftPointsHidden(enriched, vacationId, day);
 }
 
-function photoThumbMissing(media) {
-  if (media.type === "video") return false;
-  return !media.thumbBlob || media.thumbBlob.size === 0;
+export async function ensurePhotoThumbs() {
+  /* Medien in Paket 6a deaktiviert */
 }
 
-async function createThumbBlobForMediaRecord(record) {
-  const { getMedia } = await import("./db.js");
-  const { createPhotoThumbFromBlob } = await import("./media-process.js");
-  if (!record?.blob) throw new Error("no blob");
-  try {
-    return await createPhotoThumbFromBlob(record.blob);
-  } catch (err) {
-    if (err?.name !== "InvalidStateError" || !record.id) throw err;
-    await new Promise((r) => setTimeout(r, 400));
-    const fresh = await getMedia(record.id);
-    if (!fresh?.blob) throw err;
-    return await createPhotoThumbFromBlob(fresh.blob);
-  }
-}
-
-export async function ensurePhotoThumbs(mediaList) {
-  const { scheduleThumbRepairs } = await import("./thumb-repair-queue.js");
-  scheduleThumbRepairs(mediaList);
-  const { getMedia } = await import("./db.js");
-  for (const media of mediaList) {
-    if (!photoThumbMissing(media)) continue;
-    const fresh = await getMedia(media.id);
-    if (fresh?.thumbBlob) media.thumbBlob = fresh.thumbBlob;
-  }
-}
-
-export async function forceRebuildPhotoThumb(mediaId) {
-  if (!mediaId || isThumbDecodeFailed(mediaId)) return false;
-  if (thumbForceRebuildAttempted.has(mediaId)) return false;
-  thumbForceRebuildAttempted.add(mediaId);
-
-  const { getMedia, putMedia } = await import("./db.js");
-  const record = await getMedia(mediaId);
-  if (!record) {
-    markThumbDecodeFailed(mediaId);
-    return false;
-  }
-  if (record.type === "video") {
-    markThumbDecodeFailed(mediaId);
-    return false;
-  }
-  try {
-    if (!record.blob) {
-      markThumbDecodeFailed(mediaId);
-      return false;
-    }
-    const thumbBlob = await createThumbBlobForMediaRecord(record);
-    const { saveMediaThumb } = await import("./db.js");
-    await saveMediaThumb(mediaId, thumbBlob);
-    clearThumbDecodeFailed(mediaId);
-    window.dispatchEvent(new CustomEvent("vacrecap:thumb-repaired", { detail: { mediaId } }));
-    return true;
-  } catch {
-    markThumbDecodeFailed(mediaId);
-    return false;
-  }
+export async function forceRebuildPhotoThumb() {
+  return false;
 }
 
 export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrls = {} }) {
@@ -139,7 +71,6 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
         <article class="oc${selected ? " oc--selected" : ""}${dim ? " oc--dim" : ""}" data-place-id="${place.id}">
           <div class="pinb${selected ? " pinb--selected" : ""}">
             ${PIN_SVG}
-            ${hasMedia ? `<span class="cb" aria-hidden="true">${PIN_CAM_BADGE}</span>` : ""}
           </div>
           <div class="oc__body">
             <div class="oc__head">
@@ -149,51 +80,48 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
               </div>
               ${
                 selected
-                  ? `<div class="qa">
-                <button type="button" class="qa__btn" data-action="edit-place" aria-label="Bearbeiten">${ICON_EDIT}</button>
-                <button type="button" class="qa__btn" data-action="camera-place" aria-label="Kamera">${ICON_CAM}</button>
+                  ? `<div class="oc__actions">
+                <button type="button" class="icon-btn icon-btn--sm" data-action="edit-place" aria-label="Ort bearbeiten">${ICON_EDIT}</button>
               </div>`
                   : ""
               }
             </div>
-            ${selected && hasMedia ? `<div class="tiles">${renderTiles(media, thumbUrls)}</div>` : ""}
             ${
-              notes.length
-                ? `<div class="np">
-              ${previewNotes
-                .map(
-                  (n) => `
-                <div class="nr" data-note-id="${n.id}">
-                  <span class="nr__icon">${ICON_NOTE}</span>
-                  <button type="button" class="nr__text nr__text--btn" data-action="edit-note">${escapeHtml(n.text || "")}</button>
-                </div>`
-                )
-                .join("")}
-              ${
-                !expanded && hiddenCount > 0
-                  ? `<button type="button" class="notes-more" data-action="expand-notes">+${hiddenCount} weitere ${hiddenCount === 1 ? "Notiz" : "Notizen"} ⌄</button>`
-                  : ""
-              }
-              ${
-                expanded && notes.length > 2
-                  ? `<button type="button" class="notes-more" data-action="collapse-notes">Weniger ⌃</button>`
-                  : ""
-              }
-            </div>`
-                : ""
+              selected
+                ? `<div class="oc__notes">${renderNotes(previewNotes, hiddenCount, notes.length, expanded, place.id)}</div>`
+                : dimThumb
+                  ? `<div class="th" aria-hidden="true"><img class="th__img" src="${dimThumb}" alt="" /></div>`
+                  : newestMedia
+                    ? `<div class="th th--ph" aria-hidden="true" data-media-id="${newestMedia.id}"></div>`
+                    : ""
             }
+            ${selected && hasMedia ? `<div class="tiles">${renderTiles(media, thumbUrls)}</div>` : ""}
           </div>
-          ${
-            dim && hasMedia
-              ? dimThumb && !isThumbDecodeFailed(newestMedia.id)
-                ? `<div class="th"><img class="th__img" src="${dimThumb}" alt="" decoding="async" data-media-id="${newestMedia.id}" /></div>`
-                : `<div class="th th--ph" aria-hidden="true" data-media-id="${newestMedia.id}"></div>`
-              : ""
-          }
         </article>
       </li>`;
     })
     .join("");
+}
+
+function renderNotes(notes, hiddenCount, total, expanded, placeId) {
+  if (!total) {
+    return `<button type="button" class="nr nr--new" data-action="add-note" data-place-id="${placeId}">+ Notiz</button>`;
+  }
+  const rows = notes
+    .map(
+      (n) => `
+      <div class="nr" data-note-id="${n.id}">
+        <p class="nr__text">${escapeHtml(n.text)}</p>
+        <button type="button" class="icon-btn icon-btn--sm" data-action="edit-note" aria-label="Notiz bearbeiten">${ICON_NOTE}</button>
+      </div>`
+    )
+    .join("");
+  const more =
+    !expanded && hiddenCount > 0
+      ? `<button type="button" class="nr nr--more" data-action="expand-notes" data-place-id="${placeId}">+ ${hiddenCount} weitere</button>`
+      : "";
+  const add = `<button type="button" class="nr nr--new" data-action="add-note" data-place-id="${placeId}">+ Notiz</button>`;
+  return rows + more + add;
 }
 
 function renderTiles(media, thumbUrls) {
@@ -208,53 +136,29 @@ function renderTiles(media, thumbUrls) {
       const thumb = thumbUrls[m.id];
       const isVideo = m.type === "video";
       const img =
-        thumb && !isThumbDecodeFailed(m.id)
+        thumb
           ? `<img class="tile__img" src="${thumb}" alt="" decoding="async" data-media-id="${m.id}" />`
           : "";
       const dur =
         isVideo
           ? `<span class="tile__dur">${escapeHtml(m.durationLabel || formatMediaDuration(m.duration))}</span>`
           : "";
-      const play = isVideo ? `<span class="tile__play-wrap">${PLAY_SVG}</span>` : "";
+      const play = isVideo ? `<span class="tile__play-wrap"></span>` : "";
       return `<button type="button" class="tile tile--btn" data-media-id="${m.id}" aria-label="Medium anzeigen">${img}${play}${dur}${overlayExtra}</button>`;
     })
     .join("");
 }
 
-export function buildThumbUrlMap(mediaList, onlyIds = null) {
-  const map = {};
-  for (const m of mediaList) {
-    if (onlyIds && !onlyIds.has(m.id)) continue;
-    if (m.thumbBlob && !isThumbDecodeFailed(m.id)) {
-      map[m.id] = URL.createObjectURL(m.thumbBlob);
-    }
-  }
-  return map;
+export function buildThumbUrlMap() {
+  return {};
 }
 
-export function visibleThumbMediaIds(items, selectedId) {
-  const ids = new Set();
-  for (const { place, media } of items) {
-    if (!media?.length) continue;
-    const sorted = media.slice().sort((a, b) => b.ts - a.ts);
-    const visible = sorted.slice(0, 4);
-    const dim = place.id !== selectedId ? sorted[sorted.length - 1] : null;
-    if (place.id === selectedId) {
-      visible.forEach((m) => ids.add(m.id));
-    }
-    if (dim) ids.add(dim.id);
-  }
-  return ids;
+export function visibleThumbMediaIds() {
+  return new Set();
 }
 
-export function revokeThumbUrls(map) {
-  Object.values(map).forEach((u) => URL.revokeObjectURL(u));
-}
+export function revokeThumbUrls() {}
 
-export function wrapPlaceList(innerHtml) {
-  return `
-    <div class="place-list-wrap">
-      <ul class="place-list" data-testid="place-list">${innerHtml}</ul>
-      <div class="place-list-fade" aria-hidden="true"></div>
-    </div>`;
+export function wrapPlaceList(inner) {
+  return `<ul class="place-list">${inner}</ul>`;
 }

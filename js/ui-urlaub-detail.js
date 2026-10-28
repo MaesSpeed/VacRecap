@@ -8,7 +8,6 @@ import {
 } from "./days.js";
 import { getVacation } from "./db.js";
 import { ICON_BACK_CHEVRON, ICON_GEAR, ICON_MAP } from "./icons.js";
-import { savePhotoForPlace, saveVideoForPlace } from "./media-service.js";
 import { rememberPlaceFromGps, trySoftPointOnOpen } from "./place-service.js";
 import { newestHardPlace } from "./places.js";
 import { leaveTripToOverview, navigate } from "./router.js";
@@ -24,30 +23,20 @@ import { loadTripSelection, saveTripSelection } from "./trip-selection-store.js"
 import { prefetchCaptureGps, resetCaptureGpsPrefetch } from "./capture-gps-prefetch.js";
 import { blockTripFooter, isTripFooterBlocked, SHEET_INPUT_BLOCK_MS } from "./overlay-stack.js";
 import { dismissActiveToast, showToast, showTwoLineToast, showWarnToast } from "./toast.js";
-import { openMediaViewer } from "./ui-media-viewer.js";
 import { openNoteSheet } from "./ui-note-sheet.js";
 import {
-  buildThumbUrlMap,
-  forceRebuildPhotoThumb,
   loadDayPlacesEnriched,
   renderPlaceListHtml,
-  revokeThumbUrls,
-  visibleThumbMediaIds,
   wrapPlaceList,
 } from "./ui-place-list.js";
-import { scheduleThumbRepairs } from "./thumb-repair-queue.js";
 
-const thumbRegenInflight = new Map();
 import { openEditPlaceSheet, openSoftPointSheet } from "./ui-place-sheets.js";
-import { createMediathekSession } from "./mediathek-session.js";
 import { mountTripFooter } from "./ui-trip-footer.js";
 import { escapeHtml, todayIso } from "./utils.js";
 
 const tripUiState = new Map();
 
 export function clearTripUiState(vacationId) {
-  const state = tripUiState.get(vacationId);
-  if (state?.thumbUrls) revokeThumbUrls(state.thumbUrls);
   tripUiState.delete(vacationId);
 }
 
@@ -81,7 +70,6 @@ async function getState(id, vacation) {
       selectedByDay: saved?.selectedByDay ?? {},
       notesExpanded: new Set(),
       openGeoDone: new Set(),
-      thumbUrls: {},
       captureBusy: false,
       listRefreshToken: 0,
     };
@@ -188,36 +176,6 @@ export async function renderUrlaubDetail(appEl, id) {
     });
   }
 
-  async function applyThumbToTiles(mediaId) {
-    if (!mediaId) return;
-    const { getMedia } = await import("./db.js");
-    const record = await getMedia(mediaId);
-    if (!record?.thumbBlob) return;
-    const prev = state.thumbUrls[mediaId];
-    if (prev) URL.revokeObjectURL(prev);
-    const url = URL.createObjectURL(record.thumbBlob);
-    state.thumbUrls[mediaId] = url;
-    contentEl.querySelectorAll(`img[data-media-id="${mediaId}"]`).forEach((img) => {
-      img.src = url;
-      img.hidden = false;
-    });
-    contentEl.querySelectorAll(`.th--ph[data-media-id="${mediaId}"]`).forEach((ph) => {
-      ph.classList.remove("th--ph");
-      ph.innerHTML = `<img class="th__img" src="${url}" alt="" decoding="async" data-media-id="${mediaId}" />`;
-    });
-  }
-
-  if (appEl._thumbRepairCleanup) appEl._thumbRepairCleanup();
-  const thumbRepairAc = new AbortController();
-  appEl._thumbRepairCleanup = () => thumbRepairAc.abort();
-  window.addEventListener(
-    "vacrecap:thumb-repaired",
-    (e) => {
-      void applyThumbToTiles(e.detail?.mediaId);
-    },
-    { signal: thumbRepairAc.signal }
-  );
-
   async function refreshDayList() {
     const token = ++state.listRefreshToken;
     await maybeSoftOnOpen();
@@ -227,58 +185,26 @@ export async function renderUrlaubDetail(appEl, id) {
     const selectedId = await ensureSelectedForDay(items);
     if (token !== state.listRefreshToken) return;
 
-    const allMedia = items.flatMap((i) => i.media);
-    const visibleIds = visibleThumbMediaIds(items, selectedId);
-    scheduleThumbRepairs(allMedia);
-    const nextThumbUrls = buildThumbUrlMap(allMedia, visibleIds);
-    const previousThumbUrls = state.thumbUrls;
-
     let html;
     if (items.length === 0) {
       html = `
         <div class="trip-empty" data-testid="trip-empty">
           <p class="trip-empty__title">Noch keine Orte heute</p>
-          <p class="trip-empty__hint">Ort merken, Foto machen oder Notiz schreiben.</p>
+          <p class="trip-empty__hint">Ort merken oder Notiz schreiben.</p>
         </div>`;
     } else {
       html = wrapPlaceList(
         renderPlaceListHtml(items, {
           selectedId,
           notesExpanded: state.notesExpanded,
-          thumbUrls: nextThumbUrls,
+          thumbUrls: {},
         })
       );
     }
-    if (token !== state.listRefreshToken) {
-      revokeThumbUrls(nextThumbUrls);
-      return;
-    }
-    if (!contentEl.isConnected) {
-      revokeThumbUrls(nextThumbUrls);
-      return;
-    }
-    state.thumbUrls = nextThumbUrls;
+    if (token !== state.listRefreshToken) return;
+    if (!contentEl.isConnected) return;
     contentEl.innerHTML = html;
     contentEl.dataset.activeDay = state.activeDay;
-    revokeThumbUrls(previousThumbUrls);
-  }
-
-  async function regenerateThumbFromOriginal(mediaId) {
-    if (!mediaId) return;
-    if (thumbRegenInflight.has(mediaId)) {
-      await thumbRegenInflight.get(mediaId);
-      return;
-    }
-    const job = forceRebuildPhotoThumb(mediaId);
-    thumbRegenInflight.set(mediaId, job);
-    try {
-      const rebuilt = await job;
-      if (rebuilt) await refreshDayList();
-    } catch {
-      /* Platzhalter bleibt sichtbar */
-    } finally {
-      thumbRegenInflight.delete(mediaId);
-    }
   }
 
   async function setActiveDay(dayIso) {
@@ -367,47 +293,8 @@ export async function renderUrlaubDetail(appEl, id) {
     captureVideoInput.click();
   }
 
-  async function handleMediaFile(file, kind) {
-    if (!file || state.captureBusy) return;
-    const footerCapture = captureTargetPlaceId == null;
-    state.captureBusy = true;
-    appEl.dataset.captureBusy = "1";
-    showToast("Wird gespeichert…", { sticky: true, icon: "none" });
-    try {
-      const r = await resolveTargetPlace(kind);
-      const place = r.place;
-      const save =
-        kind === "video"
-          ? () => saveVideoForPlace({ file, place, vacationId: id, day: state.activeDay })
-          : () => savePhotoForPlace({ file, place, vacationId: id, day: state.activeDay });
-      await save();
-      dismissActiveToast();
-      showCaptureResultToast(r, kind);
-      if (
-        footerCapture &&
-        kind === "photo" &&
-        !localStorage.getItem(VIDEO_LONGPRESS_HINT_KEY)
-      ) {
-        localStorage.setItem(VIDEO_LONGPRESS_HINT_KEY, "1");
-        setTimeout(() => {
-          showToast("Lange drücken = Video", { icon: "none" });
-        }, VIDEO_HINT_AFTER_PHOTO_MS);
-      }
-      await refreshDayList();
-    } catch (err) {
-      dismissActiveToast();
-      if (err?.quota) {
-        showToast("Speicher voll – nichts gespeichert");
-      } else {
-        showToast("Speichern fehlgeschlagen");
-      }
-    } finally {
-      state.captureBusy = false;
-      appEl.dataset.captureBusy = "0";
-      captureTargetPlaceId = null;
-      capturePhotoInput.value = "";
-      captureVideoInput.value = "";
-    }
+  async function handleMediaFile() {
+    showToast("Fotos und Videos kommen im nächsten Schritt", { icon: "none" });
   }
 
   const onCaptureInputAborted = () => {
@@ -482,49 +369,10 @@ export async function renderUrlaubDetail(appEl, id) {
     });
   }
 
-  contentEl.addEventListener(
-    "error",
-    (e) => {
-      const img = e.target;
-      if (!img?.matches?.(".tile__img, .th__img")) return;
-      const mediaId = img.dataset.mediaId || img.closest("[data-media-id]")?.dataset?.mediaId;
-      if (!mediaId) {
-        img.remove();
-        return;
-      }
-      const thumbWrap = img.closest(".th");
-      img.remove();
-      if (thumbWrap && !thumbWrap.classList.contains("th--ph")) {
-        thumbWrap.classList.add("th--ph");
-        thumbWrap.dataset.mediaId = mediaId;
-      }
-      void regenerateThumbFromOriginal(mediaId);
-    },
-    true
-  );
-
   contentEl.addEventListener("click", async (e) => {
     const camBtn = e.target.closest('[data-action="camera-place"]');
     if (camBtn) {
-      const host = e.target.closest(".oc[data-place-id]");
-      if (!host) return;
-      const placeId = host.dataset.placeId;
-      state.selectedByDay[state.activeDay] = placeId;
-      persistSelection(id, state);
-      openCapturePhotoInput(placeId);
-      return;
-    }
-
-    const tile = e.target.closest(".tile[data-media-id]");
-    if (tile) {
-      const placeId = e.target.closest(".oc[data-place-id]")?.dataset.placeId;
-      if (!placeId) return;
-      const items = await loadDayPlacesEnriched(id, state.activeDay);
-      const item = items.find((i) => i.place.id === placeId);
-      if (!item) return;
-      openMediaViewer(item.media, tile.dataset.mediaId, {
-        onChanged: () => refreshDayList(),
-      });
+      showToast("Fotos kommen im nächsten Schritt", { icon: "none" });
       return;
     }
 
@@ -643,29 +491,9 @@ export async function renderUrlaubDetail(appEl, id) {
   await refreshDayList();
   if (appEl?.dataset?.appRenderGen !== mountGen) return;
 
-  function openGalleryPicker() {
-    galleryInput.click();
-  }
-
-  galleryInput.addEventListener("change", () => {
-    const files = [...(galleryInput.files || [])];
-    galleryInput.value = "";
-    if (!files.length) return;
-    createMediathekSession({
-      vacationId: id,
-      day: state.activeDay,
-      selectedPlaceId: state.selectedByDay[state.activeDay],
-      files,
-    });
-    navigate({ name: "urlaub-mediathek", id }, { replace: true });
-  });
-
   mountTripFooter(footerMount, {
     onRememberPlace,
-    onCamera: openNativeCamera,
-    onCameraVideo: openNativeVideoCamera,
     onNote: onNoteFooter,
-    onGallery: openGalleryPicker,
   });
 
   appEl.querySelector('[data-action="back"]').addEventListener("click", () => {
@@ -689,12 +517,8 @@ export async function renderUrlaubDetail(appEl, id) {
   bindSwipe(contentEl, shiftDay);
 
   const pendingFooter = consumePendingFooter();
-  if (pendingFooter) {
-    requestAnimationFrame(() => {
-      if (pendingFooter === "gallery") openGalleryPicker();
-      else if (pendingFooter === "camera") openNativeCamera();
-      else if (pendingFooter === "note") void onNoteFooter();
-    });
+  if (pendingFooter === "note") {
+    requestAnimationFrame(() => void onNoteFooter());
   }
 }
 

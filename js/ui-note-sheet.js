@@ -2,6 +2,7 @@ import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { createNote, moveNoteToPlace, removeNote, updateNoteText } from "./note-service.js";
 import { dayRoleLabel, vacationDays } from "./days.js";
 import { openConfirmDialog } from "./ui-confirm.js";
+import { CloudNetworkError, CloudOfflineError } from "./cloud-errors.js";
 import { showToast } from "./toast.js";
 import { escapeHtml } from "./utils.js";
 
@@ -195,37 +196,46 @@ export function openNoteSheet({
   saveBtn.addEventListener("click", async () => {
     if (saving || saveBtn.disabled) return;
     saving = true;
-    const text = textarea.value.trim();
-    let captureResult = null;
-    let placeToUse = activePlace;
+    try {
+      const text = textarea.value.trim();
+      let captureResult = null;
+      let placeToUse = activePlace;
 
-    const useGpsResolve = !isEdit && resolvePlaceOnSave && !placeToUse;
-    if (useGpsResolve) {
-      captureResult = await resolvePlaceOnSave();
-      placeToUse = captureResult.place;
-    }
-
-    if (!placeToUse && isEdit) {
-      placeToUse = activePlace;
-    }
-    if (!placeToUse) {
-      saving = false;
-      showToast("Kein Ort gewählt");
-      return;
-    }
-
-    if (isEdit) {
-      await updateNoteText(note, text);
-      if (placeToUse.id !== note.placeId) {
-        await moveNoteToPlace(note, placeToUse, { day, vacationId });
+      const useGpsResolve = !isEdit && resolvePlaceOnSave && !placeToUse;
+      if (useGpsResolve) {
+        captureResult = await resolvePlaceOnSave();
+        placeToUse = captureResult.place;
       }
-      showToast("Notiz gespeichert");
-    } else {
-      await createNote({ place: placeToUse, vacationId, day, text });
-      showToast("Notiz gespeichert");
+
+      if (!placeToUse && isEdit) {
+        placeToUse = activePlace;
+      }
+      if (!placeToUse) {
+        showToast("Kein Ort gewählt");
+        return;
+      }
+
+      if (isEdit) {
+        await updateNoteText(note, text);
+        if (placeToUse.id !== note.placeId) {
+          await moveNoteToPlace(note, placeToUse, { day, vacationId });
+        }
+        showToast("Notiz gespeichert");
+      } else {
+        await createNote({ place: placeToUse, vacationId, day, text });
+        showToast("Notiz gespeichert");
+      }
+      closeOverlayHistory(activeClose);
+      await onSaved?.(captureResult);
+    } catch (err) {
+      showToast(
+        err instanceof CloudOfflineError || err instanceof CloudNetworkError
+          ? err.message
+          : err?.message || "Notiz konnte nicht gespeichert werden."
+      );
+    } finally {
+      saving = false;
     }
-    closeOverlayHistory(activeClose);
-    await onSaved?.(captureResult);
   });
 
   const delBtn = overlay.querySelector('[data-action="delete"]');

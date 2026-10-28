@@ -1,9 +1,7 @@
-import { deleteBlob, deleteVacation, deleteVacationData, getVacation } from "./db.js";
+import { deleteVacation, deleteVacationData, getVacation } from "./db.js";
 import { ICON_BACK_CHEVRON } from "./icons.js";
 import { navigate } from "./router.js";
-import { requestPersistentStorage } from "./db.js";
 import {
-  getLastBackupTs,
   getMapRoutesEnabled,
   getRememberCaptureLocation,
   getRememberLocationOnOpen,
@@ -14,9 +12,6 @@ import {
   setRememberLocationOnOpen,
   setSamePlaceRadiusM,
 } from "./settings-store.js";
-import { formatBytesGerman, formatGermanDateTime } from "./storage-format.js";
-import { openBackupSheet } from "./ui-backup-sheet.js";
-import { wireRestoreZipInput } from "./ui-restore-sheet.js";
 import { openCoverCreditsSheet } from "./ui-cover-credits.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { showToast } from "./toast.js";
@@ -42,17 +37,12 @@ export async function renderUrlaubSettings(appEl, id) {
     return;
   }
 
-  void requestPersistentStorage();
-  const [remember, radiusM, captureLoc, mapRoutes, lastBackup] = await Promise.all([
+  const [remember, radiusM, captureLoc, mapRoutes] = await Promise.all([
     getRememberLocationOnOpen(),
     getSamePlaceRadiusM(),
     getRememberCaptureLocation(),
     getMapRoutesEnabled(),
-    getLastBackupTs(id),
   ]);
-  const backupSub = lastBackup
-    ? `Zuletzt: ${formatGermanDateTime(lastBackup)}`
-    : "ZIP mit allen Fotos, Videos und Notizen";
   const radiusOptions = samePlaceRadiusOptions();
 
   appEl.className = "screen screen--settings";
@@ -124,27 +114,7 @@ export async function renderUrlaubSettings(appEl, id) {
       </section>
       <section class="settings-block">
         <h2 class="settings-block__label">Daten</h2>
-        <div class="settings-card settings-card--tight">
-          <button type="button" class="settings-item settings-item--link" data-action="backup">
-            <span class="settings-item__icon">${ICON_BACKUP}</span>
-            <div class="settings-item__text">
-              <span class="settings-item__title">Sicherung speichern</span>
-              <span class="settings-item__sub" data-role="backup-sub">${escapeHtml(backupSub)}</span>
-            </div>
-            <span class="settings-item__chevron">${ICON_CHEVRON}</span>
-          </button>
-          <button type="button" class="settings-item settings-item--link" data-action="restore-backup">
-            <span class="settings-item__icon">${ICON_BACKUP}</span>
-            <div class="settings-item__text">
-              <span class="settings-item__title">Sicherung einspielen</span>
-              <span class="settings-item__sub">ZIP-Sicherung wiederherstellen</span>
-            </div>
-            <span class="settings-item__chevron">${ICON_CHEVRON}</span>
-          </button>
-        </div>
-        <p class="settings-storage" data-role="storage-line" hidden></p>
-        <p class="settings-storage settings-storage--warn" data-role="storage-warn" hidden>Speicher wird knapp – Sicherung machen</p>
-        <p class="settings-privacy">${ICON_LOCK} Alles wird nur auf deinem Handy gespeichert.</p>
+        <p class="settings-privacy">${ICON_LOCK} Reisedaten liegen in der Cloud (Supabase). Auf dem Gerät nur ein kleiner Lesecache.</p>
       </section>
       <section class="settings-block">
         <h2 class="settings-block__label">Reise</h2>
@@ -226,22 +196,6 @@ export async function renderUrlaubSettings(appEl, id) {
         });
         window.dispatchEvent(new CustomEvent("vacrecap:setting-saved"));
       });
-    });
-  });
-
-  wireRestoreZipInput(appEl, '[data-action="restore-backup"]');
-
-  appEl.querySelector('[data-action="backup"]').addEventListener("click", () => {
-    openBackupSheet({
-      vacationId: id,
-      onSaved: async () => {
-        const ts = await getLastBackupTs(id);
-        const sub = ts
-          ? `Zuletzt: ${formatGermanDateTime(ts)}`
-          : "ZIP mit allen Fotos, Videos und Notizen";
-        const el = appEl.querySelector('[data-role="backup-sub"]');
-        if (el) el.textContent = sub;
-      },
     });
   });
 
