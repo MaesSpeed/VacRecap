@@ -425,6 +425,35 @@ export async function renderUrlaubDetail(appEl, id) {
       return;
     }
 
+    const addNoteBtn = e.target.closest('[data-action="add-note"]');
+    if (addNoteBtn) {
+      const host = e.target.closest(".oc[data-place-id]");
+      if (!host) return;
+      const placeId = host.dataset.placeId;
+      const items = await loadDayPlacesEnriched(id, state.activeDay);
+      const item = items.find((i) => i.place.id === placeId);
+      if (!item) return;
+      state.selectedByDay[state.activeDay] = placeId;
+      persistSelection(id, state);
+      openNoteSheet({
+        place: item.place,
+        vacationId: id,
+        vacation,
+        day: state.activeDay,
+        dayIndex: dayIndexInTrip(vacation, state.activeDay),
+        placesForDay: async () => {
+          const list = await loadDayPlacesEnriched(id, state.activeDay);
+          return list.map((i) => i.place).filter((p) => !p.soft);
+        },
+        onSaved: () => refreshDayList(),
+        onPlaceChange: (pid) => {
+          state.selectedByDay[state.activeDay] = pid;
+          persistSelection(id, state);
+        },
+      });
+      return;
+    }
+
     const editBtn = e.target.closest('[data-action="edit-place"]');
     const expandBtn = e.target.closest('[data-action="expand-notes"]');
     const collapseBtn = e.target.closest('[data-action="collapse-notes"]');

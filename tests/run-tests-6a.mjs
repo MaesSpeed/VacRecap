@@ -182,7 +182,22 @@ function createMockSupabaseState() {
         }
         if (method === "POST") {
           const row = JSON.parse(body);
-          const full = upsertRow(notes, row, { deleted_at: null });
+          const id = row.id || crypto.randomUUID();
+          const hit = notes.find((x) => x.id === id);
+          const created_at =
+            hit?.created_at || new Date(Date.now() + notes.length * 500).toISOString();
+          const full = {
+            id,
+            created_by: userId,
+            created_at,
+            updated_at: new Date().toISOString(),
+            deleted_at: null,
+            ...row,
+            id,
+            created_at,
+          };
+          if (hit) Object.assign(hit, full);
+          else notes.push(full);
           return { status: 201, json: [full] };
         }
         if (method === "PATCH") {
@@ -344,6 +359,120 @@ async function runFlow(page, baseUrl, label) {
   if (noteCount < 1) throw new Error(`${label}: Notiz nicht in Cloud`);
 }
 
+async function assertPlaceListUi(page, label) {
+  await page.waitForSelector('[data-testid="place-list"]', { timeout: 15_000 });
+  await page.waitForSelector(".place-list-fade", { timeout: 15_000 });
+  const layout = await page.evaluate(() => {
+    const wrap = document.querySelector(".place-list-wrap");
+    return {
+      overflow: (wrap?.scrollWidth ?? 0) <= (wrap?.clientWidth ?? 9999) + 1,
+      hasQa: !!document.querySelector(".qa__btn"),
+    };
+  });
+  if (!layout.overflow) throw new Error(`${label}: horizontal overflow`);
+  if (!layout.hasQa) throw new Error(`${label}: qa__btn fehlt`);
+
+  const meta = await page.evaluate(() => ({
+    tripId: document.querySelector(".screen--trip")?.dataset.vacationId,
+    placeId:
+      document.querySelector(".oc--selected")?.dataset.placeId ||
+      document.querySelector(".oc")?.dataset.placeId,
+    day: document.querySelector("[data-testid=trip-content]")?.dataset.activeDay || "2026-11-06",
+  }));
+
+  await page.click('[data-action="add-note"]');
+  await page.waitForSelector('[data-testid="note-sheet"]');
+  await page.fill('[data-testid="note-sheet"] textarea', "6e Add Link");
+  await page.locator('[data-testid="note-sheet"] [data-action="save"]').click();
+  await page.waitForFunction(() => document.getElementById("overlay-root")?.hidden, null, {
+    timeout: 15_000,
+  });
+
+  await page.evaluate(async (m) => {
+    const { getNotesForPlace, deleteNote } = await import("./js/db.js");
+    const notes = await getNotesForPlace(m.placeId);
+    for (const n of notes) {
+      await deleteNote(n.id);
+    }
+    window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  }, meta);
+  await page.waitForFunction(() => document.querySelectorAll(".nr__text--btn").length === 0, null, {
+    timeout: 15_000,
+  });
+
+  await page.evaluate(async (m) => {
+    const { putNote } = await import("./js/db.js");
+    const { createId } = await import("./js/utils.js");
+    await putNote({
+      id: createId(),
+      vacationId: m.tripId,
+      placeId: m.placeId,
+      day: m.day,
+      text: "Sort-Alt",
+      ts: 1,
+    });
+    await new Promise((r) => setTimeout(r, 60));
+    await putNote({
+      id: createId(),
+      vacationId: m.tripId,
+      placeId: m.placeId,
+      day: m.day,
+      text: "Sort-Neu",
+      ts: 2,
+    });
+    window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  }, meta);
+
+  await page.waitForFunction(
+    () => document.querySelector(".nr__text--btn")?.textContent?.trim() === "Sort-Neu",
+    null,
+    { timeout: 15_000 }
+  );
+
+  await page.locator(".nr__text--btn", { hasText: "Sort-Neu" }).click();
+  await page.waitForSelector('[data-testid="note-sheet"]');
+  await page.fill('[data-testid="note-sheet"] textarea', "Sort-Neu-Edit");
+  await page.locator('[data-testid="note-sheet"] [data-action="save"]').click();
+  await page.waitForFunction(() => document.getElementById("overlay-root")?.hidden, null, {
+    timeout: 15_000,
+  });
+  await page.waitForFunction(
+    () => [...document.querySelectorAll(".nr__text--btn")].some((b) => b.textContent.trim() === "Sort-Neu-Edit"),
+    null,
+    { timeout: 15_000 }
+  );
+  const firstAfterEdit = await page.locator(".nr__text--btn").allTextContents();
+  const editedIdx = firstAfterEdit.findIndex((t) => t.trim() === "Sort-Neu-Edit");
+  const altIdx = firstAfterEdit.findIndex((t) => t.trim() === "Sort-Alt");
+  if (editedIdx < 0) throw new Error(`${label}: Bearbeiten nicht gespeichert`);
+  if (altIdx >= 0 && editedIdx > altIdx) {
+    throw new Error(`${label}: Reihenfolge nach Bearbeiten`);
+  }
+
+  await page.evaluate(async (m) => {
+    const { putNote } = await import("./js/db.js");
+    const { createId } = await import("./js/utils.js");
+    for (let i = 0; i < 3; i++) {
+      await putNote({
+        id: createId(),
+        vacationId: m.tripId,
+        placeId: m.placeId,
+        day: m.day,
+        text: `Extra-${i}`,
+        ts: 10 + i,
+      });
+      await new Promise((r) => setTimeout(r, 30));
+    }
+    window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  }, meta);
+
+  await page.waitForSelector('[data-action="expand-notes"]');
+  await page.click('[data-action="expand-notes"]');
+  await page.waitForSelector('[data-action="collapse-notes"]');
+  await page.click('[data-action="collapse-notes"]');
+  await page.waitForSelector('[data-action="expand-notes"]');
+}
+
 async function assertLegacyCleanup(page, baseUrl) {
   await page.goto(baseUrl);
   const result = await page.evaluate(async () => {
@@ -465,7 +594,15 @@ async function main() {
   for (const vp of VIEWPORTS) {
     await page.setViewportSize({ width: vp.width, height: vp.height });
     const v = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-    if (v !== 43) throw new Error(`Version ${v} in ${vp.name}`);
+    if (Number(v) !== 44) throw new Error(`Version ${v} in ${vp.name}`);
+  }
+
+  for (const vp of [
+    { name: "375x667", width: 375, height: 667 },
+    { name: "390x844", width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize({ width: vp.width, height: vp.height });
+    await assertPlaceListUi(page, `6e-place-chromium-${vp.name}`);
   }
 
   const offlineOk = await page.evaluate(async () => {
@@ -569,11 +706,18 @@ async function main() {
     await assertLoginScreenInitial(wPage, `6d-login-webkit-${vp.name}`);
   }
   await runFlow(wPage, baseUrl, "6b-webkit");
+  for (const vp of [
+    { name: "375x667", width: 375, height: 667 },
+    { name: "390x844", width: 390, height: 844 },
+  ]) {
+    await wPage.setViewportSize({ width: vp.width, height: vp.height });
+    await assertPlaceListUi(wPage, `6e-place-webkit-${vp.name}`);
+  }
   await wk.close();
 
   await ctx.close();
   server.close();
-  console.log("Playwright 6d tests OK");
+  console.log("Playwright 6e tests OK");
 }
 
 main().catch((err) => {

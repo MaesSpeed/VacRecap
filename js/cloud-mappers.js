@@ -72,12 +72,14 @@ export function placeToWaypointRow(place) {
 }
 
 export function noteRowToApp(row) {
+  const createdAt = Date.parse(row.created_at) || Date.now();
   return {
     id: row.id,
     placeId: row.waypoint_id,
     vacationId: row.trip_id,
     day: row.day,
-    ts: Date.parse(row.updated_at) || Date.now(),
+    createdAt,
+    ts: Date.parse(row.updated_at) || createdAt,
     text: row.body || "",
     author: row.created_by,
   };
