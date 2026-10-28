@@ -1,3 +1,5 @@
+import { getBasePath } from "./config.js";
+
 const IDB_NAME = "vacrecap";
 const IDB_TIMEOUT_MS = 8000;
 
@@ -29,10 +31,26 @@ async function clearVacrecapCaches() {
   );
 }
 
-async function unregisterServiceWorkers() {
+function vacrecapScopePrefix() {
+  try {
+    return new URL(getBasePath(), window.location.href).href;
+  } catch {
+    return null;
+  }
+}
+
+async function unregisterVacrecapServiceWorkers() {
   if (!("serviceWorker" in navigator)) return;
+  const prefix = vacrecapScopePrefix();
   const regs = await navigator.serviceWorker.getRegistrations();
-  await Promise.all(regs.map((r) => r.unregister()));
+  await Promise.all(
+    regs
+      .filter((r) => {
+        if (!prefix) return r.scope.includes("/VacRecap/");
+        return r.scope === prefix || r.scope.startsWith(prefix);
+      })
+      .map((r) => r.unregister())
+  );
 }
 
 export function runLegacyCleanup() {
@@ -42,7 +60,7 @@ export function runLegacyCleanup() {
         await Promise.all([
           deleteVacrecapIdb(),
           clearVacrecapCaches(),
-          unregisterServiceWorkers(),
+          unregisterVacrecapServiceWorkers(),
         ]);
       } catch {
         /* Altbestand darf Start nicht blockieren */

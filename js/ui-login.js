@@ -1,6 +1,4 @@
 import { signInWithEmailOtp, verifyEmailOtp } from "./auth-service.js";
-import { escapeHtml } from "./utils.js";
-
 export function renderLoginScreen(appEl, onSignedIn) {
   appEl.className = "screen screen--login";
   appEl.innerHTML = `
@@ -53,7 +51,7 @@ export function renderLoginScreen(appEl, onSignedIn) {
       pendingEmail = await signInWithEmailOtp(email);
       emailForm.hidden = true;
       otpForm.hidden = false;
-      otpForm.querySelector("[data-role=email-display]").textContent = escapeHtml(pendingEmail);
+      otpForm.querySelector("[data-role=email-display]").textContent = pendingEmail;
       otpForm.otp.focus();
     } catch (err) {
       showError(emailForm, err.message || "Code konnte nicht gesendet werden.");

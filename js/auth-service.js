@@ -1,4 +1,5 @@
 import { mapAuthError } from "./cloud-errors.js";
+import { clearReadCache, setCacheUserId } from "./local-cache.js";
 import { getSupabase } from "./supabase-client.js";
 
 export async function getSession() {
@@ -34,6 +35,8 @@ export async function verifyEmailOtp(email, token) {
 }
 
 export async function signOut() {
+  clearReadCache();
+  setCacheUserId(null);
   await getSupabase().auth.signOut();
 }
 

@@ -2,6 +2,7 @@ import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { createNote, moveNoteToPlace, removeNote, updateNoteText } from "./note-service.js";
 import { dayRoleLabel, vacationDays } from "./days.js";
 import { openConfirmDialog } from "./ui-confirm.js";
+import { CloudOfflineError } from "./cloud-errors.js";
 import { showToast } from "./toast.js";
 import { escapeHtml } from "./utils.js";
 
@@ -214,18 +215,28 @@ export function openNoteSheet({
       return;
     }
 
-    if (isEdit) {
-      await updateNoteText(note, text);
-      if (placeToUse.id !== note.placeId) {
-        await moveNoteToPlace(note, placeToUse, { day, vacationId });
+    try {
+      if (isEdit) {
+        await updateNoteText(note, text);
+        if (placeToUse.id !== note.placeId) {
+          await moveNoteToPlace(note, placeToUse, { day, vacationId });
+        }
+        showToast("Notiz gespeichert");
+      } else {
+        await createNote({ place: placeToUse, vacationId, day, text });
+        showToast("Notiz gespeichert");
       }
-      showToast("Notiz gespeichert");
-    } else {
-      await createNote({ place: placeToUse, vacationId, day, text });
-      showToast("Notiz gespeichert");
+      closeOverlayHistory(activeClose);
+      await onSaved?.(captureResult);
+    } catch (err) {
+      showToast(
+        err instanceof CloudOfflineError
+          ? err.message
+          : err?.message || "Notiz konnte nicht gespeichert werden."
+      );
+    } finally {
+      saving = false;
     }
-    closeOverlayHistory(activeClose);
-    await onSaved?.(captureResult);
   });
 
   const delBtn = overlay.querySelector('[data-action="delete"]');

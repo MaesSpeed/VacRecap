@@ -51,7 +51,8 @@ export async function putVacation(vacation) {
       return mapped;
     }
   }
-  const { data, error } = await supabase.from("trips").insert(row).select().single();
+  const insertRow = v.id ? { ...row, id: v.id } : row;
+  const { data, error } = await supabase.from("trips").insert(insertRow).select().single();
   if (error) throw mapApiError(error);
   const mapped = tripRowToVacation(data);
   const prev = readCache()?.trips || [];
@@ -213,7 +214,8 @@ export async function putPlace(place) {
       return mapped;
     }
   }
-  const { data, error } = await supabase.from("waypoints").insert(row).select().single();
+  const insertRow = p.id ? { ...row, id: p.id } : row;
+  const { data, error } = await supabase.from("waypoints").insert(insertRow).select().single();
   if (error) throw mapApiError(error);
   const mapped = normalizePlace(waypointRowToPlace(data));
   mergeWaypointCache(mapped);
@@ -264,7 +266,19 @@ async function fetchNotesForWaypoint(waypointId) {
     .is("deleted_at", null)
     .order("updated_at", { ascending: true });
   if (error) throw mapApiError(error);
-  return (data || []).map(noteRowToApp);
+  const notes = (data || []).map(noteRowToApp);
+  if (notes.length) {
+    cacheNotesForWaypoint(waypointId, notes, notes[0].vacationId);
+  }
+  return notes;
+}
+
+function cacheNotesForWaypoint(waypointId, notes, tripId) {
+  if (!tripId) return;
+  const cache = readCache() || { trips: [], waypoints: {}, notes: {} };
+  const list = cache.notes?.[tripId] || [];
+  const withoutWaypoint = list.filter((n) => n.placeId !== waypointId);
+  writeCache({ notes: { [tripId]: [...withoutWaypoint, ...notes] } });
 }
 
 export async function getNotesForPlace(placeId) {
@@ -275,7 +289,12 @@ export async function putNote(record) {
   assertWritable();
   const row = noteToRow(record);
   const supabase = getSupabase();
-  if (record.id && !String(record.id).startsWith("id-")) {
+  let existing = false;
+  if (record.id) {
+    const { data: hit } = await supabase.from("notes").select("id").eq("id", record.id).maybeSingle();
+    existing = Boolean(hit?.id);
+  }
+  if (existing) {
     const { data, error } = await supabase
       .from("notes")
       .update({ body: row.body, day: row.day, waypoint_id: row.waypoint_id })
@@ -311,7 +330,18 @@ export async function deleteNote(id) {
     .update({ deleted_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw mapApiError(error);
+  removeNoteFromCache(id);
   window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+}
+
+function removeNoteFromCache(noteId) {
+  const cache = readCache();
+  if (!cache?.notes) return;
+  const next = {};
+  for (const [tripId, list] of Object.entries(cache.notes)) {
+    next[tripId] = list.filter((n) => n.id !== noteId);
+  }
+  writeCache({ notes: next });
 }
 
 export async function deleteNotesForPlace() {}

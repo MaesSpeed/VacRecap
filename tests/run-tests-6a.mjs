@@ -97,12 +97,9 @@ function createMockSupabaseState() {
         return raw?.replace(/^eq\./, "");
       };
       if (table === "trips") {
-        if (method === "GET") {
-          return { status: 200, json: trips };
-        }
         if (method === "POST") {
           const row = JSON.parse(body);
-          const id = crypto.randomUUID();
+          const id = row.id || crypto.randomUUID();
           const full = {
             id,
             created_by: userId,
@@ -110,19 +107,26 @@ function createMockSupabaseState() {
             updated_at: new Date().toISOString(),
             companions: row.companions || [],
             ...row,
+            id,
           };
           trips.push(full);
           return { status: 201, json: prefer.includes("return=representation") ? [full] : null };
         }
-        if (method === "GET" && qp("id")) {
+        if (method === "GET") {
           const id = qp("id");
-          const t = trips.find((x) => x.id === id);
-          return { status: 200, json: t ? [t] : [] };
+          if (id) {
+            const t = trips.find((x) => x.id === id);
+            return { status: 200, json: t ? [t] : [] };
+          }
+          return { status: 200, json: trips };
         }
         if (method === "PATCH") {
           const id = qp("id");
           const row = JSON.parse(body);
           const t = trips.find((x) => x.id === id);
+          if (!t) {
+            return { status: 406, json: { code: "PGRST116", message: "0 rows" } };
+          }
           Object.assign(t, row, { updated_at: new Date().toISOString() });
           return { status: 200, json: [t] };
         }
@@ -146,13 +150,15 @@ function createMockSupabaseState() {
         }
         if (method === "POST") {
           const row = JSON.parse(body);
+          const id = row.id || crypto.randomUUID();
           const full = {
-            id: crypto.randomUUID(),
+            id,
             created_by: userId,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
             deleted_at: null,
             ...row,
+            id,
           };
           waypoints.push(full);
           return { status: 201, json: [full] };
@@ -161,6 +167,9 @@ function createMockSupabaseState() {
           const id = qp("id");
           const row = JSON.parse(body);
           const w = waypoints.find((x) => x.id === id);
+          if (!w) {
+            return { status: 406, json: { code: "PGRST116", message: "0 rows" } };
+          }
           Object.assign(w, row, { updated_at: new Date().toISOString() });
           return { status: 200, json: [w] };
         }
@@ -173,13 +182,15 @@ function createMockSupabaseState() {
         }
         if (method === "POST") {
           const row = JSON.parse(body);
+          const id = row.id || crypto.randomUUID();
           const full = {
-            id: crypto.randomUUID(),
+            id,
             created_by: userId,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
             deleted_at: null,
             ...row,
+            id,
           };
           notes.push(full);
           return { status: 201, json: [full] };
@@ -188,9 +199,18 @@ function createMockSupabaseState() {
           const id = qp("id");
           const row = JSON.parse(body);
           const n = notes.find((x) => x.id === id);
-          if (!n) return { status: 404, json: { message: "note missing" } };
+          if (!n) {
+            return { status: 406, json: { code: "PGRST116", message: "0 rows" } };
+          }
           Object.assign(n, row, { updated_at: new Date().toISOString() });
           return { status: 200, json: [n] };
+        }
+        if (method === "GET") {
+          const id = qp("id");
+          if (id) {
+            const n = notes.find((x) => x.id === id);
+            return { status: 200, json: n ? [n] : [] };
+          }
         }
       }
       return { status: 404, json: { message: "not found" } };
@@ -273,19 +293,26 @@ async function runFlow(page, baseUrl, label) {
   await page.waitForSelector(".place-list .oc", { timeout: 20_000 });
   await page.click('[data-footer-action="note"]');
   await page.waitForSelector('[data-testid="note-sheet"]', { timeout: 20_000 });
-  await page.click('[data-action="cancel"]');
+  await page.fill('[data-testid="note-sheet"] textarea', "Hallo Cloud UI");
+  await page.locator('[data-testid="note-sheet"] [data-action="save"]').click();
+  await page.waitForFunction(
+    () => document.getElementById("overlay-root")?.hidden,
+    null,
+    { timeout: 15_000 }
+  );
   const noteRes = await page.evaluate(
     async ({ tripId, day, placeId }) => {
       try {
         const { putNote } = await import("./js/db.js");
+        const { createId } = await import("./js/utils.js");
         await putNote({
+          id: createId(),
           vacationId: tripId,
           placeId,
           day,
           text: "Hallo Cloud",
           ts: Date.now(),
         });
-        window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
         return { ok: true };
       } catch (e) {
         return { ok: false, err: String(e?.message || e) };
@@ -293,7 +320,7 @@ async function runFlow(page, baseUrl, label) {
     },
     { tripId, day, placeId: wp.id }
   );
-  if (!noteRes?.ok) throw new Error(`${label}: Notiz (${noteRes?.err})`);
+  if (!noteRes?.ok) throw new Error(`${label}: Notiz PUT (${noteRes?.err})`);
   const noteCount = await page.evaluate(async (placeId) => {
     const { getNotesForPlace } = await import("./js/db.js");
     return (await getNotesForPlace(placeId)).filter((n) => n.text.includes("Hallo Cloud")).length;
@@ -302,9 +329,6 @@ async function runFlow(page, baseUrl, label) {
 }
 
 async function assertLegacyCleanup(page, baseUrl) {
-  await page.addInitScript(() => {
-    window.__VR_TEST_LEGACY__ = true;
-  });
   await page.goto(baseUrl);
   const result = await page.evaluate(async () => {
     await new Promise((r) => {
@@ -320,22 +344,14 @@ async function assertLegacyCleanup(page, baseUrl) {
       req.onerror = () => r();
     });
     if ("serviceWorker" in navigator) {
-      try {
-        const blob = new Blob(['self.addEventListener("install",()=>self.skipWaiting());'], {
-          type: "text/javascript",
-        });
-        const url = URL.createObjectURL(blob);
-        await navigator.serviceWorker.register(url);
-      } catch {
-        /* ignore */
-      }
+      await navigator.serviceWorker.register("./sw.js");
     }
     await caches.open("vacrecap-v38").then((c) => c.put("/x", new Response("1")));
     return true;
   });
   if (!result) throw new Error("legacy seed failed");
   await page.reload();
-  await page.waitForSelector('[data-testid="login-screen"]', { timeout: 10_000 });
+  await page.waitForSelector('[data-testid="login-screen"]', { timeout: 15_000 });
   const clean = await page.evaluate(async () => {
     const keys = await caches.keys();
     const sw = await navigator.serviceWorker.getRegistrations();
@@ -345,14 +361,44 @@ async function assertLegacyCleanup(page, baseUrl) {
     };
   });
   if (clean.caches.length) throw new Error(`Caches übrig: ${clean.caches.join(",")}`);
-  if (clean.sw > 0) throw new Error("SW nicht deregistriert");
+  if (clean.sw > 0) throw new Error("VacRecap-SW nicht deregistriert");
+}
+
+async function assertV38KillSwitchUpgrade(page, baseUrl) {
+  const v38Path = path.join(root, "tests/fixtures/sw-v38-minimal.js");
+  const v38Body = await readFile(v38Path, "utf8");
+  await page.route("**/sw.js", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/javascript",
+      body: v38Body,
+    });
+  });
+  await page.goto(baseUrl);
+  await page.evaluate(async () => {
+    await caches.open("vacrecap-v38");
+    await navigator.serviceWorker.register("./sw.js");
+  });
+  await page.waitForTimeout(500);
+  await page.unroute("**/sw.js");
+  await page.evaluate(async () => {
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (reg) await reg.update();
+  });
+  await page.waitForSelector('[data-testid="login-screen"]', { timeout: 20_000 });
+  const clean = await page.evaluate(async () => ({
+    caches: (await caches.keys()).filter((k) => k.startsWith("vacrecap-")),
+    sw: (await navigator.serviceWorker.getRegistrations()).length,
+  }));
+  if (clean.caches.length) throw new Error(`6b-B1: Caches übrig ${clean.caches.join(",")}`);
+  if (clean.sw > 0) throw new Error("6b-B1: SW noch aktiv nach Kill-Switch");
 }
 
 async function main() {
   const { server, baseUrl } = await startServer();
   const state = createMockSupabaseState();
-  const chromiumBrowser = await chromium.launch();
-  const ctx = await chromiumBrowser.newContext({
+  const chromiumUserData = path.join("/tmp", `vacrecap-6b-cr-${Date.now()}`);
+  const ctx = await chromium.launchPersistentContext(chromiumUserData, {
     baseURL: baseUrl,
     ...devices["iPhone 8"],
     geolocation: { latitude: 48.8566, longitude: 2.3522 },
@@ -366,7 +412,7 @@ async function main() {
   for (const vp of VIEWPORTS) {
     await page.setViewportSize({ width: vp.width, height: vp.height });
     const v = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-    if (v !== 40) throw new Error(`Version ${v} in ${vp.name}`);
+    if (v !== 41) throw new Error(`Version ${v} in ${vp.name}`);
   }
 
   const offlineOk = await page.evaluate(async () => {
@@ -401,9 +447,33 @@ async function main() {
     const { mapAuthError } = await import("./js/cloud-errors.js");
     return mapAuthError({ code: "invalid_otp", message: "invalid" });
   });
-  if (!authMsg.includes("nicht korrekt")) throw new Error("6a-auth: Fehlermeldung fehlt");
+  if (!authMsg.includes("falsch oder abgelaufen")) throw new Error("6b-B8: Fehlermeldung fehlt");
+
+  const rateMsg = await page.evaluate(async () => {
+    const { mapAuthError } = await import("./js/cloud-errors.js");
+    return mapAuthError({
+      code: "over_request_rate_limit",
+      message: "you can only request this after 42 seconds",
+    });
+  });
+  if (!rateMsg.includes("Zu viele Anfragen")) throw new Error("6b-B12: Rate-Limit-Text fehlt");
+
+  await page.evaluate(async () => {
+    const { setOfflineReadOnly } = await import("./js/local-cache.js");
+    setOfflineReadOnly(false);
+    location.hash = "#/urlaube";
+  });
+  await page.waitForSelector(".screen--urlaube", { timeout: 15_000 });
+  await page.evaluate(async () => {
+    const { openGlobalSettingsSheet } = await import("./js/ui-global-settings.js");
+    openGlobalSettingsSheet(document.getElementById("app"));
+  });
+  await page.waitForSelector('[data-testid="global-settings-sheet"]');
+  await page.click('[data-action="close"]');
+  await page.waitForSelector('[data-testid="global-settings-sheet"]', { state: "hidden" });
 
   const heapBefore = await page.evaluate(() => performance.memory?.usedJSHeapSize ?? 0);
+  await assertV38KillSwitchUpgrade(page, baseUrl);
   await assertLegacyCleanup(page, baseUrl);
   const heapAfter = await page.evaluate(() => performance.memory?.usedJSHeapSize ?? 0);
   if (heapBefore && heapAfter && heapAfter - heapBefore > 8_000_000) {
@@ -417,13 +487,12 @@ async function main() {
   });
   const wPage = await wk.newPage();
   await installSupabaseMocks(wPage, createMockSupabaseState());
-  await runFlow(wPage, baseUrl, "6a-webkit");
+  await runFlow(wPage, baseUrl, "6b-webkit");
   await wk.close();
 
   await ctx.close();
-  await chromiumBrowser.close();
   server.close();
-  console.log("Playwright 6a tests OK");
+  console.log("Playwright 6b tests OK");
 }
 
 main().catch((err) => {

@@ -1,7 +1,18 @@
-const CACHE_KEY = "vr-cloud-read-cache";
+const CACHE_KEY_PREFIX = "vr-cloud-read-cache";
+const LEGACY_CACHE_KEY = "vr-cloud-read-cache";
 const MAX_BYTES = 500 * 1024;
 
 let offlineReadOnly = false;
+let activeUserId = null;
+
+export function setCacheUserId(userId) {
+  activeUserId = userId || null;
+}
+
+function cacheKey() {
+  if (!activeUserId) return LEGACY_CACHE_KEY;
+  return `${CACHE_KEY_PREFIX}:${activeUserId}`;
+}
 
 export function isOfflineReadOnly() {
   return offlineReadOnly || !navigator.onLine;
@@ -13,7 +24,8 @@ export function setOfflineReadOnly(value) {
 
 export function clearReadCache() {
   try {
-    localStorage.removeItem(CACHE_KEY);
+    localStorage.removeItem(cacheKey());
+    localStorage.removeItem(LEGACY_CACHE_KEY);
   } catch {
     /* ignore */
   }
@@ -35,7 +47,11 @@ function trimPayload(obj) {
 
 export function readCache() {
   try {
-    const raw = localStorage.getItem(CACHE_KEY);
+    const key = cacheKey();
+    let raw = localStorage.getItem(key);
+    if (!raw && key !== LEGACY_CACHE_KEY) {
+      raw = localStorage.getItem(LEGACY_CACHE_KEY);
+    }
     if (!raw) return null;
     return JSON.parse(raw);
   } catch {
@@ -44,6 +60,7 @@ export function readCache() {
 }
 
 export function writeCache(partial) {
+  if (!activeUserId) return;
   try {
     const prev = readCache() || { trips: [], waypoints: {}, notes: {} };
     const next = {
@@ -52,7 +69,7 @@ export function writeCache(partial) {
       notes: { ...prev.notes, ...(partial.notes || {}) },
       savedAt: Date.now(),
     };
-    localStorage.setItem(CACHE_KEY, JSON.stringify(trimPayload(next)));
+    localStorage.setItem(cacheKey(), JSON.stringify(trimPayload(next)));
   } catch {
     /* quota */
   }

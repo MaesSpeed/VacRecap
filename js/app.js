@@ -2,7 +2,7 @@ import { getSession, onAuthStateChange } from "./auth-service.js";
 import { getAllVacations } from "./db.js";
 import { installGestureGuards } from "./gesture-guard.js";
 import { runLegacyCleanup } from "./legacy-cleanup.js";
-import { isOfflineReadOnly, setOfflineReadOnly } from "./local-cache.js";
+import { isOfflineReadOnly, setCacheUserId, setOfflineReadOnly } from "./local-cache.js";
 import { getRoute, navigate, onRouteChange, startRouter } from "./router.js";
 import { renderLoginScreen } from "./ui-login.js";
 import { renderUrlaubDetail } from "./ui-urlaub-detail.js";
@@ -19,6 +19,23 @@ const appEl = document.getElementById("app");
 let renderGeneration = 0;
 let renderCoalescePending = false;
 let appStarted = false;
+let loadErrorShown = false;
+
+function renderCloudLoadError(retry) {
+  if (!appEl) return;
+  loadErrorShown = true;
+  appEl.className = "screen screen--login";
+  appEl.innerHTML = `
+    <main class="login-main" data-testid="cloud-load-error">
+      <p class="login-lead">Die Cloud ist gerade nicht erreichbar. Bitte Verbindung prüfen.</p>
+      <button type="button" class="btn btn-emaille" data-testid="cloud-retry">Erneut versuchen</button>
+    </main>
+  `;
+  appEl.querySelector('[data-testid="cloud-retry"]')?.addEventListener("click", () => {
+    loadErrorShown = false;
+    retry();
+  });
+}
 
 function updateOnlineBanner() {
   const offline = isOfflineReadOnly();
@@ -91,14 +108,18 @@ function scheduleRender() {
     void renderNow().catch((err) => {
       if (err instanceof CloudOfflineError) {
         showWarnToast(err.message);
+        return;
       }
+      renderCloudLoadError(scheduleRender);
     });
   });
 }
 
-function startApp() {
+async function startApp() {
   if (appStarted) return;
   appStarted = true;
+  const session = await getSession();
+  if (session?.user?.id) setCacheUserId(session.user.id);
   onRouteChange(() => {
     dismissOverlayOnly();
     scheduleRender();
@@ -126,10 +147,12 @@ async function boot() {
   if (!session) {
     renderLoginScreen(appEl, () => startApp());
     onAuthStateChange((s) => {
+      if (s?.user?.id) setCacheUserId(s.user.id);
       if (s) startApp();
     });
     return;
   }
+  setCacheUserId(session.user.id);
   startApp();
 }
 

@@ -3,6 +3,7 @@ import { ICON_COVER_CUSTOM } from "./icons.js";
 import { deleteBlob, getBlob, getVacation, putBlob, putVacation } from "./db.js";
 import { navigate } from "./router.js";
 import { clearTripUiState } from "./ui-urlaub-detail.js";
+import { CloudOfflineError } from "./cloud-errors.js";
 import { showToast } from "./toast.js";
 import { COMPANION_TAGS, createEmptyVacation, normalizeVacation } from "./vacation.js";
 import {
@@ -264,7 +265,16 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
       await deleteBlob(old.cover.blobId);
     }
 
-    await putVacation(vacation);
+    try {
+      await putVacation(vacation);
+    } catch (err) {
+      showToast(
+        err instanceof CloudOfflineError
+          ? err.message
+          : err?.message || "Speichern fehlgeschlagen."
+      );
+      return;
+    }
     if (customObjectUrl) URL.revokeObjectURL(customObjectUrl);
 
     sessionStorage.removeItem("vacrecap-form-return");

@@ -17,12 +17,14 @@ export function tripRowToVacation(row) {
 
 export function vacationToTripRow(vacation) {
   const names = vacation.companions?.names?.filter(Boolean) ?? [];
-  return {
+  const row = {
     title: vacation.title?.trim() || "Reise",
     start_date: vacation.startDate || null,
     end_date: vacation.endDate || null,
     companions: names,
   };
+  if (vacation.id) row.id = vacation.id;
+  return row;
 }
 
 export function waypointRowToPlace(row) {
@@ -54,7 +56,7 @@ export function waypointRowToPlace(row) {
 }
 
 export function placeToWaypointRow(place) {
-  return {
+  const row = {
     trip_id: place.vacationId,
     day: place.day || place.dayDate,
     visited_at: new Date(place.ts || Date.now()).toISOString(),
@@ -65,6 +67,8 @@ export function placeToWaypointRow(place) {
     is_soft: Boolean(place.soft),
     source: place.source || "manual",
   };
+  if (place.id) row.id = place.id;
+  return row;
 }
 
 export function noteRowToApp(row) {
@@ -80,10 +84,12 @@ export function noteRowToApp(row) {
 }
 
 export function noteToRow(note) {
-  return {
+  const row = {
     trip_id: note.vacationId,
     waypoint_id: note.placeId || null,
     day: note.day,
     body: (note.text || "").trim(),
   };
+  if (note.id) row.id = note.id;
+  return row;
 }

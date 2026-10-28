@@ -25,19 +25,20 @@ export function openGlobalSettingsSheet(hostEl) {
   const close = () => {
     overlay.hidden = true;
     overlay.innerHTML = "";
-    closeOverlayHistory(close);
   };
 
-  bindOverlay(overlay, close);
+  const activeClose = bindOverlay(overlay, close);
 
-  overlay.querySelector('[data-action="close"]')?.addEventListener("click", close);
+  overlay.querySelector('[data-action="close"]')?.addEventListener("click", () =>
+    closeOverlayHistory(activeClose)
+  );
   overlay.querySelector('[data-action="clear-cache"]')?.addEventListener("click", () => {
     clearReadCache();
-    close();
+    closeOverlayHistory(activeClose);
   });
   overlay.querySelector('[data-action="sign-out"]')?.addEventListener("click", async () => {
     await signOut();
-    close();
+    closeOverlayHistory(activeClose);
     location.hash = "#/urlaube";
     location.reload();
   });
