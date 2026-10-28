@@ -16,6 +16,18 @@ function uploadTimeoutError() {
   return new CloudNetworkError("Upload-Zeitüberschreitung. Bitte erneut versuchen.");
 }
 
+function asOfflineError(err, mediaRecord) {
+  if (err instanceof CloudOfflineError) {
+    if (mediaRecord && !err.mediaRecord) err.mediaRecord = mediaRecord;
+    return err;
+  }
+  const msg =
+    err instanceof Error && err.message
+      ? err.message
+      : "Du bist offline. Upload erst wieder online möglich.";
+  return new CloudOfflineError(msg, { mediaRecord });
+}
+
 async function uploadBlobOnce(bucket, path, blob, contentType) {
   const supabase = getSupabase();
   let timer = null;
@@ -123,11 +135,13 @@ export async function uploadCloudPhoto({
     onStatus?.({ phase: "done", mediaId, status: "uploaded" });
     return record;
   } catch (err) {
-    if (err instanceof CloudOfflineError) {
+    const offline =
+      err instanceof CloudOfflineError || !navigator.onLine || isFetchNetworkFailure(err);
+    if (offline) {
       record.uploadStatus = "failed";
       await updateMediaRow(mediaId, { upload_status: "failed" }).catch(() => {});
       onStatus?.({ phase: "failed", mediaId, status: "offline", error: err });
-      throw err;
+      throw asOfflineError(err, record);
     }
     record.uploadStatus = "failed";
     await updateMediaRow(mediaId, { upload_status: "failed" }).catch(() => {});
@@ -148,15 +162,18 @@ export async function retryCloudPhotoUpload(media, { originalBlob, thumbBlob, on
     onStatus?.({ phase: "done", mediaId: media.id, status: "uploaded" });
     return { ...media, uploadStatus: "uploaded" };
   } catch (err) {
+    const failedRecord = { ...media, uploadStatus: "failed" };
     await updateMediaRow(media.id, { upload_status: "failed" }).catch(() => {});
-    if (err instanceof CloudOfflineError) {
+    const offline =
+      err instanceof CloudOfflineError || !navigator.onLine || isFetchNetworkFailure(err);
+    if (offline) {
       onStatus?.({ phase: "failed", mediaId: media.id, status: "offline", error: err });
-      throw err;
+      throw asOfflineError(err, failedRecord);
     }
     onStatus?.({ phase: "failed", mediaId: media.id, status: "failed", error: err });
     throw new CloudUploadFailedError(
       err?.message || "Upload fehlgeschlagen",
-      { ...media, uploadStatus: "failed" },
+      failedRecord,
       { cause: err }
     );
   }

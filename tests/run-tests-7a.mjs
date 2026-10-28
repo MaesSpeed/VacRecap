@@ -71,6 +71,7 @@ function createMockSupabaseState(baseUrl) {
   let failOriginalUploads = 0;
   let failAllOriginalUploads = false;
   let failMediaList = false;
+  let failNextOriginalOffline = 0;
 
   return {
     userId,
@@ -88,6 +89,9 @@ function createMockSupabaseState(baseUrl) {
     },
     setFailMediaList(v) {
       failMediaList = Boolean(v);
+    },
+    setFailNextOriginalOffline(n) {
+      failNextOriginalOffline = Math.max(0, Number(n) || 0);
     },
     setOtp(code) {
       otp = code;
@@ -139,6 +143,10 @@ function createMockSupabaseState(baseUrl) {
         const bucket = rest.slice(0, slash);
         const objectPath = decodeURIComponent(rest.slice(slash + 1));
         const key = `${bucket}/${objectPath}`;
+        if (bucket === "media-originals" && failNextOriginalOffline > 0) {
+          failNextOriginalOffline -= 1;
+          return { abort: "connectionfailed", setOffline: true };
+        }
         if (bucket === "media-originals" && (failAllOriginalUploads || failOriginalUploads > 0)) {
           if (failOriginalUploads > 0) failOriginalUploads -= 1;
           return { status: 500, json: { message: "mock upload fail" } };
@@ -284,6 +292,15 @@ async function installSupabaseMocks(page, state, baseUrl) {
       result = state.handleAuth(url, method, body);
     } else if (url.pathname.includes("/storage/v1/")) {
       result = state.handleStorage(url, method, body, baseUrl);
+      if (result?.abort) {
+        if (result.setOffline) {
+          await page.evaluate(() => {
+            Object.defineProperty(navigator, "onLine", { configurable: true, get: () => false });
+          });
+        }
+        await route.abort(result.abort);
+        return;
+      }
     } else if (url.pathname.includes("/rest/v1/")) {
       result = state.handleRest(url, method, body, headers);
     } else {
@@ -407,7 +424,10 @@ async function runPhotoSuite(page, baseUrl, state, fixturePaths, label) {
     const { CloudOfflineError } = await import("./js/cloud-errors.js");
     const { CloudUploadFailedError } = await import("./js/cloud-photo-upload.js");
     const wrapped = new CloudUploadFailedError("fail", { id: "x" }, { cause: new CloudOfflineError() });
-    return wrapped.cause instanceof CloudOfflineError;
+    const withRecord = new CloudOfflineError("off", { mediaRecord: { id: "keep-me" } });
+    return (
+      wrapped.cause instanceof CloudOfflineError && withRecord.mediaRecord?.id === "keep-me"
+    );
   });
   if (!offlineErrOk) throw new Error(`${label}: CloudOfflineError nicht als cause erhalten`);
 
@@ -494,6 +514,52 @@ async function runPhotoSuite(page, baseUrl, state, fixturePaths, label) {
   await page.click('[data-testid="photo-upload-sheet"] [data-action="close"]');
   await page.waitForFunction(() => document.getElementById("overlay-root")?.hidden);
 
+  const mediaBeforeMidOffline = state.media.length;
+  state.setFailNextOriginalOffline(1);
+  await page.setInputFiles('[data-testid="gallery-input"]', [fixturePathC]);
+  await page.waitForSelector('[data-testid="photo-upload-sheet"]', { state: "visible" });
+  await page.waitForFunction(
+    () => document.querySelector(".photo-upload-item__status")?.textContent?.includes("Offline"),
+    null,
+    { timeout: 60_000 }
+  );
+  if (state.media.length !== mediaBeforeMidOffline + 1) {
+    throw new Error(
+      `${label}: Offline-Abbriff legte ${state.media.length - mediaBeforeMidOffline} Zeilen an (erwartet 1)`
+    );
+  }
+  const midOfflineId = state.media[state.media.length - 1]?.id;
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, get: () => true });
+    window.dispatchEvent(new Event("online"));
+  });
+  await page.waitForFunction(
+    () => document.querySelector(".photo-upload-item__status")?.textContent?.includes("✓"),
+    null,
+    { timeout: 60_000 }
+  );
+  if (state.media.length !== mediaBeforeMidOffline + 1) {
+    throw new Error(
+      `${label}: online-Retry legte Duplikat an (${mediaBeforeMidOffline} -> ${state.media.length})`
+    );
+  }
+  if (state.media.filter((m) => m.id === midOfflineId).length !== 1) {
+    throw new Error(`${label}: media_id nach Offline-Retry nicht wiederverwendet`);
+  }
+  const ghostFailed = state.media.filter(
+    (m) => !m.deleted_at && m.upload_status === "failed" && m.id !== midOfflineId
+  );
+  if (ghostFailed.length > 0) {
+    throw new Error(`${label}: failed-Geisterzeilen nach Offline-Retry (${ghostFailed.length})`);
+  }
+  await page.click('[data-testid="photo-upload-sheet"] [data-action="close"]');
+  await page.waitForFunction(() => document.getElementById("overlay-root")?.hidden);
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent("vacrecap:data-changed")));
+  const midRow = state.media.find((m) => m.id === midOfflineId);
+  if (midRow?.upload_status !== "uploaded") {
+    throw new Error(`${label}: Offline-Retry-Zeile nicht uploaded`);
+  }
+
   await page.evaluate(
     async ({ tripId, day, placeId }) => {
       Object.defineProperty(navigator, "onLine", { configurable: true, get: () => false });
@@ -517,12 +583,18 @@ async function runPhotoSuite(page, baseUrl, state, fixturePaths, label) {
   );
   await page.evaluate(() => {
     Object.defineProperty(navigator, "onLine", { configurable: true, get: () => true });
-    const overlay = document.getElementById("overlay-root");
-    if (overlay) {
-      overlay.hidden = true;
-      overlay.innerHTML = "";
-    }
   });
+  await page.click('[data-testid="photo-upload-sheet"] [data-action="close"]');
+  await page.waitForFunction(() => document.getElementById("overlay-root")?.hidden, null, {
+    timeout: 10_000,
+  });
+  await page.evaluate(
+    (id) => {
+      location.hash = `#/urlaub/${id}`;
+    },
+    tripId
+  );
+  await page.waitForSelector('[data-testid="trip-content"]', { timeout: 15_000 });
 
   const overflow = await page.evaluate(() => {
     const wrap = document.querySelector(".place-list-wrap");

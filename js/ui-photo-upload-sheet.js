@@ -175,6 +175,8 @@ export function openPhotoUploadSheet({ files, place, vacationId, day, onDone }) 
     } catch (err) {
       if (err instanceof CloudUploadFailedError && err.mediaRecord) {
         item.media = err.mediaRecord;
+      } else if (err instanceof CloudOfflineError && err.mediaRecord) {
+        item.media = err.mediaRecord;
       }
       const rootCause =
         err instanceof CloudOfflineError

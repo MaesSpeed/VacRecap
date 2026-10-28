@@ -1,7 +1,9 @@
 export class CloudOfflineError extends Error {
-  constructor(message = "Du bist offline. Änderungen sind erst wieder online möglich.") {
+  constructor(message = "Du bist offline. Änderungen sind erst wieder online möglich.", { mediaRecord = null } = {}) {
     super(message);
     this.name = "CloudOfflineError";
+    /** @type {object | null} Bereits angelegte media-Zeile für Retry mit derselben ID */
+    this.mediaRecord = mediaRecord;
   }
 }
 
