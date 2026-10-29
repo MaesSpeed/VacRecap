@@ -368,12 +368,12 @@ export async function renderMapScreen(appEl, vacationId) {
     run();
     requestAnimationFrame(() => {
       if (!mapAlive) return;
-      map.invalidateSize({ pan: false });
+      map.invalidateSize();
       run();
     });
     setTimeout(() => {
       if (!mapAlive) return;
-      map.invalidateSize({ pan: false });
+      map.invalidateSize();
       run();
     }, 350);
   }
