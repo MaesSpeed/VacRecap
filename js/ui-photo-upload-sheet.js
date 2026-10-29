@@ -14,9 +14,18 @@ import { formatDatePart } from "./utils.js";
  * @typedef {{ file: File, name: string, status: string, error?: string, processed?: { blob: Blob, thumbBlob: Blob, w: number, h: number, takenAt?: number }, media?: object }} UploadItem
  */
 
-export function openPhotoUploadSheet({ files, place, vacationId, day, onDone }) {
+export function openPhotoUploadSheet({
+  files,
+  place,
+  vacationId,
+  day,
+  onDone,
+  ensurePlace,
+  heldMessage,
+}) {
   const overlay = document.getElementById("overlay-root");
   if (!overlay || !files?.length) return;
+  let currentPlace = place || null;
 
   const imageFiles = files.filter((f) => f.type.startsWith("image/"));
   const targetLabel = [day ? formatDatePart(day, false) : "", place?.name || ""]
@@ -28,11 +37,14 @@ export function openPhotoUploadSheet({ files, place, vacationId, day, onDone }) 
   }
   if (!imageFiles.length) return;
 
+  const waitingForPlace = !currentPlace && typeof ensurePlace === "function";
   /** @type {UploadItem[]} */
   const items = imageFiles.map((file) => ({
     file,
     name: file.name || "Foto",
-    status: "queued",
+    status: waitingForPlace ? "failed" : "queued",
+    error: waitingForPlace ? heldMessage : undefined,
+    retryable: waitingForPlace ? true : undefined,
   }));
 
   overlay.hidden = false;
@@ -148,6 +160,16 @@ export function openPhotoUploadSheet({ files, place, vacationId, day, onDone }) 
       return;
     }
     try {
+      if (!currentPlace && typeof ensurePlace === "function") {
+        currentPlace = await ensurePlace();
+      }
+      if (!currentPlace) {
+        item.status = "failed";
+        item.retryable = true;
+        item.error = heldMessage || "Der Ort konnte nicht angelegt werden. Das Foto bleibt erhalten – bitte erneut versuchen.";
+        showWarnToast(item.error);
+        return;
+      }
       item.status = "processing";
       item.error = undefined;
       render();
@@ -165,7 +187,7 @@ export function openPhotoUploadSheet({ files, place, vacationId, day, onDone }) 
         });
       } else {
         item.media = await uploadCloudPhoto({
-          place,
+          place: currentPlace,
           vacationId,
           day,
           ts: processed.takenAt ?? Date.now(),
@@ -181,6 +203,7 @@ export function openPhotoUploadSheet({ files, place, vacationId, day, onDone }) 
         });
       }
       item.status = "uploaded";
+      item.error = undefined;
     } catch (err) {
       if (err instanceof CloudUploadFailedError && err.mediaRecord) {
         item.media = err.mediaRecord;
@@ -200,7 +223,7 @@ export function openPhotoUploadSheet({ files, place, vacationId, day, onDone }) 
       } else {
         item.status = "failed";
         item.error =
-          err?.message ||
+          (err?.message?.startsWith("Der Ort konnte nicht") ? heldMessage || err.message : err?.message) ||
           (err instanceof CloudUploadFailedError ? "Upload fehlgeschlagen" : "Verarbeitung fehlgeschlagen");
         item.retryable = canRetryItem(item);
         if (item.status === "failed" && item.error) {
@@ -216,6 +239,7 @@ export function openPhotoUploadSheet({ files, place, vacationId, day, onDone }) 
   }
 
   async function runAll() {
+    if (waitingForPlace) return;
     for (let i = 0; i < items.length; i++) {
       await runItem(i);
     }
@@ -229,7 +253,9 @@ export function openPhotoUploadSheet({ files, place, vacationId, day, onDone }) 
     overlay.querySelectorAll('[data-action="retry"]').forEach((btn) => {
       btn.addEventListener("click", () => {
         const idx = Number(btn.getAttribute("data-idx"));
-        void runItem(idx, true);
+        void runItem(idx, true).then(() => {
+          if (items.length && items.every((it) => it.status === "uploaded")) onDone?.();
+        });
       });
     });
   }

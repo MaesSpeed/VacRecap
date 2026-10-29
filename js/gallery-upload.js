@@ -1,3 +1,4 @@
+import { photoKeptMessage } from "./cloud-errors.js";
 import { defaultActiveDay } from "./days.js";
 import { resolveGalleryPhotoTarget } from "./target-place.js";
 import { saveTripSelection, loadTripSelection } from "./trip-selection-store.js";
@@ -37,24 +38,45 @@ export async function startGalleryPhotoUpload({
     showWarnToast("Foto konnte nicht zugeordnet werden.");
     return null;
   }
-  const target = await resolveGalleryPhotoTarget({
-    vacationId,
-    day: activeDay,
-    selectedPlaceId,
-  });
-  const saved = (await loadTripSelection(vacationId)) || {
-    selectedByDay: {},
-    activeDay,
-  };
-  saved.activeDay = activeDay;
-  saved.selectedByDay = { ...(saved.selectedByDay || {}), [activeDay]: target.place.id };
-  await saveTripSelection(vacationId, saved);
-  openPhotoUploadSheet({
-    files: images,
-    place: target.place,
-    vacationId,
-    day: activeDay,
-    onDone,
-  });
-  return target;
+
+  async function createTarget() {
+    const target = await resolveGalleryPhotoTarget({
+      vacationId,
+      day: activeDay,
+      selectedPlaceId,
+    });
+    const saved = (await loadTripSelection(vacationId)) || {
+      selectedByDay: {},
+      activeDay,
+    };
+    saved.activeDay = activeDay;
+    saved.selectedByDay = { ...(saved.selectedByDay || {}), [activeDay]: target.place.id };
+    await saveTripSelection(vacationId, saved);
+    return target;
+  }
+
+  try {
+    const target = await createTarget();
+    openPhotoUploadSheet({
+      files: images,
+      place: target.place,
+      vacationId,
+      day: activeDay,
+      onDone,
+    });
+    return target;
+  } catch (err) {
+    const message = photoKeptMessage(err);
+    showWarnToast(message);
+    openPhotoUploadSheet({
+      files: images,
+      place: null,
+      vacationId,
+      day: activeDay,
+      heldMessage: message,
+      ensurePlace: async () => (await createTarget()).place,
+      onDone,
+    });
+    return null;
+  }
 }

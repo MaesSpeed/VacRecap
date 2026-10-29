@@ -31,6 +31,22 @@ export function getCapturePosition() {
   return capturePositionFlight;
 }
 
+/** Nur echte Standortfehler, keine Speicherfehler der Cloud. */
+export function isLocationUnavailable(err) {
+  const code = Number(err?.code);
+  if (code === 1 || code === 2 || code === 3) return true;
+  const msg = String(err?.message || "").toLowerCase();
+  if (!msg) return false;
+  return (
+    msg === "unsupported" ||
+    msg.includes("geolocation") ||
+    msg.includes("position unavailable") ||
+    msg.includes("timeout expired") ||
+    msg.includes("timed out") ||
+    msg.includes("user denied")
+  );
+}
+
 export function getCurrentPosition(options = {}) {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {

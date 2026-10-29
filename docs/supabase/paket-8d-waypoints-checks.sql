@@ -1,0 +1,15 @@
+-- Paket 8d: Bestehende Checks auf public.waypoints.
+-- NICHT AUSFÜHREN. Die Constraints sind in Produktion schon da.
+-- Kein Schema-Fix: der Client sendet nur erlaubte source-Werte.
+-- Diese Datei bildet die Checks für den Test-Mock nach
+-- (im Repo lag das Wegpunkt-DDL vorher nicht).
+--
+-- Fehlermeldung bei ungültigem source (Postgres, SQLSTATE 23514):
+--   new row for relation "waypoints" violates check constraint "waypoints_source_check"
+--
+-- RELATION waypoints
+-- NOT NULL: trip_id, day, visited_at, is_soft, source
+-- CHECK waypoints_lat_check: lat IS NULL OR (lat >= -90 AND lat <= 90)
+-- CHECK waypoints_lng_check: lng IS NULL OR (lng >= -180 AND lng <= 180)
+-- CHECK waypoints_source_check: source IN ('manual', 'gps', 'photo', 'import')
+-- CHECK waypoints_title_check: title IS NULL OR char_length(title) <= 200

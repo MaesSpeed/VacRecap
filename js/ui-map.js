@@ -8,6 +8,7 @@ import { getMapRoutesEnabled } from "./settings-store.js";
 import { ICON_BACK_CHEVRON } from "./icons.js";
 import { getMapSegment, setMapSegment } from "./map-session.js";
 import { resetCaptureGpsPrefetch } from "./capture-gps-prefetch.js";
+import { photoKeptMessage } from "./cloud-errors.js";
 import { savePhotoForPlace, saveVideoForPlace } from "./media-service.js";
 import { leaveMapScreen, returnToTripFromMap } from "./map-nav.js";
 import { queuePendingFooter } from "./pending-footer.js";
@@ -419,8 +420,12 @@ export async function renderMapScreen(appEl, vacationId) {
     if (!file || captureBusy) return;
     captureBusy = true;
     showToast("Wird gespeichert…", { sticky: true, icon: "none" });
+    let day = null;
+    let selectedPlaceId = null;
     try {
-      const { day, selectedPlaceId } = await resolveMapCaptureDayPlace();
+      const resolved = await resolveMapCaptureDayPlace();
+      day = resolved.day;
+      selectedPlaceId = resolved.selectedPlaceId;
       const r = await resolveFooterCaptureTarget({
         vacationId,
         day,
@@ -446,9 +451,31 @@ export async function renderMapScreen(appEl, vacationId) {
         showToast(kind === "video" ? "Video gespeichert" : "Foto gespeichert");
       }
       returnToTripFromMap(vacationId);
-    } catch {
+    } catch (err) {
       dismissActiveToast();
-      showToast("Speichern fehlgeschlagen");
+      if (kind === "photo" && day) {
+        const message = photoKeptMessage(err);
+        showWarnToast(message);
+        const { openPhotoUploadSheet } = await import("./ui-photo-upload-sheet.js");
+        openPhotoUploadSheet({
+          files: [file],
+          place: null,
+          vacationId,
+          day,
+          heldMessage: message,
+          ensurePlace: async () => {
+            const again = await resolveFooterCaptureTarget({
+              vacationId,
+              day,
+              selectedPlaceId,
+              mediaKind: "photo",
+            });
+            return again.place;
+          },
+        });
+      } else {
+        showToast("Speichern fehlgeschlagen");
+      }
     } finally {
       captureBusy = false;
     }
@@ -486,7 +513,12 @@ export async function renderMapScreen(appEl, vacationId) {
       const day = await dayForFooter();
       await storeTripSelection(vacationId, day, null);
       setTripSelection(vacationId, day, null);
-      await rememberPlaceFromGps({ vacationId, day });
+      try {
+        await rememberPlaceFromGps({ vacationId, day });
+      } catch (err) {
+        showWarnToast(err?.message || "Der Ort konnte nicht angelegt werden. Bitte erneut versuchen.");
+        return;
+      }
       mapData = await loadMapPlaces(vacationId);
       drawMarkers();
     },

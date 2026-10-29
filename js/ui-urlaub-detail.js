@@ -23,6 +23,7 @@ import { consumePendingFooter } from "./pending-footer.js";
 import { loadTripSelection, saveTripSelection } from "./trip-selection-store.js";
 import { prefetchCaptureGps, resetCaptureGpsPrefetch } from "./capture-gps-prefetch.js";
 import { blockTripFooter, isTripFooterBlocked, SHEET_INPUT_BLOCK_MS } from "./overlay-stack.js";
+import { photoKeptMessage } from "./cloud-errors.js";
 import { dismissActiveToast, showToast, showTwoLineToast, showWarnToast } from "./toast.js";
 import { openNoteSheet } from "./ui-note-sheet.js";
 import { DAY_SWIPE_MS, daySwipeEase, installDaySwipe, setDaySwipeNeighbor, setDaySwipePage } from "./day-swipe.js";
@@ -424,10 +425,16 @@ export async function renderUrlaubDetail(appEl, id) {
   }
 
   async function onRememberPlace() {
-    const result = await rememberPlaceFromGps({
-      vacationId: id,
-      day: state.activeDay,
-    });
+    let result;
+    try {
+      result = await rememberPlaceFromGps({
+        vacationId: id,
+        day: state.activeDay,
+      });
+    } catch (err) {
+      showWarnToast(err?.message || "Der Ort konnte nicht angelegt werden. Bitte erneut versuchen.");
+      return;
+    }
     if (!result) return;
     state.selectedByDay[state.activeDay] = result.place.id;
     persistSelection(id, state);
@@ -493,22 +500,27 @@ export async function renderUrlaubDetail(appEl, id) {
     showToast("Videos kommen in einem späteren Paket.", { icon: "none" });
   }
 
+  async function assignPhotoPlace(preferSelectedPlace) {
+    const selectedPlaceId = state.selectedByDay[state.activeDay];
+    const r = preferSelectedPlace
+      ? await resolveGalleryPhotoTarget({
+          vacationId: id,
+          day: state.activeDay,
+          selectedPlaceId,
+        })
+      : await resolveTargetPlace("photo");
+    state.selectedByDay[state.activeDay] = r.place.id;
+    persistSelection(id, state);
+    if (r.needsRefresh) await refreshDayList();
+    return r;
+  }
+
   async function beginPhotoUpload(files, { preferSelectedPlace = false } = {}) {
     if (!files?.length || state.captureBusy) return;
     state.captureBusy = true;
     appEl.dataset.captureBusy = "1";
     try {
-      const selectedPlaceId = state.selectedByDay[state.activeDay];
-      const r = preferSelectedPlace
-        ? await resolveGalleryPhotoTarget({
-            vacationId: id,
-            day: state.activeDay,
-            selectedPlaceId,
-          })
-        : await resolveTargetPlace("photo");
-      state.selectedByDay[state.activeDay] = r.place.id;
-      persistSelection(id, state);
-      if (r.needsRefresh) await refreshDayList();
+      const r = await assignPhotoPlace(preferSelectedPlace);
       openPhotoUploadSheet({
         files,
         place: r.place,
@@ -517,7 +529,17 @@ export async function renderUrlaubDetail(appEl, id) {
         onDone: () => refreshDayList(),
       });
     } catch (err) {
-      showWarnToast(err?.message || "Foto konnte nicht zugeordnet werden.");
+      const message = photoKeptMessage(err);
+      showWarnToast(message);
+      openPhotoUploadSheet({
+        files,
+        place: null,
+        vacationId: id,
+        day: state.activeDay,
+        heldMessage: message,
+        ensurePlace: async () => (await assignPhotoPlace(preferSelectedPlace)).place,
+        onDone: () => refreshDayList(),
+      });
     } finally {
       state.captureBusy = false;
       appEl.dataset.captureBusy = "0";

@@ -1,5 +1,5 @@
 import { getPlacesForDay, putPlace } from "./db.js";
-import { fallbackPlaceName, getCapturePosition } from "./geo.js";
+import { fallbackPlaceName, getCapturePosition, isLocationUnavailable } from "./geo.js";
 import {
   createPlace,
   findPlaceWithinMeters,
@@ -173,7 +173,8 @@ export async function resolveFooterCaptureTarget({
       ? { ...gps.toast, title }
       : { title, line: `«${gps.place.name}»` };
     return { ...gps, needsRefresh: true, toast };
-  } catch {
+  } catch (err) {
+    if (!isLocationUnavailable(err)) throw err;
     const fb = await fallbackPlace({ vacationId, day, selectedPlaceId });
     const line =
       fb.place.name === OHNE_ORT
@@ -230,7 +231,8 @@ export async function resolveCaptureTarget({
       const gps = await resolveWithGps({ vacationId, day });
       if (gps.toast) gps.toast.title = title;
       return { ...gps, needsRefresh: true };
-    } catch {
+    } catch (err) {
+      if (!isLocationUnavailable(err)) throw err;
       const fb = await fallbackPlace({ vacationId, day, selectedPlaceId });
       return {
         ...fb,

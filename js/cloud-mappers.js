@@ -55,6 +55,22 @@ export function waypointRowToPlace(row) {
   };
 }
 
+const DB_WAYPOINT_SOURCES = new Set(["manual", "gps", "photo", "import"]);
+
+/**
+ * waypoints_source_check: nur manual | gps | photo | import.
+ * App-Quellen capture / ohne-ort / open gibt es in der Datenbank nicht.
+ */
+export function waypointSourceForDb(place) {
+  const source = place?.source || "manual";
+  if (DB_WAYPOINT_SOURCES.has(source)) return source;
+  if (source === "capture") return "photo";
+  if (source === "open") return "gps";
+  if (source === "ohne-ort") return "manual";
+  if (place?.lat != null && place?.lng != null) return "gps";
+  return "manual";
+}
+
 export function placeToWaypointRow(place) {
   const row = {
     trip_id: place.vacationId,
@@ -65,7 +81,7 @@ export function placeToWaypointRow(place) {
     accuracy_m: place.accuracy ?? null,
     title: place.name || place.title || "",
     is_soft: Boolean(place.soft),
-    source: place.source || "manual",
+    source: waypointSourceForDb(place),
   };
   if (place.id) row.id = place.id;
   return row;

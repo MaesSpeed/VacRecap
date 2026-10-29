@@ -26,7 +26,8 @@ import {
   getOrCreateOhneOrtPlace,
   resolveMediathekTarget,
 } from "./target-place.js";
-import { showToast } from "./toast.js";
+import { photoKeptMessage } from "./cloud-errors.js";
+import { showToast, showWarnToast } from "./toast.js";
 import { openMediathekPlaceSheet } from "./ui-mediathek-place-sheet.js";
 import { setTripSelection } from "./ui-urlaub-detail.js";
 
@@ -183,12 +184,20 @@ export async function renderMediathekScreen(appEl, vacationId) {
     s.saving = true;
     let place = s.place;
     if (s.ohneOrtPending || !place) {
-      const created = await getOrCreateOhneOrtPlace({
-        vacationId,
-        day: s.day,
-        showToastOnCreate: true,
-      });
-      place = created.place;
+      try {
+        const created = await getOrCreateOhneOrtPlace({
+          vacationId,
+          day: s.day,
+          showToastOnCreate: true,
+        });
+        place = created.place;
+      } catch (err) {
+        s.saving = false;
+        s.progressLabel = "";
+        render();
+        showWarnToast(photoKeptMessage(err));
+        return;
+      }
     }
 
     let skipped = 0;
