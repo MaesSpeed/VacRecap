@@ -314,6 +314,16 @@ function mountLazyThumbs(root, photos) {
           img.alt = "";
           img.decoding = "async";
           img.loading = "lazy";
+          img.addEventListener("error", () => {
+            if (!el.isConnected) return;
+            el.replaceChildren();
+            el.dataset.thumbState = "missing";
+            const hint = document.createElement("span");
+            hint.className = "library-thumb__missing";
+            hint.dataset.testid = "library-thumb-missing";
+            hint.textContent = "Datei fehlt";
+            el.appendChild(hint);
+          });
           img.src = url;
           el.replaceChildren(img);
           el.dataset.thumbState = "ready";

@@ -1,5 +1,11 @@
 import { CloudOfflineError } from "./cloud-errors.js";
-import { markMediaDeleted, purgeMediaFiles, restoreMedia } from "./db.js";
+import {
+  forgetPendingMediaPurge,
+  markMediaDeleted,
+  purgeMediaFiles,
+  rememberPendingMediaPurge,
+  restoreMedia,
+} from "./db.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { formatMediaDuration } from "./media-process.js";
 import { createShareFileFromMedia, shareFileNameForMedia } from "./media-file-meta.js";
@@ -143,10 +149,12 @@ export function openMediaViewer(mediaItems, startId, options = {}) {
       closeOverlayHistory(activeClose);
       return;
     }
-    const url = await resolveDisplayUrl(item);
+    const url = !navigator.onLine && item.storagePath && !item.blob ? "" : await resolveDisplayUrl(item);
     const isVideo = item.type === "video";
-    const missing =
-      `<p class="media-viewer__missing" data-testid="media-viewer-missing">Datei nicht gefunden.</p>`;
+    const offlineCloud = !navigator.onLine && item.storagePath && !item.blob;
+    const missing = offlineCloud
+      ? `<p class="media-viewer__missing" data-testid="media-viewer-offline">Du bist offline.</p>`
+      : `<p class="media-viewer__missing" data-testid="media-viewer-missing">Datei nicht gefunden.</p>`;
     const body = !url
       ? missing
       : isVideo
@@ -236,6 +244,7 @@ export function openMediaViewer(mediaItems, startId, options = {}) {
         showWarnToast("Foto konnte nicht gelöscht werden.");
         return;
       }
+      rememberPendingMediaPurge(existing);
       sorted.splice(index, 1);
       const msg = isVideo ? "Video gelöscht" : "Foto gelöscht";
       const viewerOpen = () =>
@@ -246,6 +255,7 @@ export function openMediaViewer(mediaItems, startId, options = {}) {
         undoLabel: "Rückgängig",
         onUndo: () => {
           restored = true;
+          forgetPendingMediaPurge(snapshot.id);
           void restoreMedia(snapshot.id)
             .then(() => {
               sorted.splice(removedIndex, 0, snapshot);
@@ -263,6 +273,7 @@ export function openMediaViewer(mediaItems, startId, options = {}) {
         },
         onDismiss: () => {
           if (restored) return;
+          forgetPendingMediaPurge(existing.id);
           void purgeMediaFiles(existing).catch(() => {
             showWarnToast("Datei konnte nicht aus dem Speicher gelöscht werden.");
           });

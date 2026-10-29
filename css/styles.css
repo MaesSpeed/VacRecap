@@ -1257,6 +1257,21 @@ body {
   display: block;
 }
 
+.library-thumb__missing,
+.thumb-missing {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.15;
+  text-align: center;
+  color: var(--navy);
+}
+
 .library-retry,
 .library-add-block {
   margin-top: 16px;
@@ -1873,6 +1888,13 @@ body {
   align-items: center;
   gap: 8px 12px;
   font-size: 14px;
+}
+
+.photo-upload-target {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--emaille);
 }
 
 .photo-upload-item__name {

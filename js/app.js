@@ -1,5 +1,5 @@
 import { getSession, onAuthStateChange } from "./auth-service.js";
-import { getAllVacations } from "./db.js";
+import { flushPendingMediaPurges, getAllVacations } from "./db.js";
 import { installGestureGuards } from "./gesture-guard.js";
 import { runLegacyCleanup } from "./legacy-cleanup.js";
 import { isOfflineReadOnly, setCacheUserId, setOfflineReadOnly } from "./local-cache.js";
@@ -153,6 +153,7 @@ async function boot() {
   installVisualViewportKeyboard();
   initOverlayHistory();
   runLegacyCleanup();
+  void flushPendingMediaPurges();
 
   const session = await getSession();
   if (!session) {

@@ -756,13 +756,16 @@ async function runSuite(browserType, baseUrl, label) {
     }
   };
   await expectMuted(() => page.locator('[data-footer-action="camera"]').click());
-  await expectMuted(() => page.locator('[data-footer-action="gallery"]').click());
   await expectMuted(async () => {
     const cam = page.locator('[data-footer-action="camera"]');
     await cam.dispatchEvent("pointerdown");
     await page.waitForTimeout(650);
     await cam.dispatchEvent("pointerup");
   });
+  await page.locator('[data-footer-action="gallery"]').click();
+  await page.waitForSelector('[data-testid="trip-library-screen"]', { timeout: 15_000 });
+  await page.locator('[data-testid="library-back"]').click();
+  await page.waitForSelector(".screen--map", { timeout: 15_000 });
   page.off("filechooser", onChooser);
   if (fileChooser) throw new Error(`${label}: Kartenfooter hat die Kamera geöffnet`);
   const captureClicks = await page.evaluate(() => window.__mapCaptureClicks || 0);

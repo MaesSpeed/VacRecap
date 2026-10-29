@@ -193,13 +193,15 @@ export async function renderUrlaubDetail(appEl, id) {
     });
   }
 
-  async function ensureSelectedForDay(items) {
-    const day = state.activeDay;
-    if (state.selectedByDay[day]) return state.selectedByDay[day];
+  async function ensureSelectedForDay(items, dayIso = state.activeDay) {
+    if (state.selectedByDay[dayIso]) return state.selectedByDay[dayIso];
     const hard = items.map((i) => i.place).filter((p) => !p.soft);
     const newest = newestHardPlace(hard);
-    if (newest) state.selectedByDay[day] = newest.id;
-    return state.selectedByDay[day] ?? null;
+    if (newest) {
+      state.selectedByDay[dayIso] = newest.id;
+      persistSelection(id, state);
+    }
+    return state.selectedByDay[dayIso] ?? null;
   }
 
   async function maybeSoftOnOpen() {
@@ -231,7 +233,7 @@ export async function renderUrlaubDetail(appEl, id) {
   async function buildDayHtml(dayIso, knownPlaces) {
     const items = await loadDayPlacesEnriched(id, dayIso, knownPlaces);
     const active = dayIso === state.activeDay;
-    const selectedId = active ? await ensureSelectedForDay(items) : (state.selectedByDay[dayIso] ?? null);
+    const selectedId = await ensureSelectedForDay(items, dayIso);
     const freeNotes = await getFreeNotesForDay(id, dayIso);
     const allMedia = items.flatMap((i) => i.media);
     const visibleIds = visibleThumbMediaIds(items, selectedId);
@@ -310,13 +312,16 @@ export async function renderUrlaubDetail(appEl, id) {
     contentEl.dataset.canNext = idx < days.length - 1 ? "1" : "0";
     setDaySwipePage(contentEl, built.html);
     contentEl.dataset.activeDay = state.activeDay;
+    bindBrokenThumbs(contentEl);
     if (previousThumbUrls && previousThumbUrls !== built.thumbUrls) revokeThumbUrls(previousThumbUrls);
+    persistSelection(id, state);
     void prefetchNeighbors(token);
   }
 
   async function setActiveDay(dayIso) {
     if (!days.includes(dayIso) || dayIso === state.activeDay) return;
     state.activeDay = dayIso;
+    persistSelection(id, state);
     renderChips();
     await refreshDayList();
   }
@@ -325,6 +330,7 @@ export async function renderUrlaubDetail(appEl, id) {
     const next = adjacentDay(vacation, state.activeDay, direction);
     if (next === state.activeDay) return;
     state.activeDay = next;
+    persistSelection(id, state);
     renderChips();
     void refreshDayList({ reuse: true });
   }
@@ -442,6 +448,26 @@ export async function renderUrlaubDetail(appEl, id) {
       return;
     }
     await beginPhotoUpload([file]);
+  }
+
+  function bindBrokenThumbs(root) {
+    root.querySelectorAll("img.tile__img, img.th__img").forEach((img) => {
+      if (img.dataset.brokenBound === "1") return;
+      img.dataset.brokenBound = "1";
+      img.addEventListener("error", () => {
+        const host = img.closest(".tile, .th");
+        if (!host || host.querySelector("[data-testid='thumb-missing']")) {
+          img.remove();
+          return;
+        }
+        img.remove();
+        const hint = document.createElement("span");
+        hint.className = "thumb-missing";
+        hint.dataset.testid = "thumb-missing";
+        hint.textContent = "Datei fehlt";
+        host.appendChild(hint);
+      });
+    });
   }
 
   const onCaptureInputAborted = () => {

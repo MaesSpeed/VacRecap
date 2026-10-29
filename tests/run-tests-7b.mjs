@@ -462,6 +462,27 @@ async function seedTrip(page) {
   return { tripId, placeId, placeB };
 }
 
+async function swipeTripDay(page, direction) {
+  await page.waitForFunction(() => {
+    const root = document.querySelector('[data-testid="trip-content"]');
+    return root?.dataset.canNext === "1" || root?.dataset.canPrev === "1";
+  });
+  const box = await page.evaluate(() => {
+    const el = document.querySelector('[data-testid="trip-content"]');
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, width: r.width, height: r.height };
+  });
+  if (!box?.width) throw new Error("Tag-Inhalt ohne Fläche");
+  const y = box.y + Math.min(120, box.height / 2);
+  const startX = direction === "next" ? box.x + box.width - 24 : box.x + 24;
+  const endX = direction === "next" ? box.x + 24 : box.x + box.width - 24;
+  await page.mouse.move(startX, y);
+  await page.mouse.down();
+  await page.mouse.move(endX, y, { steps: 12 });
+  await page.mouse.up();
+}
+
 async function openLibrary(page) {
   await page.click('[data-footer-action="gallery"]');
   await page.waitForSelector('[data-testid="trip-library-screen"]');
@@ -552,6 +573,103 @@ async function runLibrarySuite(page, state, label, shotPath) {
     null,
     { timeout: 60_000 }
   );
+  await page.click('[data-testid="photo-upload-sheet"] [data-action="close"]');
+  await page.waitForFunction(() => document.getElementById("overlay-root")?.hidden);
+  state.media.length = 0;
+  state.storageObjects.clear();
+  await page.click('[data-testid="library-back"]');
+  await page.waitForSelector('[data-testid="trip-content"]');
+
+  const spiaggiaId = await page.evaluate(async ({ tripId }) => {
+    const { putPlace } = await import("./js/db.js");
+    const { createPlace } = await import("./js/places.js");
+    const place = await putPlace(
+      createPlace({
+        vacationId: tripId,
+        day: "2026-11-07",
+        ts: new Date(2026, 10, 7, 12, 0, 0).getTime(),
+        lat: 41.2,
+        lng: 9.2,
+        name: "Spiaggia Baia",
+        soft: false,
+        source: "test",
+      })
+    );
+    window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+    return place.id;
+  }, { tripId });
+  await page.waitForFunction(() => {
+    const root = document.querySelector('[data-testid="trip-content"]');
+    return root?.dataset.activeDay === "2026-11-06" && root.dataset.canNext === "1";
+  });
+  await swipeTripDay(page, "next");
+  await page.waitForFunction(
+    () => document.querySelector('.day-chip[aria-selected="true"]')?.dataset.day === "2026-11-07",
+    null,
+    { timeout: 8_000 }
+  );
+  await page.waitForFunction(
+    () => document.querySelector('[data-testid="trip-content"]')?.dataset.activeDay === "2026-11-07"
+  );
+  await page.waitForFunction(() => document.body.innerText.includes("Spiaggia Baia"));
+  await openLibrary(page);
+  const [dayChooser] = await Promise.all([
+    page.waitForEvent("filechooser"),
+    page.click('[data-testid="library-add-photos"], [data-testid="library-add-photos-empty"]'),
+  ]);
+  await dayChooser.setFiles({
+    name: "tag-foto.png",
+    mimeType: "image/png",
+    buffer: TINY_PNG,
+  });
+  await page.waitForSelector('[data-testid="photo-upload-target"]');
+  const targetText = await page.locator('[data-testid="photo-upload-target"]').innerText();
+  if (!targetText.includes("07.11") || !targetText.includes("Spiaggia Baia")) {
+    throw new Error(`${label}: Upload-Ziel falsch (${targetText})`);
+  }
+  await page.waitForFunction(
+    () => document.querySelector(".photo-upload-item__status")?.textContent?.includes("✓"),
+    null,
+    { timeout: 60_000 }
+  );
+  const landed = state.media.find((m) => m.waypoint_id === spiaggiaId && !m.deleted_at);
+  if (!landed || landed.day !== "2026-11-07") {
+    throw new Error(
+      `${label}: Foto nicht am gewischten Tag (${JSON.stringify(state.media.map((m) => ({ day: m.day, wp: m.waypoint_id })))})`
+    );
+  }
+  await page.click('[data-testid="photo-upload-sheet"] [data-action="close"]');
+  await page.waitForFunction(() => document.getElementById("overlay-root")?.hidden);
+  state.media.length = 0;
+  state.storageObjects.clear();
+  await page.click('[data-testid="library-back"]');
+  await page.waitForSelector('[data-testid="trip-content"]');
+  await swipeTripDay(page, "next");
+  await page.waitForFunction(
+    () => document.querySelector('[data-testid="trip-content"]')?.dataset.activeDay === "2026-11-08"
+  );
+  await openLibrary(page);
+  const [fallbackChooser] = await Promise.all([
+    page.waitForEvent("filechooser"),
+    page.click('[data-testid="library-add-photos"], [data-testid="library-add-photos-empty"]'),
+  ]);
+  await fallbackChooser.setFiles({
+    name: "ohne-ort.png",
+    mimeType: "image/png",
+    buffer: TINY_PNG,
+  });
+  await page.waitForSelector('[data-testid="photo-upload-target"]');
+  const fallbackText = await page.locator('[data-testid="photo-upload-target"]').innerText();
+  if (!fallbackText.includes("08.11") || !fallbackText.includes("Ohne Ort")) {
+    throw new Error(`${label}: Fallback-Ziel nicht sichtbar (${fallbackText})`);
+  }
+  await page.waitForFunction(
+    () => document.querySelector(".photo-upload-item__status")?.textContent?.includes("✓"),
+    null,
+    { timeout: 60_000 }
+  );
+  const fallbackRow = state.media.find((m) => m.day === "2026-11-08" && !m.deleted_at);
+  if (!fallbackRow) throw new Error(`${label}: Fallback-Foto nicht am leeren Tag`);
   await page.click('[data-testid="photo-upload-sheet"] [data-action="close"]');
   await page.waitForFunction(() => document.getElementById("overlay-root")?.hidden);
   state.media.length = 0;
