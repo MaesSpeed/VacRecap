@@ -788,7 +788,7 @@ async function runSuite(browserType, baseUrl, label) {
   await page.click('button[data-action="apply"]');
   await page.click('button[type="submit"]');
   await page.waitForSelector(".screen--trip");
-  await page.locator('[data-action="map"]').evaluate((el) => el.click());
+  await page.locator('[data-action="map"]').click();
   await page.waitForSelector(".screen--map");
   await page.locator('[data-footer-action="pin"]').click();
   await page.waitForFunction(
@@ -815,9 +815,7 @@ async function runSuite(browserType, baseUrl, label) {
     timeout: 15_000,
   });
 
-  const realErrors = errors.filter(
-    (err) => !/access control checks/.test(err) && !/_leaflet_pos/.test(err)
-  );
+  const realErrors = errors.filter((err) => !/access control checks/.test(err));
   if (realErrors.length) throw new Error(`${label}: ${realErrors[0]}`);
   await ctx.browser().close();
   console.log(`8a ${label} OK`);

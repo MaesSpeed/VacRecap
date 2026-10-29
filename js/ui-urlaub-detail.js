@@ -137,6 +137,17 @@ export async function renderUrlaubDetail(appEl, id) {
     <div data-role="footer-mount"></div>
   `;
 
+  appEl.querySelector('[data-action="back"]').addEventListener("click", () => {
+    clearTripUiState(id);
+    leaveTripToOverview();
+  });
+  appEl.querySelector('[data-action="map"]').addEventListener("click", () => {
+    navigate({ name: "urlaub-map", id }, { fromTrip: true });
+  });
+  appEl.querySelector('[data-action="settings"]').addEventListener("click", () => {
+    navigate({ name: "urlaub-settings", id });
+  });
+
   const chipsEl = appEl.querySelector('[data-role="chips"]');
   const contentEl = appEl.querySelector('[data-role="day-content"]');
   const neighborHold = { prev: "", next: "" };
@@ -775,19 +786,6 @@ export async function renderUrlaubDetail(appEl, id) {
     onCameraVideo: openNativeVideoCamera,
     onNote: onNoteFooter,
     onGallery: openGalleryPicker,
-  });
-
-  appEl.querySelector('[data-action="back"]').addEventListener("click", () => {
-    clearTripUiState(id);
-    leaveTripToOverview();
-  });
-
-  appEl.querySelector('[data-action="map"]').addEventListener("click", () => {
-    navigate({ name: "urlaub-map", id }, { fromTrip: true });
-  });
-
-  appEl.querySelector('[data-action="settings"]').addEventListener("click", () => {
-    navigate({ name: "urlaub-settings", id });
   });
 
   chipsEl.addEventListener("click", (e) => {

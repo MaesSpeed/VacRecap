@@ -358,15 +358,22 @@ export async function renderMapScreen(appEl, vacationId) {
     scheduleFitView(lastFitPlaces);
   }
 
+  let mapAlive = true;
+
   function scheduleFitView(places) {
-    const run = () => fitView(places);
+    const run = () => {
+      if (!mapAlive) return;
+      fitView(places);
+    };
     run();
     requestAnimationFrame(() => {
-      map.invalidateSize();
+      if (!mapAlive) return;
+      map.invalidateSize({ pan: false });
       run();
     });
     setTimeout(() => {
-      map.invalidateSize();
+      if (!mapAlive) return;
+      map.invalidateSize({ pan: false });
       run();
     }, 350);
   }
@@ -504,12 +511,15 @@ export async function renderMapScreen(appEl, vacationId) {
   });
 
   appEl._mapCleanup = () => {
+    mapAlive = false;
     try {
       map.stop();
+      map.off();
       map.remove();
     } catch {
       /* Container ist beim Verlassen schon weg. */
     }
+    if (window.__vacrecapMap === map) delete window.__vacrecapMap;
     delete appEl._mapCleanup;
   };
 }
