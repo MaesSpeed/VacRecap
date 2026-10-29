@@ -507,7 +507,7 @@ async function swipeNext(page) {
 async function runLibrarySuite(page, state, label, shotPath) {
   await page.goto(state.baseUrl || "/");
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  if (Number(build) !== 49) throw new Error(`${label}: Build ${build} != 49`);
+  if (Number(build) !== 50) throw new Error(`${label}: Build ${build} != 50`);
   await login(page);
   const { tripId, placeId, placeB } = await seedTrip(page);
 
@@ -1014,7 +1014,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 7b tests OK (Build 49)");
+  console.log("Playwright 7b tests OK (Build 50)");
 }
 
 main().catch((err) => {
