@@ -302,7 +302,7 @@ async function runSuite(browserType, baseUrl, label) {
     throw new Error(`${label}: noteToRow setzt waypoint_id nicht auf null`);
   }
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  if (Number(build) !== 48) throw new Error(`${label}: Build ${build}, erwartet 48`);
+  if (Number(build) !== 47) throw new Error(`${label}: Build ${build}, erwartet 47`);
 
   await page.fill('input[name="email"]', LONG_EMAIL);
   const emailOverflow = await page.evaluate(() => {
@@ -790,16 +790,17 @@ async function runSuite(browserType, baseUrl, label) {
   await page.waitForSelector(".screen--trip");
   await page.locator('[data-action="map"]').click();
   await page.waitForSelector(".screen--map");
+  const today = await page.evaluate(async () => (await import("./js/utils.js")).todayIso());
   await page.locator('[data-footer-action="pin"]').click();
   await page.waitForFunction(
-    async () => {
+    async (today) => {
       const id = document.querySelector(".screen--map")?.dataset.vacationId;
       if (!id) return false;
       const { getPlacesForVacation } = await import("./js/db.js");
       const places = await getPlacesForVacation(id);
-      return places.some((p) => String(p.day).slice(0, 10) === "2026-10-28");
+      return places.some((p) => String(p.day).slice(0, 10) === today);
     },
-    null,
+    today,
     { timeout: 15_000 }
   );
   const rememberedDays = await page.evaluate(async () => {
@@ -807,11 +808,11 @@ async function runSuite(browserType, baseUrl, label) {
     const { getPlacesForVacation } = await import("./js/db.js");
     return (await getPlacesForVacation(id)).map((p) => String(p.day).slice(0, 10));
   });
-  if (rememberedDays.includes("2026-10-26")) {
-    throw new Error(`${label}: Ort merken landet auf der Anreise (${rememberedDays.join(",")})`);
+  if (rememberedDays.includes("2026-10-26") || !rememberedDays.includes(today)) {
+    throw new Error(`${label}: Ort merken landet nicht auf heute ${today} (${rememberedDays.join(",")})`);
   }
   await page.locator('[data-footer-action="note"]').click();
-  await page.waitForSelector('[data-testid="trip-content"][data-active-day="2026-10-28"]', {
+  await page.waitForSelector(`[data-testid="trip-content"][data-active-day="${today}"]`, {
     timeout: 15_000,
   });
 
@@ -829,7 +830,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 8a tests OK (Build 48)");
+  console.log("Playwright 8a tests OK (Build 47)");
 }
 
 main().catch((err) => {

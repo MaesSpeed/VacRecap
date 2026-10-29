@@ -389,6 +389,7 @@ async function runFlow(page, baseUrl, label) {
 async function assertPlaceListUi(page, label) {
   await page.waitForSelector('[data-testid="place-list"]', { timeout: 15_000 });
   await page.waitForSelector(".place-list-fade", { timeout: 15_000 });
+  await page.waitForSelector(".qa__btn", { timeout: 15_000 });
   const layout = await page.evaluate(() => {
     const wrap = document.querySelector(".place-list-wrap");
     return {
@@ -760,7 +761,7 @@ async function main() {
 
   await ctx.close();
   server.close();
-  console.log("Playwright 6e tests OK (Build 46)");
+  console.log("Playwright 6e tests OK (Build 47)");
 }
 
 main().catch((err) => {
