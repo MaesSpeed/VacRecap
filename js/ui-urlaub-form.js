@@ -7,6 +7,7 @@ import { CloudNetworkError, CloudOfflineError } from "./cloud-errors.js";
 import { showToast } from "./toast.js";
 import { COMPANION_TAGS, createEmptyVacation, normalizeVacation } from "./vacation.js";
 import {
+  clampTitle,
   createId,
   dayCountInclusive,
   escapeHtml,
@@ -41,7 +42,7 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
     <form class="vacation-form" id="vacation-form">
       <label class="field">
         <span class="field__label">Titel</span>
-        <input name="title" type="text" required autocomplete="off" placeholder="z. B. Paris" value="${escapeHtml(vacation.title)}" />
+        <input name="title" type="text" required maxlength="200" autocomplete="off" placeholder="z. B. Paris" value="${escapeHtml(vacation.title)}" />
       </label>
 
       <div class="field">
@@ -122,6 +123,7 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
   }
 
   function syncMeta() {
+    if (titleInput.value.length > 200) titleInput.value = titleInput.value.slice(0, 200);
     coverTitle.textContent = titleInput.value.trim() || "Titel";
     if (vacation.startDate && vacation.endDate) {
       coverDates.textContent = formatDateRangeOverlay(
@@ -242,7 +244,7 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const title = titleInput.value.trim();
+    const title = clampTitle(titleInput.value);
     if (!title) {
       showToast("Bitte Titel eingeben");
       titleInput.focus();

@@ -226,7 +226,7 @@ async function assertNoGpsWarnToast(page, label, vacationId) {
   else await page.locator('[data-testid="capture-photo-input"]').setInputFiles(file);
   await page.waitForFunction(() => {
     const t = document.querySelector('[data-testid="app-toast"]')?.textContent ?? "";
-    return t.includes("Kein GPS");
+    return t.includes("Standort ungenau");
   });
 }
 

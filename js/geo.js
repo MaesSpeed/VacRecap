@@ -23,7 +23,7 @@ export function getCapturePosition() {
     capturePositionFlight = getCurrentPosition({
       enableHighAccuracy: false,
       timeout: 4000,
-      maximumAge: 5000,
+      maximumAge: 0,
     }).finally(() => {
       capturePositionFlight = null;
     });
