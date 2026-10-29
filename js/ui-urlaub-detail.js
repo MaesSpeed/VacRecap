@@ -25,7 +25,7 @@ import { prefetchCaptureGps, resetCaptureGpsPrefetch } from "./capture-gps-prefe
 import { blockTripFooter, isTripFooterBlocked, SHEET_INPUT_BLOCK_MS } from "./overlay-stack.js";
 import { dismissActiveToast, showToast, showTwoLineToast, showWarnToast } from "./toast.js";
 import { openNoteSheet } from "./ui-note-sheet.js";
-import { installDaySwipe, setDaySwipeNeighbor, setDaySwipePage } from "./day-swipe.js";
+import { DAY_SWIPE_MS, daySwipeEase, installDaySwipe, setDaySwipeNeighbor, setDaySwipePage } from "./day-swipe.js";
 import {
   filterViewableMedia,
   loadDayPlacesEnriched,
@@ -152,6 +152,8 @@ export async function renderUrlaubDetail(appEl, id) {
   const chipsEl = appEl.querySelector('[data-role="chips"]');
   const contentEl = appEl.querySelector('[data-role="day-content"]');
   const neighborHold = { prev: "", next: "" };
+  let chipFollowDay = null;
+  let chipScrollToken = 0;
   installDaySwipe(contentEl, (dir) => shiftDay(dir), {
     onLock: () => {
       setDaySwipeNeighbor(contentEl, "prev", neighborHold.prev);
@@ -161,6 +163,7 @@ export async function renderUrlaubDetail(appEl, id) {
       setDaySwipeNeighbor(contentEl, "prev", "");
       setDaySwipeNeighbor(contentEl, "next", "");
     },
+    onCommit: (dir) => previewChipShift(dir),
   });
   const footerMount = appEl.querySelector('[data-role="footer-mount"]');
   const capturePhotoInput = appEl.querySelector('[data-role="capture-photo-input"]');
@@ -171,10 +174,11 @@ export async function renderUrlaubDetail(appEl, id) {
   const VIDEO_LONGPRESS_HINT_KEY = "vacrecap-video-longpress-hint";
   const VIDEO_HINT_AFTER_PHOTO_MS = 3000;
 
-  function renderChips() {
+  const CHIP_CENTER_EPS = 2;
+
+  function chipsHtml() {
     const total = days.length;
-    chipsEl.classList.toggle("day-chips--fill", total <= 4);
-    chipsEl.innerHTML = days
+    return days
       .map((iso, i) => {
         const active = iso === state.activeDay;
         const role = dayRoleLabel(i + 1, total);
@@ -186,10 +190,94 @@ export async function renderUrlaubDetail(appEl, id) {
         </button>`;
       })
       .join("");
+  }
+
+  function chipsMatchDays() {
+    const nodes = chipsEl.querySelectorAll(".day-chip");
+    if (nodes.length !== days.length) return false;
+    for (let i = 0; i < days.length; i++) {
+      if (nodes[i].dataset.day !== days[i]) return false;
+    }
+    return true;
+  }
+
+  function applyChipActive(dayIso) {
+    for (const btn of chipsEl.querySelectorAll(".day-chip")) {
+      const on = btn.dataset.day === dayIso;
+      btn.classList.toggle("day-chip--active", on);
+      btn.setAttribute("aria-selected", on ? "true" : "false");
+    }
+  }
+
+  function chipScrollTarget(container, chip) {
+    const c = container.getBoundingClientRect();
+    const r = chip.getBoundingClientRect();
+    const delta = r.left + r.width / 2 - (c.left + c.width / 2);
+    const max = Math.max(0, container.scrollWidth - container.clientWidth);
+    return Math.max(0, Math.min(max, container.scrollLeft + delta));
+  }
+
+  function scrollChipWithPage(dayIso, duration) {
+    const chip = chipsEl.querySelector(`[data-day="${dayIso}"]`);
+    if (!chip) return;
+    chipsEl.scrollTo({ left: chipsEl.scrollLeft, behavior: "auto" });
+    chipFollowDay = dayIso;
+    const token = ++chipScrollToken;
+    const target = chipScrollTarget(chipsEl, chip);
+    const start = chipsEl.scrollLeft;
+    const clearFollow = () => {
+      if (token === chipScrollToken && chipFollowDay === dayIso) chipFollowDay = null;
+    };
+    if (duration <= 0 || Math.abs(target - start) <= CHIP_CENTER_EPS) {
+      chipsEl.scrollLeft = target;
+      clearFollow();
+      return;
+    }
+    const t0 = performance.now();
+    const step = (now) => {
+      if (token !== chipScrollToken) return;
+      const p = Math.min(1, (now - t0) / duration);
+      chipsEl.scrollLeft = p >= 1 ? target : start + (target - start) * daySwipeEase(p);
+      if (p < 1) requestAnimationFrame(step);
+      else clearFollow();
+    };
+    requestAnimationFrame(step);
+  }
+
+  function previewChipShift(dir) {
+    const next = adjacentDay(vacation, state.activeDay, dir);
+    if (next === state.activeDay) return;
+    if (!chipsEl.querySelector(`[data-day="${next}"]`)) return;
+    applyChipActive(next);
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    scrollChipWithPage(next, reduce ? 0 : DAY_SWIPE_MS);
+  }
+
+  function renderChips() {
+    const total = days.length;
+    chipsEl.classList.toggle("day-chips--fill", total <= 4);
+    if (!chipsMatchDays()) {
+      const keep = chipsEl.scrollLeft;
+      chipsEl.innerHTML = chipsHtml();
+      if (chipsEl.scrollLeft !== keep) chipsEl.scrollLeft = keep;
+      chipScrollToken += 1;
+      chipFollowDay = null;
+    } else {
+      applyChipActive(state.activeDay);
+    }
+    if (chipFollowDay && chipFollowDay !== state.activeDay) {
+      chipScrollToken += 1;
+      chipFollowDay = null;
+    }
+    const chip = chipsEl.querySelector(`[data-day="${state.activeDay}"]`);
+    if (!chip || chipFollowDay === state.activeDay) return;
+    if (Math.abs(chipsEl.scrollLeft - chipScrollTarget(chipsEl, chip)) <= CHIP_CENTER_EPS) return;
     requestAnimationFrame(() => {
-      chipsEl
-        .querySelector(`[data-day="${state.activeDay}"]`)
-        ?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+      if (chipFollowDay) return;
+      const live = chipsEl.querySelector(`[data-day="${state.activeDay}"]`);
+      if (!live || !live.isConnected) return;
+      if (Math.abs(chipsEl.scrollLeft - chipScrollTarget(chipsEl, live)) <= CHIP_CENTER_EPS) return;
+      live.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
     });
   }
 

@@ -4,6 +4,36 @@
  */
 
 const REST = "translate3d(-33.333333%, 0, 0)";
+const DAY_SWIPE_BEZIER = [0.2, 0.82, 0.2, 1];
+
+export const DAY_SWIPE_MS = 280;
+
+function bezierAxis(a, b, t) {
+  const c = 3 * a;
+  const d = 3 * (b - a) - c;
+  const e = 1 - c - d;
+  return ((e * t + d) * t + c) * t;
+}
+
+export function daySwipeEase(x) {
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  const [x1, y1, x2, y2] = DAY_SWIPE_BEZIER;
+  let lo = 0;
+  let hi = 1;
+  let t = x;
+  for (let i = 0; i < 14; i++) {
+    t = (lo + hi) / 2;
+    if (bezierAxis(x1, x2, t) < x) lo = t;
+    else hi = t;
+  }
+  return bezierAxis(y1, y2, t);
+}
+
+function daySwipeTransition() {
+  const [x1, y1, x2, y2] = DAY_SWIPE_BEZIER;
+  return `transform ${DAY_SWIPE_MS}ms cubic-bezier(${x1}, ${y1}, ${x2}, ${y2})`;
+}
 
 function trackOf(root) {
   return root.querySelector("[data-role='day-track']");
@@ -169,6 +199,7 @@ export function installDaySwipe(root, onShift, hooks = {}) {
       hooks.onRest?.();
       return;
     }
+    hooks.onCommit?.(dir);
     if (reduce) {
       track.style.transition = "none";
       track.style.transform = REST;
@@ -177,7 +208,7 @@ export function installDaySwipe(root, onShift, hooks = {}) {
     }
     root.dataset.swipeLock = "1";
     const target = dir > 0 ? "translate3d(-66.666666%, 0, 0)" : "translate3d(0px, 0, 0)";
-    track.style.transition = "transform 280ms cubic-bezier(0.2, 0.82, 0.2, 1)";
+    track.style.transition = daySwipeTransition();
     track.style.transform = target;
     let settled = false;
     const done = () => {
