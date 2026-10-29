@@ -136,6 +136,7 @@ function createMockSupabaseState() {
   let signCount = 0;
   let role = "owner";
   let failMedia = false;
+  let failOriginalSign = false;
   let lastMediaQuery = "";
 
   const qp = (url, key) => {
@@ -170,6 +171,12 @@ function createMockSupabaseState() {
     set failMedia(v) {
       failMedia = Boolean(v);
     },
+    get failOriginalSign() {
+      return failOriginalSign;
+    },
+    set failOriginalSign(v) {
+      failOriginalSign = Boolean(v);
+    },
     get lastMediaQuery() {
       return lastMediaQuery;
     },
@@ -190,6 +197,9 @@ function createMockSupabaseState() {
     handleStorage(url, method, body) {
       const p = url.pathname;
       if (p.includes("/object/sign/") && method === "POST") {
+        if (failOriginalSign && p.includes("media-originals")) {
+          return { status: 400, json: { message: "missing" } };
+        }
         signCount += 1;
         const rest = p.split("/object/sign/")[1] || "";
         const token = encodeURIComponent(rest || "x");
@@ -476,12 +486,76 @@ async function swipeNext(page) {
 async function runLibrarySuite(page, state, label, shotPath) {
   await page.goto(state.baseUrl || "/");
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  if (Number(build) !== 47) throw new Error(`${label}: Build ${build} != 47`);
+  if (Number(build) !== 48) throw new Error(`${label}: Build ${build} != 48`);
   await login(page);
   const { tripId, placeId, placeB } = await seedTrip(page);
 
+  await page.waitForSelector('[data-testid="place-gallery"]');
+  const [placeChooser] = await Promise.all([
+    page.waitForEvent("filechooser"),
+    page.click('[data-testid="place-gallery"]'),
+  ]);
+  const placeInput = await placeChooser.element();
+  const placeInputMeta = await placeInput.evaluate((node) => ({
+    testid: node.dataset.testid,
+    capture: node.getAttribute("capture"),
+    multiple: node.multiple,
+    accept: node.getAttribute("accept") || "",
+  }));
+  if (placeInputMeta.testid !== "gallery-input" || placeInputMeta.capture) {
+    throw new Error(`${label}: Ort-Karte öffnet nicht den Galerie-Input (${JSON.stringify(placeInputMeta)})`);
+  }
+  if (!placeInputMeta.multiple || !placeInputMeta.accept.includes("image")) {
+    throw new Error(`${label}: Galerie-Input ohne Mehrfachauswahl (${JSON.stringify(placeInputMeta)})`);
+  }
+  await placeChooser.setFiles({
+    name: "clip.mov",
+    mimeType: "video/quicktime",
+    buffer: Buffer.from([0, 0, 0, 1]),
+  });
+  await page.waitForFunction(
+    () => document.body.innerText.includes("Videos kommen"),
+    null,
+    { timeout: 10_000 }
+  );
+  await page.waitForFunction(() => document.querySelector(".screen--trip")?.dataset.captureBusy !== "1");
+  await page.waitForTimeout(500);
+
   await openLibrary(page);
   await page.waitForSelector('[data-testid="library-empty"]');
+  if ((await page.locator('[data-testid="library-add-photos"]').count()) !== 1) {
+    throw new Error(`${label}: + Fotos fehlt im Kopf`);
+  }
+  if ((await page.locator('[data-testid="library-add-photos-empty"]').count()) !== 1) {
+    throw new Error(`${label}: + Fotos fehlt im Leerzustand`);
+  }
+  const galleryMeta = await page.locator('[data-testid="library-gallery-input"]').evaluate((node) => ({
+    capture: node.getAttribute("capture"),
+    multiple: node.multiple,
+    accept: node.getAttribute("accept") || "",
+  }));
+  if (galleryMeta.capture || !galleryMeta.multiple || !galleryMeta.accept.includes("image")) {
+    throw new Error(`${label}: Mediathek-Galerie-Input falsch (${JSON.stringify(galleryMeta)})`);
+  }
+  const [addChooser] = await Promise.all([
+    page.waitForEvent("filechooser"),
+    page.click('[data-testid="library-add-photos-empty"]'),
+  ]);
+  await addChooser.setFiles({
+    name: "aus-fotos.png",
+    mimeType: "image/png",
+    buffer: TINY_PNG,
+  });
+  await page.waitForSelector('[data-testid="photo-upload-sheet"]', { timeout: 15_000 });
+  await page.waitForFunction(
+    () => document.querySelector(".photo-upload-item__status")?.textContent?.includes("✓"),
+    null,
+    { timeout: 60_000 }
+  );
+  await page.click('[data-testid="photo-upload-sheet"] [data-action="close"]');
+  await page.waitForFunction(() => document.getElementById("overlay-root")?.hidden);
+  state.media.length = 0;
+  state.storageObjects.clear();
   await page.click('[data-testid="library-back"]');
   await page.waitForSelector('[data-testid="trip-content"]');
 
@@ -584,20 +658,43 @@ async function runLibrarySuite(page, state, label, shotPath) {
   if (state.signCount <= 0 || state.signCount >= 39) {
     throw new Error(`${label}: Signed-URL-Anfragen nicht begrenzt (${state.signCount})`);
   }
+  if ((await page.locator('[data-testid="library-add-photos"]').count()) !== 1) {
+    throw new Error(`${label}: + Fotos fehlt bei gefüllter Mediathek`);
+  }
 
+  const thumbsBeforeOffline = await page.locator(".library-thumb").count();
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, get: () => false });
+    window.dispatchEvent(new Event("offline"));
+  });
+  await page.waitForSelector('[data-testid="library-offline"]');
+  const offlineText = await page.locator('[data-testid="library-offline"]').innerText();
+  if (!offlineText.includes("Du bist offline")) {
+    throw new Error(`${label}: Offline-Text fehlt (${offlineText})`);
+  }
+  if ((await page.locator(".library-thumb").count()) !== thumbsBeforeOffline) {
+    throw new Error(`${label}: Offline hat die Mediathek geleert`);
+  }
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, get: () => true });
+    window.dispatchEvent(new Event("online"));
+  });
+  await page.waitForFunction(() => !document.querySelector('[data-testid="library-offline"]'));
+
+  await page.waitForFunction(() => {
+    const el = document.querySelector(".library-main");
+    return el && el.scrollHeight > el.clientHeight + 40;
+  });
   const signsBeforeScroll = state.signCount;
+  const loadedBeforeScroll = await page.locator(".library-thumb__img").count();
   await page.locator(".library-main").evaluate((el) => {
     el.scrollTop = el.scrollHeight;
   });
   await page.waitForFunction(
-    (before) => {
-      const loaded = document.querySelectorAll(".library-thumb__img").length;
-      return loaded > 0 && (window.__signProbe = loaded) && document.querySelectorAll(".library-thumb").length === 39;
-    },
-    signsBeforeScroll
+    (before) => document.querySelectorAll(".library-thumb__img").length > before,
+    loadedBeforeScroll
   );
-  await page.waitForTimeout(400);
-  if (state.signCount <= signsBeforeScroll) {
+  if (state.signCount <= signsBeforeScroll && (await page.locator(".library-thumb__img").count()) <= loadedBeforeScroll) {
     throw new Error(`${label}: Scroll lädt keine weiteren Thumbs (${state.signCount})`);
   }
 
@@ -645,9 +742,66 @@ async function runLibrarySuite(page, state, label, shotPath) {
   if (!deleted?.deleted_at) throw new Error(`${label}: DB-Eintrag nicht als gelöscht markiert`);
   const origKey = `media-originals/${photoC.storage_path}`;
   const thumbKey = `media-thumbs/${photoC.thumb_path}`;
-  if (state.storageObjects.has(origKey) || state.storageObjects.has(thumbKey)) {
-    throw new Error(`${label}: Storage-Dateien noch vorhanden (${state.removedStorage.join(",")})`);
+  if (!state.storageObjects.has(origKey) || !state.storageObjects.has(thumbKey)) {
+    throw new Error(`${label}: Storage schon vor Ablauf des Toasts gelöscht`);
   }
+  await page.click('[data-action="undo"]');
+  await page.waitForSelector(`.library-thumb[data-media-id="${photoC.id}"]`);
+  const restored = state.media.find((m) => m.id === photoC.id);
+  if (restored?.deleted_at) throw new Error(`${label}: Rückgängig hat deleted_at nicht geleert`);
+  if (!state.storageObjects.has(origKey) || !state.storageObjects.has(thumbKey)) {
+    throw new Error(`${label}: Rückgängig hat Storage-Dateien entfernt`);
+  }
+  if ((await page.locator('[data-testid="media-viewer-delete"]').count()) !== 1) {
+    await page.locator(`.library-thumb[data-media-id="${photoC.id}"]`).click();
+    await page.waitForSelector('[data-testid="media-viewer-delete"]');
+  }
+  await page.click('[data-testid="media-viewer-delete"]');
+  await page.click('[data-testid="confirm-delete-media"] [data-action="confirm"]');
+  await page.waitForFunction(
+    (id) => !document.querySelector(`.library-thumb[data-media-id="${id}"]`),
+    photoC.id
+  );
+  await page.waitForTimeout(6500);
+  if (state.storageObjects.has(origKey) || state.storageObjects.has(thumbKey)) {
+    throw new Error(`${label}: Storage bleibt nach Toast stehen (${state.removedStorage.join(",")})`);
+  }
+  if (!state.media.find((m) => m.id === photoC.id)?.deleted_at) {
+    throw new Error(`${label}: Foto nach Ablauf nicht gelöscht`);
+  }
+
+  if ((await page.locator('[data-testid="media-viewer"]').count()) > 0) {
+    await page.click('[data-testid="media-viewer-close"]');
+    await page.waitForFunction(() => document.getElementById("overlay-root")?.hidden);
+  }
+  await page.locator(`.library-thumb[data-media-id="${photoB.id}"]`).click();
+  await page.waitForSelector('[data-testid="media-viewer-delete"]');
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, get: () => false });
+  });
+  await page.click('[data-testid="media-viewer-delete"]');
+  await page.click('[data-testid="confirm-delete-media"] [data-action="confirm"]');
+  await page.waitForFunction(() => document.body.innerText.includes("Offline, bitte später erneut versuchen."));
+  if (state.media.find((m) => m.id === photoB.id)?.deleted_at) {
+    throw new Error(`${label}: Offline-Löschen hat das Foto entfernt`);
+  }
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, get: () => true });
+  });
+  await page.click('[data-testid="media-viewer-close"]');
+  await page.waitForFunction(() => document.getElementById("overlay-root")?.hidden);
+
+  await page.evaluate(async () => {
+    const { clearSignedUrlCache } = await import("./js/media-signed-url-cache.js");
+    clearSignedUrlCache();
+  });
+  state.failOriginalSign = true;
+  await page.locator(`.library-thumb[data-media-id="${photoA.id}"]`).click();
+  await page.waitForSelector('[data-testid="media-viewer-missing"]');
+  if ((await page.locator('[data-testid="media-viewer-img"]').count()) !== 0) {
+    throw new Error(`${label}: Fehlende Datei zeigt trotzdem ein Bild`);
+  }
+  state.failOriginalSign = false;
   await page.click('[data-testid="media-viewer-close"]');
   await page.waitForFunction(() => document.getElementById("overlay-root")?.hidden);
 
@@ -670,6 +824,12 @@ async function runLibrarySuite(page, state, label, shotPath) {
   await page.click('[data-testid="library-back"]');
   await page.waitForSelector('[data-testid="trip-content"]');
   await openLibrary(page);
+  if ((await page.locator('[data-testid="library-add-photos"]').count()) !== 0) {
+    throw new Error(`${label}: Viewer sieht + Fotos`);
+  }
+  if ((await page.locator('[data-testid="library-add-photos-empty"]').count()) !== 0) {
+    throw new Error(`${label}: Viewer sieht + Fotos im Leerzustand`);
+  }
   await page.locator(".library-thumb").first().click();
   await page.waitForSelector('[data-testid="media-viewer"]');
   if (await page.locator('[data-testid="media-viewer-delete"]').count() !== 0) {
@@ -736,7 +896,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 7b tests OK (Build 47)");
+  console.log("Playwright 7b tests OK (Build 48)");
 }
 
 main().catch((err) => {

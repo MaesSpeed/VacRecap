@@ -1,12 +1,19 @@
+import { CloudOfflineError } from "./cloud-errors.js";
 import { fetchUploadedPhotosForTrip, getPlacesForVacation, getVacation } from "./db.js";
+import { startGalleryPhotoUpload } from "./gallery-upload.js";
 import { ICON_BACK_CHEVRON } from "./icons.js";
 import { groupLibraryPhotos, isLibraryPhoto, libraryDayTitle } from "./library-groups.js";
 import { getSignedThumbUrl } from "./media-signed-url-cache.js";
 import { navigate } from "./router.js";
 import { getSupabase } from "./supabase-client.js";
+import { loadTripSelection } from "./trip-selection-store.js";
 import { canEditTripMedia, getMyTripRole } from "./trip-role.js";
 import { openMediaViewer } from "./ui-media-viewer.js";
+import { showWarnToast } from "./toast.js";
 import { escapeHtml } from "./utils.js";
+
+/** Letzter erfolgreicher Stand je Reise (nur Metadaten, keine Blobs). */
+const libraryMemory = new Map();
 
 const PIN_SVG = `<svg width="19" height="19" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M16 2.8c-5.8 0-10 4.3-10 9.7 0 6.9 10 15.7 10 15.7s10-8.8 10-15.7c0-5.4-4.2-9.7-10-9.7z" fill="#d4523e"/><circle cx="16" cy="12.6" r="3.8" fill="#fff"/></svg>`;
 
@@ -45,9 +52,15 @@ export async function renderTripLibrary(appEl, vacationId) {
     });
   }
 
-  function shell(bodyHtml) {
+  function shell(bodyHtml, { canEdit = false, offline = false } = {}) {
     cleanup();
     const scrollTop = appEl.querySelector(".library-main")?.scrollTop || 0;
+    const addBtn = canEdit
+      ? `<button type="button" class="library-add" data-action="add-photos" data-testid="library-add-photos">+ Fotos</button>`
+      : `<span class="map-header__spacer" aria-hidden="true"></span>`;
+    const banner = offline
+      ? `<p class="library-offline" data-testid="library-offline">Du bist offline.</p>`
+      : "";
     appEl.className = "screen screen--library";
     appEl.dataset.testid = "trip-library-screen";
     appEl.dataset.vacationId = vacationId;
@@ -55,14 +68,48 @@ export async function renderTripLibrary(appEl, vacationId) {
       <header class="map-header settings-header">
         <button type="button" class="map-header__back" data-action="back" data-testid="library-back">${ICON_BACK_CHEVRON}<span class="map-header__trip">${escapeHtml(vacation.title)}</span></button>
         <h1 class="map-header__title">Mediathek</h1>
-        <span class="map-header__spacer" aria-hidden="true"></span>
+        ${addBtn}
       </header>
-      <main class="library-main" data-testid="trip-library">${bodyHtml}</main>
+      <main class="library-main" data-testid="trip-library">${banner}${bodyHtml}</main>
+      <input type="file" accept="image/*" multiple hidden data-role="gallery-input" data-testid="library-gallery-input" />
     `;
     bindBack();
+    bindGallery(canEdit);
     const main = appEl.querySelector(".library-main");
     if (main && scrollTop) main.scrollTop = scrollTop;
     return main;
+  }
+
+  function bindGallery(canEdit) {
+    const input = appEl.querySelector('[data-testid="library-gallery-input"]');
+    if (!input || !canEdit) return;
+    appEl.querySelectorAll('[data-action="add-photos"]').forEach((btn) => {
+      btn.addEventListener("click", () => input.click());
+    });
+    input.addEventListener("change", () => {
+      const files = [...(input.files || [])];
+      input.value = "";
+      if (!files.length) return;
+      void (async () => {
+        try {
+          const saved = await loadTripSelection(vacationId);
+          const day = saved?.activeDay;
+          const selectedPlaceId = day ? saved?.selectedByDay?.[day] : null;
+          await startGalleryPhotoUpload({
+            vacation,
+            vacationId,
+            files,
+            day,
+            selectedPlaceId,
+            onDone: () => {
+              void load();
+            },
+          });
+        } catch (err) {
+          showWarnToast(err?.message || "Foto konnte nicht zugeordnet werden.");
+        }
+      })();
+    });
   }
 
   function paintLoading() {
@@ -85,16 +132,44 @@ export async function renderTripLibrary(appEl, vacationId) {
     });
   }
 
-  function paintEmpty() {
-    shell(`
+  function paintEmpty(canEdit) {
+    shell(
+      `
       <div class="trip-empty" data-testid="library-empty">
         <p class="trip-empty__title">Noch keine Fotos</p>
         <p class="trip-empty__hint">Hochgeladene Fotos dieser Reise erscheinen hier.</p>
+        ${
+          canEdit
+            ? `<button type="button" class="btn btn-emaille library-add-block" data-action="add-photos" data-testid="library-add-photos-empty">+ Fotos</button>`
+            : ""
+        }
       </div>
-    `);
+    `,
+      { canEdit }
+    );
   }
 
-  function paintPhotos(groups, flat, canDelete) {
+  function paintOfflineEmpty(canEdit) {
+    shell(
+      `
+      <div class="trip-empty" data-testid="library-offline">
+        <p class="trip-empty__title">Du bist offline.</p>
+        <button type="button" class="btn btn-emaille library-retry" data-testid="library-retry">Erneut versuchen</button>
+        ${
+          canEdit
+            ? `<button type="button" class="btn btn-emaille library-add-block" data-action="add-photos" data-testid="library-add-photos-empty">+ Fotos</button>`
+            : ""
+        }
+      </div>
+    `,
+      { canEdit }
+    );
+    appEl.querySelector('[data-testid="library-retry"]')?.addEventListener("click", () => {
+      void load();
+    });
+  }
+
+  function paintPhotos(groups, flat, canDelete, { offline = false } = {}) {
     const html = groups
       .map((group) => {
         const places = group.places
@@ -125,7 +200,7 @@ export async function renderTripLibrary(appEl, vacationId) {
       })
       .join("");
 
-    const main = shell(html);
+    const main = shell(html, { canEdit: canDelete, offline });
     main?.addEventListener("click", (e) => {
       const thumb = e.target.closest(".library-thumb[data-media-id]");
       if (!thumb || !main.contains(thumb)) return;
@@ -139,31 +214,61 @@ export async function renderTripLibrary(appEl, vacationId) {
     if (main) lazyStop = mountLazyThumbs(main, flat);
   }
 
+  function paintRemembered(canDelete, { offline = false } = {}) {
+    const remembered = libraryMemory.get(vacationId);
+    if (!remembered?.photos?.length) return false;
+    const groups = groupLibraryPhotos(remembered.photos, remembered.places);
+    const flat = remembered.photos
+      .slice()
+      .sort((a, b) => a.ts - b.ts || String(a.id).localeCompare(String(b.id)));
+    paintPhotos(groups, flat, canDelete, { offline });
+    return true;
+  }
+
   async function load() {
     const token = ++loadToken;
     if (!stillCurrent(token)) return;
+
+    const rolePromise = getMyTripRole(vacationId);
+    if (!navigator.onLine && libraryMemory.has(vacationId)) {
+      const canDelete = canEditTripMedia(await rolePromise);
+      if (!stillCurrent(token)) return;
+      if (paintRemembered(canDelete, { offline: true })) return;
+    }
+
     paintLoading();
     if (!stillCurrent(token)) return;
 
-    const [photoResult, placesResult] = await Promise.all([
+    const [photoResult, placesResult, role] = await Promise.all([
       fetchUploadedPhotosForTrip(vacationId),
       getPlacesForVacation(vacationId).then(
         (places) => ({ places, error: null }),
         (error) => ({ places: [], error })
       ),
+      rolePromise,
     ]);
     if (!stillCurrent(token)) return;
+
+    const canDelete = canEditTripMedia(role);
+    const offline =
+      !navigator.onLine ||
+      photoResult.error instanceof CloudOfflineError ||
+      placesResult.error instanceof CloudOfflineError;
+
     if (photoResult.error || placesResult.error) {
+      if (offline && paintRemembered(canDelete, { offline: true })) return;
+      if (offline) {
+        paintOfflineEmpty(canDelete);
+        return;
+      }
       paintError();
       return;
     }
 
-    const canDelete = canEditTripMedia(await getMyTripRole(vacationId));
-    if (!stillCurrent(token)) return;
-
     const photos = (photoResult.media || []).filter(isLibraryPhoto);
+    libraryMemory.set(vacationId, { photos, places: placesResult.places || [] });
     if (!photos.length) {
-      paintEmpty();
+      paintEmpty(canDelete);
       return;
     }
     const groups = groupLibraryPhotos(photos, placesResult.places);

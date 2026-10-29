@@ -1,4 +1,5 @@
-import { deleteMedia, putMedia } from "./db.js";
+import { CloudOfflineError } from "./cloud-errors.js";
+import { markMediaDeleted, purgeMediaFiles, restoreMedia } from "./db.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { formatMediaDuration } from "./media-process.js";
 import { createShareFileFromMedia, shareFileNameForMedia } from "./media-file-meta.js";
@@ -6,7 +7,7 @@ import { getSignedOriginalUrl } from "./media-signed-url-cache.js";
 import { ICON_BACK_CHEVRON_WHITE } from "./icons.js";
 import { openConfirmDialog } from "./ui-confirm.js";
 import { getSupabase } from "./supabase-client.js";
-import { showToast } from "./toast.js";
+import { showToast, showWarnToast } from "./toast.js";
 
 const PLAY_ICON = `<svg class="tile__play" width="18" height="18" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>`;
 
@@ -144,9 +145,13 @@ export function openMediaViewer(mediaItems, startId, options = {}) {
     }
     const url = await resolveDisplayUrl(item);
     const isVideo = item.type === "video";
-    const body = isVideo
-      ? `<video class="media-viewer__video" src="${url}" controls playsinline></video>`
-      : `<img class="media-viewer__img" src="${url}" alt="" data-testid="media-viewer-img" />`;
+    const missing =
+      `<p class="media-viewer__missing" data-testid="media-viewer-missing">Datei nicht gefunden.</p>`;
+    const body = !url
+      ? missing
+      : isVideo
+        ? `<video class="media-viewer__video" src="${url}" controls playsinline></video>`
+        : `<img class="media-viewer__img" src="${url}" alt="" data-testid="media-viewer-img" />`;
 
     overlay.innerHTML = `
       <div class="media-viewer" data-testid="media-viewer">
@@ -178,6 +183,10 @@ export function openMediaViewer(mediaItems, startId, options = {}) {
     overlay.querySelector('[data-action="close"]').addEventListener("click", () =>
       closeOverlayHistory(activeClose)
     );
+    overlay.querySelector(".media-viewer__img")?.addEventListener("error", () => {
+      const stage = overlay.querySelector('[data-role="stage"]');
+      if (stage) stage.innerHTML = missing;
+    });
     overlay.querySelector('[data-action="save-photos"]').addEventListener("click", () => {
       const tapAt = Date.now();
       if (shareSnackTimerRef.timer) {
@@ -211,35 +220,62 @@ export function openMediaViewer(mediaItems, startId, options = {}) {
       if (!ok) return;
       const removedIndex = index;
       const snapshot = { ...item };
-      deleteMedia(item.id).then(() => {
-        sorted.splice(index, 1);
-        const msg = isVideo ? "Video gelöscht" : "Foto gelöscht";
-        const viewerOpen = () =>
-          !overlay.hidden && overlay.querySelector('[data-testid="media-viewer"]');
-        showToast(msg, {
-          icon: "trash",
-          undoLabel: "Rückgängig",
-          onUndo: async () => {
-            await putMedia(snapshot);
-            sorted.splice(removedIndex, 0, snapshot);
-            onChanged?.();
-            if (viewerOpen()) {
-              index = removedIndex;
-              void render();
-            } else {
-              openMediaViewer(sorted, snapshot.id, { onChanged, canDelete });
-            }
-          },
-        });
-        if (!sorted.length) {
-          closeOverlayHistory(activeClose);
-          onChanged?.();
-          return;
-        }
-        if (index >= sorted.length) index = sorted.length - 1;
-        onChanged?.();
-        void render();
+      let existing = null;
+      try {
+        existing = await markMediaDeleted(item.id);
+      } catch (err) {
+        const offline = !navigator.onLine || err instanceof CloudOfflineError;
+        showWarnToast(
+          offline
+            ? "Offline, bitte später erneut versuchen."
+            : err?.message || "Foto konnte nicht gelöscht werden."
+        );
+        return;
+      }
+      if (!existing) {
+        showWarnToast("Foto konnte nicht gelöscht werden.");
+        return;
+      }
+      sorted.splice(index, 1);
+      const msg = isVideo ? "Video gelöscht" : "Foto gelöscht";
+      const viewerOpen = () =>
+        !overlay.hidden && overlay.querySelector('[data-testid="media-viewer"]');
+      let restored = false;
+      showToast(msg, {
+        icon: "trash",
+        undoLabel: "Rückgängig",
+        onUndo: () => {
+          restored = true;
+          void restoreMedia(snapshot.id)
+            .then(() => {
+              sorted.splice(removedIndex, 0, snapshot);
+              onChanged?.();
+              if (viewerOpen()) {
+                index = removedIndex;
+                void render();
+              } else {
+                openMediaViewer(sorted, snapshot.id, { onChanged, canDelete });
+              }
+            })
+            .catch((err) => {
+              showWarnToast(err?.message || "Löschen konnte nicht rückgängig gemacht werden.");
+            });
+        },
+        onDismiss: () => {
+          if (restored) return;
+          void purgeMediaFiles(existing).catch(() => {
+            showWarnToast("Datei konnte nicht aus dem Speicher gelöscht werden.");
+          });
+        },
       });
+      if (!sorted.length) {
+        closeOverlayHistory(activeClose);
+        onChanged?.();
+        return;
+      }
+      if (index >= sorted.length) index = sorted.length - 1;
+      onChanged?.();
+      void render();
     });
 
     const stage = overlay.querySelector('[data-role="stage"]');

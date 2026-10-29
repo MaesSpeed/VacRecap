@@ -39,6 +39,7 @@ import {
 import { canEditTripMedia, getMyTripRole } from "./trip-role.js";
 import { deleteMedia } from "./db.js";
 import { openConfirmDialog } from "./ui-confirm.js";
+import { startGalleryPhotoUpload } from "./gallery-upload.js";
 import { openPhotoUploadSheet } from "./ui-photo-upload-sheet.js";
 import { openMediaViewer } from "./ui-media-viewer.js";
 
@@ -517,12 +518,19 @@ export async function renderUrlaubDetail(appEl, id) {
 
   contentEl.addEventListener("click", async (e) => {
     const camBtn = e.target.closest('[data-action="camera-place"]');
-    if (camBtn) {
+    const galleryPlaceBtn = e.target.closest('[data-action="gallery-place"]');
+    if (camBtn || galleryPlaceBtn) {
       const host = e.target.closest(".oc[data-place-id]");
       if (!host) return;
       const placeId = host.dataset.placeId;
       state.selectedByDay[state.activeDay] = placeId;
       persistSelection(id, state);
+      if (galleryPlaceBtn) {
+        if (state.captureBusy || isTripFooterBlocked()) return;
+        blockTripFooter(SHEET_INPUT_BLOCK_MS);
+        galleryInput.click();
+        return;
+      }
       openCapturePhotoInput(placeId);
       return;
     }
@@ -760,20 +768,34 @@ export async function renderUrlaubDetail(appEl, id) {
   if (appEl?.dataset?.appRenderGen !== mountGen) return;
 
   galleryInput.addEventListener("change", () => {
-    const all = [...(galleryInput.files || [])];
+    const files = [...(galleryInput.files || [])];
     galleryInput.value = "";
-    if (!all.length) return;
-    const hasVideo = all.some(
-      (f) =>
-        f.type.startsWith("video/") ||
-        /\.(mov|mp4|m4v|webm|hevc)$/i.test(f.name || "")
-    );
-    if (hasVideo) {
-      showToast("Videos kommen in einem späteren Paket.", { icon: "none" });
-    }
-    const images = all.filter((f) => f.type.startsWith("image/"));
-    if (!images.length) return;
-    void beginPhotoUpload(images, { preferSelectedPlace: true });
+    if (!files.length || state.captureBusy) return;
+    state.captureBusy = true;
+    appEl.dataset.captureBusy = "1";
+    void startGalleryPhotoUpload({
+      vacation,
+      vacationId: id,
+      files,
+      day: state.activeDay,
+      selectedPlaceId: state.selectedByDay[state.activeDay],
+      onDone: () => refreshDayList(),
+    })
+      .then((target) => {
+        if (!target?.place) return;
+        state.selectedByDay[state.activeDay] = target.place.id;
+        persistSelection(id, state);
+        if (target.needsRefresh) return refreshDayList();
+        return null;
+      })
+      .catch((err) => {
+        showWarnToast(err?.message || "Foto konnte nicht zugeordnet werden.");
+      })
+      .finally(() => {
+        state.captureBusy = false;
+        appEl.dataset.captureBusy = "0";
+        galleryInput.value = "";
+      });
   });
 
   mountTripFooter(footerMount, {

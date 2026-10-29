@@ -1257,8 +1257,39 @@ body {
   display: block;
 }
 
-.library-retry {
+.library-retry,
+.library-add-block {
   margin-top: 16px;
+}
+
+.library-add {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: #0066b3;
+  font-size: 15px;
+  font-weight: 800;
+  padding: 6px 2px;
+  cursor: pointer;
+  z-index: 1;
+  flex-shrink: 0;
+}
+
+.library-offline {
+  margin: 0;
+  padding: 10px 16px 0;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--navy);
+}
+
+.media-viewer__missing {
+  margin: 0;
+  padding: 24px;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 800;
+  text-align: center;
 }
 
 .trip-footer {

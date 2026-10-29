@@ -11,6 +11,7 @@ const ICON_WARN = `<svg class="toast__svg toast__svg--lava" width="26" height="2
 
 let hideTimer = null;
 let activeToast = null;
+let dismissHook = null;
 
 function syncToastRootPosition() {
   const root = document.getElementById("toast-root");
@@ -24,10 +25,19 @@ function syncToastRootPosition() {
   root.classList.toggle("toast-root--over-viewer", Boolean(viewerOpen));
 }
 
-function dismissToast({ immediate = false } = {}) {
+function dismissToast({ immediate = false, skipHook = false } = {}) {
   if (hideTimer) {
     clearTimeout(hideTimer);
     hideTimer = null;
+  }
+  const hook = dismissHook;
+  dismissHook = null;
+  if (!skipHook && hook) {
+    try {
+      hook();
+    } catch {
+      /* purge darf den Toast nicht blockieren */
+    }
   }
   if (!activeToast) return;
   const el = activeToast;
@@ -60,12 +70,14 @@ export function showToast(
     icon,
     undoLabel,
     onUndo,
+    onDismiss,
   } = {}
 ) {
   const root = document.getElementById("toast-root");
   if (!root) return;
 
   dismissToast({ immediate: true });
+  dismissHook = typeof onDismiss === "function" ? onDismiss : null;
   syncToastRootPosition();
 
   const el = document.createElement("div");
@@ -97,7 +109,8 @@ export function showToast(
 
   if (undoHtml) {
     el.querySelector('[data-action="undo"]')?.addEventListener("click", () => {
-      dismissToast({ immediate: true });
+      dismissHook = null;
+      dismissToast({ immediate: true, skipHook: true });
       onUndo();
     });
   }

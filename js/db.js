@@ -447,18 +447,37 @@ export async function getMedia(id) {
   return data ? mediaRowToApp(data) : null;
 }
 
-export async function deleteMedia(id) {
+export async function markMediaDeleted(id) {
   assertWritable();
   const existing = await getMedia(id);
-  if (existing?.storagePath) {
-    await deleteMediaStorageObjects(existing.storagePath, existing.thumbPath);
-  }
+  if (!existing) return null;
   const { error } = await getSupabase()
     .from("media")
-    .update({ deleted_at: new Date().toISOString() })
+    .update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw mapApiError(error);
   window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  return existing;
+}
+
+export async function restoreMedia(id) {
+  assertWritable();
+  const { error } = await getSupabase()
+    .from("media")
+    .update({ deleted_at: null, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw mapApiError(error);
+  window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+}
+
+export async function purgeMediaFiles(media) {
+  if (!media?.storagePath) return;
+  await deleteMediaStorageObjects(media.storagePath, media.thumbPath);
+}
+
+export async function deleteMedia(id) {
+  const existing = await markMediaDeleted(id);
+  if (existing) await purgeMediaFiles(existing);
 }
 
 const STALE_PENDING_MS = 10 * 60 * 1000;
