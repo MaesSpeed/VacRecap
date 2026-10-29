@@ -302,7 +302,7 @@ async function runSuite(browserType, baseUrl, label) {
     throw new Error(`${label}: noteToRow setzt waypoint_id nicht auf null`);
   }
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  if (Number(build) !== 48) throw new Error(`${label}: Build ${build}, erwartet 48`);
+  if (Number(build) !== 49) throw new Error(`${label}: Build ${build}, erwartet 49`);
 
   await page.fill('input[name="email"]', LONG_EMAIL);
   const emailOverflow = await page.evaluate(() => {
@@ -833,7 +833,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 8a tests OK (Build 48)");
+  console.log("Playwright 8a tests OK (Build 49)");
 }
 
 main().catch((err) => {

@@ -1,4 +1,18 @@
 import { signInWithEmailOtp, verifyEmailOtp } from "./auth-service.js";
+
+const OTP_MIN_DIGITS = 6;
+const OTP_MAX_DIGITS = 10;
+
+function normalizeEmailOtp(value) {
+  const withoutSeparators = String(value ?? "").replace(/[\s-]/g, "");
+  return withoutSeparators.replace(/\D/g, "").slice(0, OTP_MAX_DIGITS);
+}
+
+function writeOtpValue(input, raw) {
+  const next = normalizeEmailOtp(raw);
+  if (input.value !== next) input.value = next;
+}
+
 export function renderLoginScreen(appEl, onSignedIn) {
   appEl.className = "screen screen--login";
   appEl.innerHTML = `
@@ -6,7 +20,7 @@ export function renderLoginScreen(appEl, onSignedIn) {
       <h1 class="top-bar__title">Reisetagebuch</h1>
     </header>
     <main class="login-main" data-testid="login-screen">
-      <p class="login-lead">Melde dich mit deiner E-Mail an. Du erhältst einen 6-stelligen Code.</p>
+      <p class="login-lead">Melde dich mit deiner E-Mail an. Du erhältst einen Code per E-Mail.</p>
       <form class="login-form" data-step="email" novalidate>
         <label class="field">
           <span class="field__label">E-Mail</span>
@@ -18,8 +32,8 @@ export function renderLoginScreen(appEl, onSignedIn) {
       <form class="login-form" data-step="otp" hidden novalidate>
         <p class="login-hint">Code an <strong data-role="email-display"></strong> gesendet.</p>
         <label class="field">
-          <span class="field__label">6-stelliger Code</span>
-          <input type="text" name="otp" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" required placeholder="123456" />
+          <span class="field__label">Code aus der E-Mail</span>
+          <input type="text" name="otp" inputmode="numeric" pattern="[0-9]*" maxlength="10" autocomplete="one-time-code" required placeholder="12345678" />
         </label>
         <p class="login-error" data-role="error" hidden></p>
         <button type="submit" class="btn btn-emaille">Anmelden</button>
@@ -64,11 +78,44 @@ export function renderLoginScreen(appEl, onSignedIn) {
     showError(otpForm, "");
   });
 
+  const otpInput = otpForm.otp;
+
+  const insertOtpText = (text) => {
+    const start = otpInput.selectionStart ?? otpInput.value.length;
+    const end = otpInput.selectionEnd ?? start;
+    const prefix = otpInput.value.slice(0, start);
+    const merged = prefix + text + otpInput.value.slice(end);
+    writeOtpValue(otpInput, merged);
+    const caret = normalizeEmailOtp(prefix + text).length;
+    try {
+      otpInput.setSelectionRange(caret, caret);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  otpInput.addEventListener("paste", (event) => {
+    const text = event.clipboardData?.getData("text");
+    if (typeof text !== "string") return;
+    event.preventDefault();
+    insertOtpText(text);
+  });
+
+  otpInput.addEventListener("input", () => {
+    writeOtpValue(otpInput, otpInput.value);
+  });
+
   otpForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     showError(otpForm, "");
+    const code = normalizeEmailOtp(otpInput.value);
+    writeOtpValue(otpInput, code);
+    if (code.length < OTP_MIN_DIGITS) {
+      showError(otpForm, "Bitte den ganzen Code aus der E-Mail eingeben.");
+      return;
+    }
     try {
-      await verifyEmailOtp(pendingEmail, otpForm.otp.value);
+      await verifyEmailOtp(pendingEmail, code);
       onSignedIn?.();
     } catch (err) {
       showError(otpForm, err.message || "Anmeldung fehlgeschlagen.");
