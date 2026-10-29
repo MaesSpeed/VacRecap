@@ -389,6 +389,7 @@ async function runFlow(page, baseUrl, label) {
 async function assertPlaceListUi(page, label) {
   await page.waitForSelector('[data-testid="place-list"]', { timeout: 15_000 });
   await page.waitForSelector(".place-list-fade", { timeout: 15_000 });
+  await page.waitForSelector(".qa__btn", { timeout: 15_000 });
   const layout = await page.evaluate(() => {
     const wrap = document.querySelector(".place-list-wrap");
     return {
@@ -637,7 +638,7 @@ async function main() {
   for (const vp of VIEWPORTS) {
     await page.setViewportSize({ width: vp.width, height: vp.height });
     const v = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-    if (Number(v) !== 46) throw new Error(`Version ${v} in ${vp.name}`);
+    if (Number(v) !== 47) throw new Error(`Version ${v} in ${vp.name}`);
   }
 
   for (const vp of [
@@ -760,7 +761,7 @@ async function main() {
 
   await ctx.close();
   server.close();
-  console.log("Playwright 6e tests OK (Build 46)");
+  console.log("Playwright 6e tests OK (Build 47)");
 }
 
 main().catch((err) => {

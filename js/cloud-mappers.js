@@ -91,6 +91,7 @@ export function noteToRow(note) {
     waypoint_id: note.placeId || null,
     day: note.day,
     body: (note.text || "").trim(),
+    updated_at: new Date().toISOString(),
   };
   if (note.id) row.id = note.id;
   return row;

@@ -308,6 +308,50 @@ export async function getNotesForPlace(placeId) {
   return fetchNotesForWaypoint(placeId);
 }
 
+function sameNoteDay(noteDay, day) {
+  return String(noteDay || "").slice(0, 10) === String(day || "").slice(0, 10);
+}
+
+function freeNotesFromCache(tripId, day) {
+  const list = readCache()?.notes?.[tripId] || [];
+  return list.filter((n) => (n.placeId == null || n.placeId === "") && sameNoteDay(n.day, day));
+}
+
+function cacheFreeNotesForDay(tripId, day, notes) {
+  if (!tripId) return;
+  const cache = readCache() || { trips: [], waypoints: {}, notes: {} };
+  const list = cache.notes?.[tripId] || [];
+  const without = list.filter(
+    (n) => !((n.placeId == null || n.placeId === "") && sameNoteDay(n.day, day))
+  );
+  writeCache({ notes: { [tripId]: [...without, ...notes] } });
+}
+
+export async function getFreeNotesForDay(tripId, day) {
+  if (!tripId || !day) return [];
+  if (!navigator.onLine) return freeNotesFromCache(tripId, day);
+  try {
+    const { data, error } = await getSupabase()
+      .from("notes")
+      .select("*")
+      .eq("trip_id", tripId)
+      .eq("day", day)
+      .is("waypoint_id", null)
+      .is("deleted_at", null)
+      .order("updated_at", { ascending: true });
+    if (error) throw mapApiError(error);
+    const notes = (data || []).map(noteRowToApp);
+    cacheFreeNotesForDay(tripId, day, notes);
+    return notes;
+  } catch (err) {
+    const cached = freeNotesFromCache(tripId, day);
+    if (cached.length) return cached;
+    if (err instanceof CloudOfflineError || err instanceof CloudNetworkError) return [];
+    if (isFetchNetworkFailure(err)) return [];
+    throw err;
+  }
+}
+
 export async function putNote(record) {
   assertWritable();
   const row = noteToRow(record);

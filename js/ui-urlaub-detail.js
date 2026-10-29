@@ -6,7 +6,7 @@ import {
   defaultActiveDay,
   vacationDays,
 } from "./days.js";
-import { getVacation } from "./db.js";
+import { getFreeNotesForDay, getPlacesForVacation, getVacation } from "./db.js";
 import { ICON_BACK_CHEVRON, ICON_GEAR, ICON_MAP } from "./icons.js";
 import { rememberPlaceFromGps, trySoftPointOnOpen } from "./place-service.js";
 import { newestHardPlace } from "./places.js";
@@ -25,6 +25,7 @@ import { prefetchCaptureGps, resetCaptureGpsPrefetch } from "./capture-gps-prefe
 import { blockTripFooter, isTripFooterBlocked, SHEET_INPUT_BLOCK_MS } from "./overlay-stack.js";
 import { dismissActiveToast, showToast, showTwoLineToast, showWarnToast } from "./toast.js";
 import { openNoteSheet } from "./ui-note-sheet.js";
+import { installDaySwipe, setDaySwipeNeighbor, setDaySwipePage } from "./day-swipe.js";
 import {
   filterViewableMedia,
   loadDayPlacesEnriched,
@@ -32,6 +33,7 @@ import {
   resolveThumbUrlMap,
   revokeThumbUrls,
   visibleThumbMediaIds,
+  withFreeNotesHtml,
   wrapPlaceList,
 } from "./ui-place-list.js";
 import { canEditTripMedia, getMyTripRole } from "./trip-role.js";
@@ -81,6 +83,7 @@ async function getState(id, vacation) {
       activeDay: saved?.activeDay ?? defaultActiveDay(vacation),
       selectedByDay: saved?.selectedByDay ?? {},
       notesExpanded: new Set(),
+      freeNotesExpanded: false,
       openGeoDone: new Set(),
       captureBusy: false,
       listRefreshToken: 0,
@@ -110,7 +113,7 @@ export async function renderUrlaubDetail(appEl, id) {
   const days = vacationDays(vacation);
   const state = await getState(id, vacation);
 
-  appEl.className = "screen screen--trip";
+  appEl.className = "screen screen--trip screen--trip-swipe";
   appEl.dataset.vacationId = id;
 
   appEl.innerHTML = `
@@ -134,8 +137,30 @@ export async function renderUrlaubDetail(appEl, id) {
     <div data-role="footer-mount"></div>
   `;
 
+  appEl.querySelector('[data-action="back"]').addEventListener("click", () => {
+    clearTripUiState(id);
+    leaveTripToOverview();
+  });
+  appEl.querySelector('[data-action="map"]').addEventListener("click", () => {
+    navigate({ name: "urlaub-map", id }, { fromTrip: true });
+  });
+  appEl.querySelector('[data-action="settings"]').addEventListener("click", () => {
+    navigate({ name: "urlaub-settings", id });
+  });
+
   const chipsEl = appEl.querySelector('[data-role="chips"]');
   const contentEl = appEl.querySelector('[data-role="day-content"]');
+  const neighborHold = { prev: "", next: "" };
+  installDaySwipe(contentEl, (dir) => shiftDay(dir), {
+    onLock: () => {
+      setDaySwipeNeighbor(contentEl, "prev", neighborHold.prev);
+      setDaySwipeNeighbor(contentEl, "next", neighborHold.next);
+    },
+    onRest: () => {
+      setDaySwipeNeighbor(contentEl, "prev", "");
+      setDaySwipeNeighbor(contentEl, "next", "");
+    },
+  });
   const footerMount = appEl.querySelector('[data-role="footer-mount"]');
   const capturePhotoInput = appEl.querySelector('[data-role="capture-photo-input"]');
   const captureVideoInput = appEl.querySelector('[data-role="capture-video-input"]');
@@ -189,50 +214,103 @@ export async function renderUrlaubDetail(appEl, id) {
     });
   }
 
-  async function refreshDayList() {
-    const token = ++state.listRefreshToken;
-    await maybeSoftOnOpen();
-    if (token !== state.listRefreshToken) return;
-    const items = await loadDayPlacesEnriched(id, state.activeDay);
-    if (token !== state.listRefreshToken) return;
-    const selectedId = await ensureSelectedForDay(items);
-    if (token !== state.listRefreshToken) return;
-
-    const allMedia = items.flatMap((i) => i.media);
-    const visibleIds = visibleThumbMediaIds(items, selectedId);
-    const nextThumbUrls = await resolveThumbUrlMap(allMedia, visibleIds);
-    const previousThumbUrls = state.thumbUrls;
-
-    const canEditMedia = canEditTripMedia(await getMyTripRole(id));
-
-    let html;
-    if (items.length === 0) {
-      html = `
+  const emptyDayHtml = `
         <div class="trip-empty" data-testid="trip-empty">
           <p class="trip-empty__title">Noch keine Orte heute</p>
           <p class="trip-empty__hint">Ort merken, Foto machen oder Notiz schreiben.</p>
         </div>`;
-    } else {
+
+  let warmHtml = new Map();
+  let warmPlaces = null;
+
+  function stripTestIds(html) {
+    return String(html || "").replace(/\sdata-testid="[^"]*"/g, "");
+  }
+
+  async function buildDayHtml(dayIso, knownPlaces) {
+    const items = await loadDayPlacesEnriched(id, dayIso, knownPlaces);
+    const active = dayIso === state.activeDay;
+    const selectedId = active ? await ensureSelectedForDay(items) : (state.selectedByDay[dayIso] ?? null);
+    const freeNotes = await getFreeNotesForDay(id, dayIso);
+    const allMedia = items.flatMap((i) => i.media);
+    const visibleIds = visibleThumbMediaIds(items, selectedId);
+    const thumbUrls = active ? await resolveThumbUrlMap(allMedia, visibleIds) : {};
+    const canEditMedia = active ? canEditTripMedia(await getMyTripRole(id)) : false;
+    let placeHtml = emptyDayHtml;
+    if (items.length) {
       const { listHtml, mediaErrorHtml } = renderPlaceListHtml(items, {
-          selectedId,
-          notesExpanded: state.notesExpanded,
-          thumbUrls: nextThumbUrls,
-          canEditMedia,
-        });
-      html = wrapPlaceList(listHtml, mediaErrorHtml);
+        selectedId,
+        notesExpanded: active ? state.notesExpanded : new Set(),
+        thumbUrls,
+        canEditMedia,
+      });
+      placeHtml = wrapPlaceList(listHtml, mediaErrorHtml);
     }
-    if (token !== state.listRefreshToken) {
-      revokeThumbUrls(nextThumbUrls);
-      return;
+    return {
+      html: withFreeNotesHtml(placeHtml, freeNotes, {
+        expanded: active && state.freeNotesExpanded,
+        replaceEmpty: items.length === 0,
+      }),
+      thumbUrls,
+    };
+  }
+
+  function clearWarm() {
+    for (const built of warmHtml.values()) revokeThumbUrls(built?.thumbUrls);
+    warmHtml = new Map();
+    warmPlaces = null;
+  }
+
+  async function prefetchNeighbors(token) {
+    const idx = days.indexOf(state.activeDay);
+    const prev = idx > 0 ? days[idx - 1] : null;
+    const next = idx < days.length - 1 ? days[idx + 1] : null;
+    neighborHold.prev = "";
+    neighborHold.next = "";
+    for (const [key, day] of [
+      ["prev", prev],
+      ["next", next],
+    ]) {
+      if (!day) continue;
+      let built = warmHtml.get(day);
+      if (!built) {
+        built = await buildDayHtml(day, warmPlaces);
+        if (token !== state.listRefreshToken || !contentEl.isConnected) {
+          revokeThumbUrls(built?.thumbUrls);
+          return;
+        }
+        warmHtml.set(day, built);
+      }
+      neighborHold[key] = stripTestIds(built.html);
     }
-    if (!contentEl.isConnected) {
-      revokeThumbUrls(nextThumbUrls);
-      return;
+  }
+
+  async function refreshDayList({ reuse = false } = {}) {
+    const token = ++state.listRefreshToken;
+    await maybeSoftOnOpen();
+    if (token !== state.listRefreshToken) return;
+    if (!reuse) clearWarm();
+    if (!warmPlaces) warmPlaces = await getPlacesForVacation(id);
+    if (token !== state.listRefreshToken) return;
+    let built = reuse ? warmHtml.get(state.activeDay) : null;
+    if (!built) {
+      built = await buildDayHtml(state.activeDay, warmPlaces);
+      if (token !== state.listRefreshToken) {
+        revokeThumbUrls(built?.thumbUrls);
+        return;
+      }
+      warmHtml.set(state.activeDay, built);
     }
-    state.thumbUrls = nextThumbUrls;
-    contentEl.innerHTML = html;
+    if (!contentEl.isConnected) return;
+    const previousThumbUrls = state.thumbUrls;
+    state.thumbUrls = built.thumbUrls;
+    const idx = days.indexOf(state.activeDay);
+    contentEl.dataset.canPrev = idx > 0 ? "1" : "0";
+    contentEl.dataset.canNext = idx < days.length - 1 ? "1" : "0";
+    setDaySwipePage(contentEl, built.html);
     contentEl.dataset.activeDay = state.activeDay;
-    revokeThumbUrls(previousThumbUrls);
+    if (previousThumbUrls && previousThumbUrls !== built.thumbUrls) revokeThumbUrls(previousThumbUrls);
+    void prefetchNeighbors(token);
   }
 
   async function setActiveDay(dayIso) {
@@ -244,7 +322,10 @@ export async function renderUrlaubDetail(appEl, id) {
 
   function shiftDay(direction) {
     const next = adjacentDay(vacation, state.activeDay, direction);
-    if (next !== state.activeDay) setActiveDay(next);
+    if (next === state.activeDay) return;
+    state.activeDay = next;
+    renderChips();
+    void refreshDayList({ reuse: true });
   }
 
   async function onRememberPlace() {
@@ -488,7 +569,7 @@ export async function renderUrlaubDetail(appEl, id) {
       return;
     }
 
-    const noteRowClick = e.target.closest(".nr[data-note-id]");
+    const noteRowClick = e.target.closest(".oc .nr[data-note-id]");
     if (noteRowClick && !e.target.closest('[data-action="edit-note"]')) {
       const placeHost = e.target.closest(".oc[data-place-id]");
       if (!placeHost) return;
@@ -534,6 +615,50 @@ export async function renderUrlaubDetail(appEl, id) {
           persistSelection(id, state);
         },
       });
+      return;
+    }
+
+    const freeHost = e.target.closest('[data-testid="free-notes"]');
+    if (freeHost) {
+      if (e.target.closest('[data-action="expand-free-notes"]')) {
+        state.freeNotesExpanded = true;
+        await refreshDayList();
+        return;
+      }
+      if (e.target.closest('[data-action="collapse-free-notes"]')) {
+        state.freeNotesExpanded = false;
+        await refreshDayList();
+        return;
+      }
+      const editFree =
+        e.target.closest('[data-action="edit-free-note"]') || e.target.closest("[data-free-note]");
+      const addFree = e.target.closest('[data-action="add-free-note"]');
+      if (editFree || addFree) {
+        const notes = await getFreeNotesForDay(id, state.activeDay);
+        const note = editFree
+          ? notes.find((n) => n.id === editFree.closest("[data-note-id]")?.dataset.noteId)
+          : null;
+        if (editFree && !note) return;
+        openNoteSheet({
+          place: null,
+          initialFree: true,
+          vacationId: id,
+          vacation,
+          day: state.activeDay,
+          dayIndex: dayIndexInTrip(vacation, state.activeDay),
+          placesForDay: async () => {
+            const list = await loadDayPlacesEnriched(id, state.activeDay);
+            return list.map((i) => i.place).filter((p) => !p.soft);
+          },
+          note: note || undefined,
+          onSaved: () => refreshDayList(),
+          onPlaceChange: (pid) => {
+            if (!pid) return;
+            state.selectedByDay[state.activeDay] = pid;
+            persistSelection(id, state);
+          },
+        });
+      }
       return;
     }
 
@@ -663,25 +788,11 @@ export async function renderUrlaubDetail(appEl, id) {
     onGallery: openGalleryPicker,
   });
 
-  appEl.querySelector('[data-action="back"]').addEventListener("click", () => {
-    clearTripUiState(id);
-    leaveTripToOverview();
-  });
-
-  appEl.querySelector('[data-action="map"]').addEventListener("click", () => {
-    navigate({ name: "urlaub-map", id }, { fromTrip: true });
-  });
-
-  appEl.querySelector('[data-action="settings"]').addEventListener("click", () => {
-    navigate({ name: "urlaub-settings", id });
-  });
-
   chipsEl.addEventListener("click", (e) => {
     const chip = e.target.closest("[data-day]");
     if (chip) setActiveDay(chip.dataset.day);
   });
 
-  bindSwipe(contentEl, shiftDay);
 
   const pendingFooter = consumePendingFooter();
   if (pendingFooter === "note") {
@@ -693,42 +804,3 @@ export async function renderUrlaubDetail(appEl, id) {
   }
 }
 
-function bindSwipe(element, shiftDay) {
-  let startX = 0;
-  let startY = 0;
-  let tracking = false;
-
-  element.addEventListener(
-    "touchstart",
-    (e) => {
-      if (e.touches.length !== 1) return;
-      startX = e.touches[0].clientX;
-      startY = e.touches[0].clientY;
-      tracking = true;
-    },
-    { passive: true }
-  );
-
-  element.addEventListener("touchend", (e) => {
-    if (!tracking) return;
-    tracking = false;
-    const dx = e.changedTouches[0].clientX - startX;
-    const dy = e.changedTouches[0].clientY - startY;
-    if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
-    shiftDay(dx < 0 ? 1 : -1);
-  });
-
-  element.addEventListener("mousedown", (e) => {
-    startX = e.clientX;
-    startY = e.clientY;
-    tracking = true;
-  });
-  element.addEventListener("mouseup", (e) => {
-    if (!tracking) return;
-    tracking = false;
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
-    if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
-    shiftDay(dx < 0 ? 1 : -1);
-  });
-}

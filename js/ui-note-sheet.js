@@ -20,12 +20,14 @@ export function openNoteSheet({
   dayIndex,
   placesForDay,
   note,
+  initialFree = false,
   resolvePlaceOnSave,
   previewPlaceLabel,
   onSaved,
   onPlaceChange,
 }) {
-  let activePlace = place;
+  let freeChosen = Boolean(initialFree) || (Boolean(note) && !note.placeId);
+  let activePlace = freeChosen ? null : place;
   const isEdit = Boolean(note);
   const overlay = document.getElementById("overlay-root");
   overlay.hidden = false;
@@ -52,11 +54,14 @@ export function openNoteSheet({
   }
 
   function placeSubtitle() {
+    if (freeChosen) return `Freie Notiz · ${dayRoleLine()}`;
     if (isEdit) return `Notiz · ${dayRoleLine()}`;
     return `Ausgewählte Karte · ${dayRoleLine()}`;
   }
 
-  const initialPlaceName = activePlace?.name ?? "Ort wird beim Speichern gewählt";
+  const initialPlaceName = freeChosen
+    ? "Kein Ort / freie Notiz"
+    : (activePlace?.name ?? "Ort wird beim Speichern gewählt");
 
   overlay.innerHTML = `
     <div class="sheet sheet--note-bottom" data-testid="note-sheet">
@@ -148,22 +153,33 @@ export function openNoteSheet({
     textarea.focus();
   });
 
-  if (!isEdit && previewPlaceLabel && !activePlace) {
+  function syncPlaceLabel() {
+    if (freeChosen) {
+      placeNameEl.textContent = "Kein Ort / freie Notiz";
+      placeSubEl.textContent = `Freie Notiz · ${dayRoleLine()}`;
+      return;
+    }
+    placeNameEl.textContent = activePlace?.name || "Ort wird beim Speichern gewählt";
+    placeSubEl.textContent = placeSubtitle();
+  }
+
+  if (!isEdit && previewPlaceLabel && !activePlace && !freeChosen) {
     void previewPlaceLabel().then((preview) => {
-      if (!overlay.isConnected || activePlace) return;
+      if (!overlay.isConnected || activePlace || freeChosen) return;
       if (preview?.label) placeNameEl.textContent = preview.label;
     });
   }
 
   overlay.querySelector('[data-action="change-place"]')?.addEventListener("click", async () => {
-    const places = await placesForDay();
-    if (!places.length) return;
+    const places = (await placesForDay()) || [];
     const pickLayer = document.createElement("div");
     pickLayer.className = "note-sheet__pick-layer";
     pickLayer.innerHTML = `
-      <div class="sheet sheet--note-places">
+      <div class="sheet sheet--note-places" data-testid="note-place-sheet">
+        <div class="sheet-handle" data-role="pick-handle" aria-hidden="true"></div>
         <header class="sheet__header"><h2 class="sheet__title">Karte wählen</h2></header>
-        <ul class="note-place-pick">
+        <ul class="note-place-pick" data-role="pick-scroll">
+          <li><button type="button" data-action="pick-free" data-testid="pick-free">Kein Ort / freie Notiz</button></li>
           ${places
             .map(
               (p) =>
@@ -174,21 +190,30 @@ export function openNoteSheet({
         <button type="button" class="link-btn" data-action="pick-cancel">Abbrechen</button>
       </div>
     `;
-    overlay.querySelector(".sheet--note-bottom")?.appendChild(pickLayer);
-    pickLayer.querySelector('[data-action="pick-cancel"]').addEventListener("click", () =>
-      pickLayer.remove()
-    );
+    sheetEl?.appendChild(pickLayer);
+    const closePick = () => {
+      if (pickLayer.isConnected) pickLayer.remove();
+    };
+    pickLayer.querySelector('[data-action="pick-cancel"]').addEventListener("click", closePick);
+    bindSubSheetPull(pickLayer.querySelector(".sheet--note-places"), {
+      onClose: closePick,
+      scrollEl: pickLayer.querySelector("[data-role='pick-scroll']"),
+    });
+    pickLayer.querySelector('[data-action="pick-free"]')?.addEventListener("click", () => {
+      freeChosen = true;
+      activePlace = null;
+      syncPlaceLabel();
+      closePick();
+    });
     pickLayer.querySelectorAll("[data-place-id]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const picked = places.find((p) => p.id === btn.dataset.placeId);
         if (!picked) return;
+        freeChosen = false;
         activePlace = picked;
         onPlaceChange?.(picked.id);
-        placeNameEl.textContent = picked.name;
-        if (!isEdit) {
-          placeSubEl.textContent = `Ausgewählte Karte · ${dayRoleLine()}`;
-        }
-        pickLayer.remove();
+        syncPlaceLabel();
+        closePick();
       });
     });
   });
@@ -201,25 +226,29 @@ export function openNoteSheet({
       let captureResult = null;
       let placeToUse = activePlace;
 
-      const useGpsResolve = !isEdit && resolvePlaceOnSave && !placeToUse;
+      const useGpsResolve = !freeChosen && !isEdit && resolvePlaceOnSave && !placeToUse;
       if (useGpsResolve) {
         captureResult = await resolvePlaceOnSave();
         placeToUse = captureResult.place;
       }
 
-      if (!placeToUse && isEdit) {
+      if (!placeToUse && isEdit && !freeChosen) {
         placeToUse = activePlace;
       }
-      if (!placeToUse) {
+      if (!freeChosen && !placeToUse) {
         showToast("Kein Ort gewählt");
         return;
       }
 
       if (isEdit) {
-        await updateNoteText(note, text);
-        if (placeToUse.id !== note.placeId) {
-          await moveNoteToPlace(note, placeToUse, { day, vacationId });
+        const updated = await updateNoteText(note, text);
+        const nextPlaceId = freeChosen ? null : placeToUse.id;
+        if (nextPlaceId !== (note.placeId || null)) {
+          await moveNoteToPlace(updated, freeChosen ? null : placeToUse, { day, vacationId });
         }
+        showToast("Notiz gespeichert");
+      } else if (freeChosen) {
+        await createNote({ place: null, vacationId, day, text });
         showToast("Notiz gespeichert");
       } else {
         await createNote({ place: placeToUse, vacationId, day, text });
@@ -257,4 +286,124 @@ export function openNoteSheet({
   }
 
   requestAnimationFrame(() => textarea.focus());
+}
+
+function bindSubSheetPull(sheet, { onClose, scrollEl }) {
+  if (!sheet) return;
+  let tracking = false;
+  let dragging = false;
+  let decided = false;
+  let startY = 0;
+  let startX = 0;
+  let lastY = 0;
+  let lastT = 0;
+  let vel = 0;
+  let closed = false;
+
+  const closeOnce = () => {
+    if (closed) return;
+    closed = true;
+    onClose();
+  };
+
+  const pullFrom = (target) =>
+    Boolean(target?.closest?.("[data-role='pick-handle'], .sheet__header"));
+
+  const begin = (y, x) => {
+    tracking = true;
+    dragging = false;
+    decided = false;
+    startY = lastY = y;
+    startX = x;
+    lastT = performance.now();
+    vel = 0;
+    sheet.style.transition = "none";
+  };
+
+  const move = (y, x, event, target) => {
+    if (!tracking || closed) return;
+    const dy = y - startY;
+    const dx = x - startX;
+    if (!decided) {
+      if (Math.abs(dy) < 6 && Math.abs(dx) < 6) return;
+      decided = true;
+      const fromHandle = pullFrom(target);
+      const scrolled = scrollEl && scrollEl.scrollTop > 2;
+      dragging = dy > 0 && Math.abs(dy) > Math.abs(dx) && (fromHandle || !scrolled);
+    }
+    if (!dragging) return;
+    if (event?.cancelable) event.preventDefault();
+    const pull = Math.max(0, y - startY);
+    sheet.style.transform = `translate3d(0px, ${pull}px, 0px)`;
+    const now = performance.now();
+    const dt = now - lastT;
+    if (dt >= 16) {
+      vel = (y - lastY) / dt;
+      lastY = y;
+      lastT = now;
+    }
+  };
+
+  const end = () => {
+    if (!tracking || closed) return;
+    tracking = false;
+    if (!dragging) return;
+    dragging = false;
+    const match = /translate3d\(\s*[^,]+,\s*(-?[\d.]+)px/.exec(sheet.style.transform || "");
+    const pull = match ? Number(match[1]) : 0;
+    if (pull > 72 || (vel > 0.55 && pull > 24)) {
+      sheet.style.transition = "transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)";
+      sheet.style.transform = "translate3d(0, 110%, 0)";
+      sheet.addEventListener("transitionend", () => closeOnce(), { once: true });
+      setTimeout(closeOnce, 280);
+      return;
+    }
+    sheet.style.transition = "transform 320ms cubic-bezier(0.34, 1.25, 0.64, 1)";
+    sheet.style.transform = "translate3d(0, 0, 0)";
+  };
+
+  sheet.addEventListener(
+    "touchstart",
+    (e) => {
+      if (e.touches.length !== 1 || closed) return;
+      begin(e.touches[0].clientY, e.touches[0].clientX);
+      sheet._pullTarget = e.target;
+    },
+    { passive: true }
+  );
+  sheet.addEventListener(
+    "touchmove",
+    (e) => {
+      if (!tracking || e.touches.length !== 1) return;
+      move(e.touches[0].clientY, e.touches[0].clientX, e, sheet._pullTarget || e.target);
+    },
+    { passive: false }
+  );
+  sheet.addEventListener("touchend", end);
+  sheet.addEventListener("touchcancel", () => {
+    tracking = false;
+    dragging = false;
+    sheet.style.transition = "transform 320ms cubic-bezier(0.34, 1.25, 0.64, 1)";
+    sheet.style.transform = "translate3d(0, 0, 0)";
+  });
+
+  sheet.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "touch" || e.button !== 0 || closed) return;
+    sheet._pullTarget = e.target;
+    begin(e.clientY, e.clientX);
+  });
+  sheet.addEventListener("pointermove", (e) => {
+    if (e.pointerType === "touch" || !tracking) return;
+    move(e.clientY, e.clientX, e, sheet._pullTarget);
+  });
+  sheet.addEventListener("pointerup", (e) => {
+    if (e.pointerType === "touch") return;
+    end();
+  });
+  sheet.addEventListener("pointercancel", () => {
+    tracking = false;
+    dragging = false;
+    sheet.style.transition = "transform 320ms cubic-bezier(0.34, 1.25, 0.64, 1)";
+    sheet.style.transform = "translate3d(0px, 0px, 0px)";
+  });
 }
