@@ -3,6 +3,7 @@ import {
   formatTimeFromTs,
   getCurrentPosition,
   haversineMeters,
+  isLocationUnavailable,
   reverseGeocodeName,
 } from "./geo.js";
 import { deletePlace, getPlacesForDay, putPlace } from "./db.js";
@@ -89,7 +90,8 @@ export async function rememberPlaceFromGps({ vacationId, day }) {
       source: "manual",
     });
     return result;
-  } catch {
+  } catch (err) {
+    if (!isLocationUnavailable(err)) throw err;
     const ts = Date.now();
     const name = fallbackPlaceName(ts);
     const place = createPlace({

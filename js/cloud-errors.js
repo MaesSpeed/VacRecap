@@ -55,6 +55,47 @@ export function mapAuthError(err) {
   return "Anmeldung fehlgeschlagen. Bitte E-Mail und Code prüfen.";
 }
 
+const PLACE_FAIL = "Der Ort konnte nicht angelegt werden. Bitte erneut versuchen.";
+export const PHOTO_KEPT_MESSAGE =
+  "Der Ort konnte nicht angelegt werden. Das Foto bleibt erhalten – bitte erneut versuchen.";
+export const NOTE_KEPT_MESSAGE =
+  "Der Ort konnte nicht angelegt werden. Die Notiz bleibt erhalten – bitte erneut versuchen.";
+
+function isDbViolation(raw) {
+  const text = String(raw || "");
+  return (
+    /new row for relation/i.test(text) ||
+    /check constraint/i.test(text) ||
+    /not-null constraint/i.test(text) ||
+    /row-level security/i.test(text) ||
+    /violates/i.test(text)
+  );
+}
+
+/** Postgres-Text (Check, NOT NULL, RLS) durch eine deutsche Meldung ersetzen. */
+export function friendlyDbMessage(raw) {
+  const text = String(raw || "");
+  if (!isDbViolation(text)) return text;
+  if (/waypoints/i.test(text)) return PLACE_FAIL;
+  if (/notes/i.test(text)) return "Die Notiz konnte nicht gespeichert werden. Bitte erneut versuchen.";
+  if (/row-level security/i.test(text)) return "Dafür fehlt die Berechtigung.";
+  return "Speichern fehlgeschlagen. Bitte erneut versuchen.";
+}
+
+export function photoKeptMessage(err) {
+  const msg = err?.message || "";
+  if (msg.startsWith("Der Ort konnte nicht") || isDbViolation(msg)) return PHOTO_KEPT_MESSAGE;
+  return msg || "Foto konnte nicht zugeordnet werden.";
+}
+
+export function noteKeptMessage(err) {
+  const msg = err?.message || "";
+  if (msg.startsWith("Der Ort konnte nicht") || /waypoints/i.test(msg) || isDbViolation(msg)) {
+    return NOTE_KEPT_MESSAGE;
+  }
+  return msg || "Notiz konnte nicht gespeichert werden.";
+}
+
 export function mapApiError(err) {
   if (!navigator.onLine) {
     return new CloudOfflineError();
@@ -62,6 +103,6 @@ export function mapApiError(err) {
   if (isFetchNetworkFailure(err)) {
     return new CloudNetworkError();
   }
-  const userMsg = err?.message || "Speichern fehlgeschlagen.";
-  return new Error(userMsg);
+  const friendly = friendlyDbMessage(err?.message || "");
+  return new Error(friendly || "Speichern fehlgeschlagen.");
 }

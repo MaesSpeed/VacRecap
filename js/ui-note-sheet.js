@@ -2,7 +2,7 @@ import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { createNote, moveNoteToPlace, removeNote, updateNoteText } from "./note-service.js";
 import { dayRoleLabel, vacationDays } from "./days.js";
 import { openConfirmDialog } from "./ui-confirm.js";
-import { CloudNetworkError, CloudOfflineError } from "./cloud-errors.js";
+import { CloudNetworkError, CloudOfflineError, noteKeptMessage } from "./cloud-errors.js";
 import { showToast, showWarnToast } from "./toast.js";
 import { escapeHtml } from "./utils.js";
 
@@ -260,7 +260,7 @@ export function openNoteSheet({
       if (err instanceof CloudOfflineError || err instanceof CloudNetworkError) {
         showWarnToast(err.message);
       } else {
-        showToast(err?.message || "Notiz konnte nicht gespeichert werden.");
+        showWarnToast(noteKeptMessage(err));
       }
     } finally {
       saving = false;
