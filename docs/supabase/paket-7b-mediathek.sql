@@ -1,0 +1,17 @@
+-- Paket 7b: Mediathek (Cloud). Keine Schema-Änderung.
+--
+-- Die App liest vorhandene Spalten von public.media:
+--   trip_id, waypoint_id, day, taken_at, kind, upload_status, deleted_at,
+--   storage_path, thumb_path
+--
+-- Filter in der Mediathek:
+--   kind = 'photo'
+--   upload_status = 'uploaded'
+--   deleted_at is null
+--   Gruppierung nach Kalendertag von taken_at, darunter nach waypoint_id
+--
+-- Storage bleibt privat (media-originals, media-thumbs).
+-- Thumbnails und Originale weiter per Signed URL, Cache in der App begrenzt.
+-- Löschen weiter über die App (DB deleted_at + Storage-Objekte), nur Owner/Editor.
+--
+-- Diese Datei nicht ausführen — sie dokumentiert, dass Paket 7b kein SQL braucht.

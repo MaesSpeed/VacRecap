@@ -1190,6 +1190,123 @@ body {
   line-height: 1.45;
 }
 
+.screen--library {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+  background: var(--bg);
+  padding-bottom: 0;
+}
+
+.library-main {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 0 calc(18px + var(--safe-bottom));
+}
+
+.library-day__title {
+  margin: 0;
+  padding: 14px 16px 6px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--emaille);
+}
+
+.library-places {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 14px;
+}
+
+.library-place .oc__meta {
+  margin-bottom: 0;
+}
+
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.library-thumb {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 0;
+  padding: 0 0 100%;
+  border: none;
+  border-radius: 11px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #c5d4e8, #9fb3cc);
+  cursor: pointer;
+}
+
+.library-thumb__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.library-thumb__missing,
+.thumb-missing {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.15;
+  text-align: center;
+  color: var(--navy);
+}
+
+.library-retry,
+.library-add-block {
+  margin-top: 16px;
+}
+
+.library-add {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: #0066b3;
+  font-size: 15px;
+  font-weight: 800;
+  padding: 6px 2px;
+  cursor: pointer;
+  z-index: 1;
+  flex-shrink: 0;
+}
+
+.library-offline {
+  margin: 0;
+  padding: 10px 16px 0;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--navy);
+}
+
+.media-viewer__missing {
+  margin: 0;
+  padding: 24px;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 800;
+  text-align: center;
+}
+
 .trip-footer {
   position: fixed;
   left: 0;
@@ -1771,6 +1888,13 @@ body {
   align-items: center;
   gap: 8px 12px;
   font-size: 14px;
+}
+
+.photo-upload-target {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--emaille);
 }
 
 .photo-upload-item__name {

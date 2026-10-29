@@ -1,4 +1,11 @@
-import { deleteMedia, putMedia } from "./db.js";
+import { CloudOfflineError } from "./cloud-errors.js";
+import {
+  forgetPendingMediaPurge,
+  markMediaDeleted,
+  purgeMediaFiles,
+  rememberPendingMediaPurge,
+  restoreMedia,
+} from "./db.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { formatMediaDuration } from "./media-process.js";
 import { createShareFileFromMedia, shareFileNameForMedia } from "./media-file-meta.js";
@@ -6,7 +13,7 @@ import { getSignedOriginalUrl } from "./media-signed-url-cache.js";
 import { ICON_BACK_CHEVRON_WHITE } from "./icons.js";
 import { openConfirmDialog } from "./ui-confirm.js";
 import { getSupabase } from "./supabase-client.js";
-import { showToast } from "./toast.js";
+import { showToast, showWarnToast } from "./toast.js";
 
 const PLAY_ICON = `<svg class="tile__play" width="18" height="18" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>`;
 
@@ -107,7 +114,9 @@ function hideViewerShareSnack(overlay) {
   snack.hidden = true;
 }
 
-export function openMediaViewer(mediaItems, startId, { onChanged }) {
+export function openMediaViewer(mediaItems, startId, options = {}) {
+  const { onChanged } = options;
+  const canDelete = options.canDelete !== false;
   const sorted = mediaItems.slice().sort((a, b) => a.ts - b.ts);
   let index = sorted.findIndex((m) => m.id === startId);
   if (index < 0) index = 0;
@@ -140,21 +149,31 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
       closeOverlayHistory(activeClose);
       return;
     }
-    const url = await resolveDisplayUrl(item);
+    const url = !navigator.onLine && item.storagePath && !item.blob ? "" : await resolveDisplayUrl(item);
     const isVideo = item.type === "video";
-    const body = isVideo
-      ? `<video class="media-viewer__video" src="${url}" controls playsinline></video>`
-      : `<img class="media-viewer__img" src="${url}" alt="" data-testid="media-viewer-img" />`;
+    const offlineCloud = !navigator.onLine && item.storagePath && !item.blob;
+    const missing = offlineCloud
+      ? `<p class="media-viewer__missing" data-testid="media-viewer-offline">Du bist offline.</p>`
+      : `<p class="media-viewer__missing" data-testid="media-viewer-missing">Datei nicht gefunden.</p>`;
+    const body = !url
+      ? missing
+      : isVideo
+        ? `<video class="media-viewer__video" src="${url}" controls playsinline></video>`
+        : `<img class="media-viewer__img" src="${url}" alt="" data-testid="media-viewer-img" />`;
 
     overlay.innerHTML = `
       <div class="media-viewer" data-testid="media-viewer">
         <header class="media-viewer__bar">
           <button type="button" class="media-viewer__back" data-action="close" data-testid="media-viewer-close" aria-label="Zurück">${ICON_BACK_CHEVRON_WHITE}</button>
-          <button type="button" class="media-viewer__delete" data-action="delete" aria-label="Löschen">
+          ${
+            canDelete
+              ? `<button type="button" class="media-viewer__delete" data-action="delete" data-testid="media-viewer-delete" aria-label="Löschen">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m-7 4v7m4-7v7M6 7l1 12a1 1 0 0 0 1 .9h8a1 1 0 0 0 1-.9L18 7"/>
             </svg>
-          </button>
+          </button>`
+              : `<span class="media-viewer__delete" aria-hidden="true"></span>`
+          }
         </header>
         <div class="media-viewer__stage" data-role="stage">
           ${body}
@@ -172,6 +191,10 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
     overlay.querySelector('[data-action="close"]').addEventListener("click", () =>
       closeOverlayHistory(activeClose)
     );
+    overlay.querySelector(".media-viewer__img")?.addEventListener("error", () => {
+      const stage = overlay.querySelector('[data-role="stage"]');
+      if (stage) stage.innerHTML = missing;
+    });
     overlay.querySelector('[data-action="save-photos"]').addEventListener("click", () => {
       const tapAt = Date.now();
       if (shareSnackTimerRef.timer) {
@@ -195,7 +218,7 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
           scheduleShareSnackDismiss(overlay, shareSnackTimerRef, tapAt);
         });
     });
-    overlay.querySelector('[data-action="delete"]').addEventListener("click", async () => {
+    if (canDelete) overlay.querySelector('[data-action="delete"]').addEventListener("click", async () => {
       const title = isVideo ? "Video löschen?" : "Foto löschen?";
       const ok = await openConfirmDialog({
         title,
@@ -205,35 +228,65 @@ export function openMediaViewer(mediaItems, startId, { onChanged }) {
       if (!ok) return;
       const removedIndex = index;
       const snapshot = { ...item };
-      deleteMedia(item.id).then(() => {
-        sorted.splice(index, 1);
-        const msg = isVideo ? "Video gelöscht" : "Foto gelöscht";
-        const viewerOpen = () =>
-          !overlay.hidden && overlay.querySelector('[data-testid="media-viewer"]');
-        showToast(msg, {
-          icon: "trash",
-          undoLabel: "Rückgängig",
-          onUndo: async () => {
-            await putMedia(snapshot);
-            sorted.splice(removedIndex, 0, snapshot);
-            onChanged?.();
-            if (viewerOpen()) {
-              index = removedIndex;
-              void render();
-            } else {
-              openMediaViewer(sorted, snapshot.id, { onChanged });
-            }
-          },
-        });
-        if (!sorted.length) {
-          closeOverlayHistory(activeClose);
-          onChanged?.();
-          return;
-        }
-        if (index >= sorted.length) index = sorted.length - 1;
-        onChanged?.();
-        void render();
+      let existing = null;
+      try {
+        existing = await markMediaDeleted(item.id);
+      } catch (err) {
+        const offline = !navigator.onLine || err instanceof CloudOfflineError;
+        showWarnToast(
+          offline
+            ? "Offline, bitte später erneut versuchen."
+            : err?.message || "Foto konnte nicht gelöscht werden."
+        );
+        return;
+      }
+      if (!existing) {
+        showWarnToast("Foto konnte nicht gelöscht werden.");
+        return;
+      }
+      rememberPendingMediaPurge(existing);
+      sorted.splice(index, 1);
+      const msg = isVideo ? "Video gelöscht" : "Foto gelöscht";
+      const viewerOpen = () =>
+        !overlay.hidden && overlay.querySelector('[data-testid="media-viewer"]');
+      let restored = false;
+      showToast(msg, {
+        icon: "trash",
+        undoLabel: "Rückgängig",
+        onUndo: () => {
+          restored = true;
+          forgetPendingMediaPurge(snapshot.id);
+          void restoreMedia(snapshot.id)
+            .then(() => {
+              sorted.splice(removedIndex, 0, snapshot);
+              onChanged?.();
+              if (viewerOpen()) {
+                index = removedIndex;
+                void render();
+              } else {
+                openMediaViewer(sorted, snapshot.id, { onChanged, canDelete });
+              }
+            })
+            .catch((err) => {
+              showWarnToast(err?.message || "Löschen konnte nicht rückgängig gemacht werden.");
+            });
+        },
+        onDismiss: () => {
+          if (restored) return;
+          forgetPendingMediaPurge(existing.id);
+          void purgeMediaFiles(existing).catch(() => {
+            showWarnToast("Datei konnte nicht aus dem Speicher gelöscht werden.");
+          });
+        },
       });
+      if (!sorted.length) {
+        closeOverlayHistory(activeClose);
+        onChanged?.();
+        return;
+      }
+      if (index >= sorted.length) index = sorted.length - 1;
+      onChanged?.();
+      void render();
     });
 
     const stage = overlay.querySelector('[data-role="stage"]');

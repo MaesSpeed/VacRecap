@@ -8,6 +8,7 @@ import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { processPhotoForCloud } from "./media-process.js";
 import { canEditTripMedia, getMyTripRole } from "./trip-role.js";
 import { showToast, showWarnToast } from "./toast.js";
+import { formatDatePart } from "./utils.js";
 
 /**
  * @typedef {{ file: File, name: string, status: string, error?: string, processed?: { blob: Blob, thumbBlob: Blob, w: number, h: number, takenAt?: number }, media?: object }} UploadItem
@@ -18,6 +19,9 @@ export function openPhotoUploadSheet({ files, place, vacationId, day, onDone }) 
   if (!overlay || !files?.length) return;
 
   const imageFiles = files.filter((f) => f.type.startsWith("image/"));
+  const targetLabel = [day ? formatDatePart(day, false) : "", place?.name || ""]
+    .filter(Boolean)
+    .join(" · ");
   const videoCount = files.length - imageFiles.length;
   if (videoCount > 0) {
     showToast("Videos kommen in einem späteren Paket.", { icon: "none" });
@@ -54,6 +58,11 @@ export function openPhotoUploadSheet({ files, place, vacationId, day, onDone }) 
           <button type="button" class="sheet__close" data-action="close" aria-label="Schließen">×</button>
         </div>
         <div class="sheet__body">
+          ${
+            targetLabel
+              ? `<p class="photo-upload-target" data-testid="photo-upload-target">${escapeHtml(targetLabel)}</p>`
+              : ""
+          }
           <ul class="photo-upload-list">
             ${items
               .map(

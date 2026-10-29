@@ -447,18 +447,104 @@ export async function getMedia(id) {
   return data ? mediaRowToApp(data) : null;
 }
 
-export async function deleteMedia(id) {
+export async function markMediaDeleted(id) {
   assertWritable();
   const existing = await getMedia(id);
-  if (existing?.storagePath) {
-    await deleteMediaStorageObjects(existing.storagePath, existing.thumbPath);
-  }
+  if (!existing) return null;
   const { error } = await getSupabase()
     .from("media")
-    .update({ deleted_at: new Date().toISOString() })
+    .update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw mapApiError(error);
   window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  return existing;
+}
+
+export async function restoreMedia(id) {
+  assertWritable();
+  const { error } = await getSupabase()
+    .from("media")
+    .update({ deleted_at: null, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw mapApiError(error);
+  window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+}
+
+export async function purgeMediaFiles(media) {
+  if (!media?.storagePath) return;
+  await deleteMediaStorageObjects(media.storagePath, media.thumbPath);
+}
+
+const PENDING_PURGE_KEY = "vacrecap-pending-media-purge";
+
+function readPendingPurges() {
+  try {
+    const raw = sessionStorage.getItem(PENDING_PURGE_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePendingPurges(list) {
+  try {
+    if (!list.length) sessionStorage.removeItem(PENDING_PURGE_KEY);
+    else sessionStorage.setItem(PENDING_PURGE_KEY, JSON.stringify(list));
+  } catch {
+    /* privater Modus */
+  }
+}
+
+export function rememberPendingMediaPurge(media) {
+  if (!media?.id || !media.storagePath) return;
+  const list = readPendingPurges().filter((item) => item.id !== media.id);
+  list.push({
+    id: media.id,
+    storagePath: media.storagePath,
+    thumbPath: media.thumbPath || null,
+    at: Date.now(),
+  });
+  writePendingPurges(list);
+}
+
+export function forgetPendingMediaPurge(id) {
+  if (!id) return;
+  writePendingPurges(readPendingPurges().filter((item) => item.id !== id));
+}
+
+async function purgeStaleDeletedMediaFiles() {
+  if (!navigator.onLine) return;
+  const cutoff = new Date(Date.now() - 6000).toISOString();
+  try {
+    const { data, error } = await getSupabase()
+      .from("media")
+      .select("id,storage_path,thumb_path,deleted_at")
+      .not("deleted_at", "is", null)
+      .lt("deleted_at", cutoff);
+    if (error || !data?.length) return;
+    for (const row of data) {
+      if (!row.deleted_at || !row.storage_path) continue;
+      await deleteMediaStorageObjects(row.storage_path, row.thumb_path);
+    }
+  } catch {
+    /* nächster Start versucht es erneut */
+  }
+}
+
+/** Nach Neustart innerhalb des Undo-Fensters: gemerkte und ältere Löschungen aus Storage nehmen. */
+export async function flushPendingMediaPurges() {
+  const list = readPendingPurges();
+  writePendingPurges([]);
+  for (const item of list) {
+    await purgeMediaFiles(item);
+  }
+  await purgeStaleDeletedMediaFiles();
+}
+
+export async function deleteMedia(id) {
+  const existing = await markMediaDeleted(id);
+  if (existing) await purgeMediaFiles(existing);
 }
 
 const STALE_PENDING_MS = 10 * 60 * 1000;
@@ -510,6 +596,54 @@ export async function fetchMediaForPlace(placeId) {
     if (error) throw mapApiError(error);
     const reconciled = await reconcileStalePendingRows(data || []);
     return { media: reconciled.map(mediaRowToApp), error: null };
+  } catch (err) {
+    if (err instanceof CloudOfflineError || err instanceof CloudNetworkError) {
+      return { media: [], error: err };
+    }
+    if (isFetchNetworkFailure(err)) {
+      return { media: [], error: new CloudNetworkError() };
+    }
+    return { media: [], error: err };
+  }
+}
+
+const LIBRARY_PAGE = 400;
+
+export async function fetchUploadedPhotosForTrip(vacationId) {
+  if (!vacationId) return { media: [], error: null };
+  if (!navigator.onLine) {
+    return { media: [], error: new CloudOfflineError() };
+  }
+  try {
+    const supabase = getSupabase();
+    const rows = [];
+    let offset = 0;
+    for (let page = 0; page < 40; page += 1) {
+      const { data, error } = await supabase
+        .from("media")
+        .select("*")
+        .eq("trip_id", vacationId)
+        .eq("kind", "photo")
+        .eq("upload_status", "uploaded")
+        .is("deleted_at", null)
+        .order("taken_at", { ascending: true })
+        .range(offset, offset + LIBRARY_PAGE - 1);
+      if (error) throw mapApiError(error);
+      const batch = data || [];
+      if (!batch.length) break;
+      const seen = new Set(rows.map((row) => row.id));
+      const fresh = batch.filter((row) => row?.id && !seen.has(row.id));
+      if (!fresh.length) break;
+      rows.push(...fresh);
+      if (batch.length < LIBRARY_PAGE) break;
+      offset += LIBRARY_PAGE;
+    }
+    return {
+      media: rows
+        .map(mediaRowToApp)
+        .filter((m) => m.type === "photo" && m.uploadStatus === "uploaded"),
+      error: null,
+    };
   } catch (err) {
     if (err instanceof CloudOfflineError || err instanceof CloudNetworkError) {
       return { media: [], error: err };

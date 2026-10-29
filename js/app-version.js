@@ -1,4 +1,4 @@
-export const APP_BUILD_VERSION = 47;
+export const APP_BUILD_VERSION = 48;
 
 export async function getAppVersionDisplayState() {
   const appVersion = APP_BUILD_VERSION;

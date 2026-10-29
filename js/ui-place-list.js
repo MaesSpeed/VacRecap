@@ -9,6 +9,7 @@ const PIN_SVG = `<svg width="19" height="19" viewBox="0 0 32 32" fill="none" ari
 
 const ICON_EDIT = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>`;
 const ICON_CAM = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>`;
+const ICON_GALLERY = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="M3 16l5-4 3 3 2-2 8 6"/></svg>`;
 const PIN_CAM_BADGE = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>`;
 const ICON_NOTE = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>`;
 const PLAY_SVG = `<svg class="tile__play" width="14" height="14" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>`;
@@ -208,7 +209,7 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
                 <button type="button" class="qa__btn" data-action="edit-place" aria-label="Bearbeiten">${ICON_EDIT}</button>
                 ${
                   canEditMedia
-                    ? `<button type="button" class="qa__btn" data-action="camera-place" aria-label="Kamera">${ICON_CAM}</button>`
+                    ? `<button type="button" class="qa__btn" data-action="gallery-place" data-testid="place-gallery" aria-label="Fotos">${ICON_GALLERY}</button><button type="button" class="qa__btn" data-action="camera-place" aria-label="Kamera">${ICON_CAM}</button>`
                     : ""
                 }
               </div>`

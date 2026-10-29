@@ -506,7 +506,7 @@ export async function renderMapScreen(appEl, vacationId) {
       );
     },
     onGallery: () => {
-      showToast("Fotos und Videos kommen im nächsten Schritt", { icon: "none" });
+      navigate({ name: "urlaub-mediathek", id: vacationId });
     },
   });
 

@@ -1,5 +1,5 @@
 import { getSession, onAuthStateChange } from "./auth-service.js";
-import { getAllVacations } from "./db.js";
+import { flushPendingMediaPurges, getAllVacations } from "./db.js";
 import { installGestureGuards } from "./gesture-guard.js";
 import { runLegacyCleanup } from "./legacy-cleanup.js";
 import { isOfflineReadOnly, setCacheUserId, setOfflineReadOnly } from "./local-cache.js";
@@ -7,6 +7,7 @@ import { getRoute, navigate, onRouteChange, startRouter } from "./router.js";
 import { renderLoginScreen } from "./ui-login.js";
 import { renderUrlaubDetail } from "./ui-urlaub-detail.js";
 import { renderMapScreen } from "./ui-map.js";
+import { renderTripLibrary } from "./ui-trip-library.js";
 import { renderUrlaubSettings } from "./ui-urlaub-settings.js";
 import { renderUrlaubForm } from "./ui-urlaub-form.js";
 import { renderUrlaubeScreen } from "./ui-urlaube.js";
@@ -76,6 +77,10 @@ async function renderNow() {
   if (appEl?._mapCleanup) {
     appEl._mapCleanup();
   }
+  if (appEl?._libraryCleanup) {
+    appEl._libraryCleanup();
+    delete appEl._libraryCleanup;
+  }
 
   updateOnlineBanner();
 
@@ -93,8 +98,7 @@ async function renderNow() {
       await renderMapScreen(appEl, route.id);
       break;
     case "urlaub-mediathek":
-      showWarnToast("Mediathek kommt mit den Cloud-Fotos im nächsten Schritt.");
-      navigate({ name: "urlaub-detail", id: route.id }, { replace: true });
+      await renderTripLibrary(appEl, route.id);
       break;
     case "urlaube":
     default:
@@ -149,6 +153,7 @@ async function boot() {
   installVisualViewportKeyboard();
   initOverlayHistory();
   runLegacyCleanup();
+  void flushPendingMediaPurges();
 
   const session = await getSession();
   if (!session) {
