@@ -3802,11 +3802,13 @@ body:has(.screen--trip-swipe) {
 
 .assign-thumbs {
   display: flex;
-  width: 52px;
-  flex: 0 0 52px;
+  flex: 0 0 auto;
+  align-items: center;
+  height: 42px;
 }
 
 .assign-thumbs img {
+  position: relative;
   width: 42px;
   height: 42px;
   object-fit: cover;
@@ -3816,8 +3818,13 @@ body:has(.screen--trip-swipe) {
   background: #e6eef5;
 }
 
+.assign-thumbs img:last-child {
+  margin-right: 0;
+}
+
 .assign-group__text {
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .assign-group__kicker {
