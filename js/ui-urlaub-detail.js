@@ -174,7 +174,7 @@ export async function renderUrlaubDetail(appEl, id) {
     },
     onCommit: (dir) => previewChipShift(dir),
   });
-  syncDayEdges();
+  syncDayEdges({ active: false });
   const footerMount = appEl.querySelector('[data-role="footer-mount"]');
   const capturePhotoInput = appEl.querySelector('[data-role="capture-photo-input"]');
   const captureVideoInput = appEl.querySelector('[data-role="capture-video-input"]');
@@ -412,11 +412,11 @@ export async function renderUrlaubDetail(appEl, id) {
   let scrolling = false;
   let scrollTimer = 0;
 
-  function syncDayEdges() {
+  function syncDayEdges({ active = true } = {}) {
     const idx = days.indexOf(state.activeDay);
     contentEl.dataset.canPrev = idx > 0 ? "1" : "0";
     contentEl.dataset.canNext = idx < days.length - 1 ? "1" : "0";
-    contentEl.dataset.activeDay = state.activeDay;
+    if (active) contentEl.dataset.activeDay = state.activeDay;
   }
 
   function pageShows(html) {
