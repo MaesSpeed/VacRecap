@@ -163,7 +163,8 @@ export function normalizeMediaCaption(value) {
   if (value == null) return null;
   const text = String(value).trim();
   if (!text) return null;
-  return text.length > 500 ? text.slice(0, 500) : text;
+  const chars = Array.from(text);
+  return chars.length > 500 ? chars.slice(0, 500).join("") : text;
 }
 
 export function mediaToRow(media) {

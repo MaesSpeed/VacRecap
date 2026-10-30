@@ -1,4 +1,5 @@
 import { fetchMediaForPlace, getNotesForPlace } from "./db.js";
+import { formatTimeFromTs } from "./geo.js";
 import { formatMediaDuration } from "./media-process.js";
 import { mediaOwnedBy } from "./photo-move.js";
 import { buildPlaceMetaLine } from "./place-stats.js";
@@ -198,7 +199,7 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
             : "";
 
         const captionRows = selected ? renderPhotoCaptionRows(media, thumbUrls) : "";
-        const captionEdits = selected ? renderPhotoCaptionEdits(media, canEditMedia, photoSelect?.userId) : "";
+        const captionEdits = selected ? renderPhotoCaptionEdits(media, canEditMedia, photoSelect?.userId, thumbUrls) : "";
 
         const notesBlock =
           sortedNotes.length || selected
@@ -288,15 +289,20 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
   };
 }
 
-function renderPhotoCaptionEdits(media, canEditMedia, userId) {
+function renderPhotoCaptionEdits(media, canEditMedia, userId, thumbUrls) {
   return (media || [])
     .filter((item) => item.type !== "video" && (item.uploadStatus || "uploaded") === "uploaded" && mediaOwnedBy(item, userId) && canEditMedia)
     .slice()
     .sort((a, b) => a.ts - b.ts)
-    .map(
-      (item) =>
-        `<button type="button" class="notes-add" data-action="edit-photo-caption" data-media-id="${item.id}" data-testid="photo-caption-edit">${ICON_NOTE} Notiz zum Foto</button>`
-    )
+    .map((item, index) => {
+      const thumb = thumbUrls?.[item.id];
+      const img = thumb
+        ? `<img class="credits-list__thumb" src="${thumb}" alt="" data-testid="photo-caption-edit-thumb" />`
+        : "";
+      const when = formatTimeFromTs(item.ts);
+      const label = `Notiz zum Foto ${index + 1}${when ? `, ${when}` : ""}`;
+      return `<button type="button" class="notes-add" data-action="edit-photo-caption" data-media-id="${item.id}" data-testid="photo-caption-edit" aria-label="${escapeHtml(label)}">${img}${ICON_NOTE} Notiz zum Foto</button>`;
+    })
     .join("");
 }
 

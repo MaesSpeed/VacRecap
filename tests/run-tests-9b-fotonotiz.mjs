@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, webkit, devices } from "playwright";
+import { normalizeMediaCaption } from "../js/cloud-mappers.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -36,6 +37,19 @@ const VIEWPORTS = [
 function assert(cond, message) {
   if (!cond) throw new Error(message);
 }
+
+function assertEmojiAtPosition500() {
+  const emoji = "😀";
+  const raw = `${"a".repeat(499)}${emoji}zz`;
+  const out = normalizeMediaCaption(raw);
+  assert(out.endsWith(emoji), `Emoji an Position 500 zerschnitten (${JSON.stringify(out.slice(-3))})`);
+  assert(!out.includes("z"), "Zeichen hinter dem Emoji bleiben in der Notiz");
+  assert(Array.from(out).length === 500, `Notiz hat ${Array.from(out).length} Zeichen statt 500`);
+  assert(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(out), "halbes Emoji in der Notiz");
+  const exact = `${"a".repeat(499)}${emoji}`;
+  assert(normalizeMediaCaption(exact) === exact, "Emoji an Position 500 wird abgeschnitten, obwohl es noch passt");
+}
+assertEmojiAtPosition500();
 
 function startServer() {
   return new Promise((resolve) => {
@@ -112,6 +126,7 @@ function createMockSupabaseState() {
   const mediaPatches = [];
   const captionAttempts = [];
   const mediaSelects = [];
+  let captionMissInflight = 0;
   let role = "owner";
   let captionColumn = true;
   let inflight = 0;
@@ -148,6 +163,12 @@ function createMockSupabaseState() {
     mediaPatches,
     captionAttempts,
     mediaSelects,
+    get captionMissInflight() {
+      return captionMissInflight;
+    },
+    set captionMissInflight(value) {
+      captionMissInflight = value;
+    },
     get role() {
       return role;
     },
@@ -289,6 +310,19 @@ async function installSupabaseMocks(page, state) {
     }
     const url = new URL(req.url());
     state.inflight += 1;
+    const select = url.searchParams.get("select") || "";
+    const captionMiss =
+      !state.captionColumn &&
+      req.method() === "GET" &&
+      url.pathname.includes("/rest/v1/media") &&
+      select.includes("caption");
+    if (captionMiss) {
+      state.captionMissInflight += 1;
+      const start = Date.now();
+      while (state.captionMissInflight < 2 && Date.now() - start < 600) {
+        await new Promise((resolve) => setTimeout(resolve, 15));
+      }
+    }
     let result;
     try {
       if (url.pathname.includes("/auth/v1/")) result = state.handleAuth(url, req.method(), req.postData());
@@ -318,11 +352,15 @@ async function installSupabaseMocks(page, state) {
 }
 
 function seedTrip(state, tripId) {
-  state.waypoints.push(placeRow("p-hafen", tripId, TODAY, "Hafen Malcesine", "2026-10-30T12:00:00.000Z"));
+  state.waypoints.push(
+    placeRow("p-hafen", tripId, TODAY, "Hafen Malcesine", "2026-10-30T12:00:00.000Z"),
+    placeRow("p-ufer", tripId, TODAY, "Uferpromenade", "2026-10-30T11:00:00.000Z")
+  );
   state.media.push(
     photoRow("m-own-1", tripId, "p-hafen", TODAY, "2026-10-30T12:05:00.000Z", USER, "Morgenlicht"),
     photoRow("m-own-2", tripId, "p-hafen", TODAY, "2026-10-30T12:10:00.000Z", USER, null),
-    photoRow("m-fremd", tripId, "p-hafen", TODAY, "2026-10-30T12:12:00.000Z", OTHER_USER, "Fremde Notiz")
+    photoRow("m-fremd", tripId, "p-hafen", TODAY, "2026-10-30T12:12:00.000Z", OTHER_USER, "Fremde Notiz"),
+    photoRow("m-ufer", tripId, "p-ufer", TODAY, "2026-10-30T11:05:00.000Z", USER, "Welle")
   );
 }
 
@@ -385,6 +423,30 @@ async function runFlows(page, state, label) {
     `${label}: fremdes Foto ist bearbeitbar`
   );
   assert((await page.locator('[data-testid="photo-caption-row"][data-media-id="m-fremd"]').innerText()).includes("Fremde Notiz"), `${label}: fremde Notiz fehlt`);
+
+  const editButtons = page.locator('[data-page="current"] [data-testid="photo-caption-edit"]');
+  const editLabels = await editButtons.evaluateAll((els) => els.map((el) => el.getAttribute("aria-label") || ""));
+  assert(editLabels.length >= 2, `${label}: weniger als zwei Notiz-Buttons (${editLabels.length})`);
+  assert(new Set(editLabels).size === editLabels.length, `${label}: Notiz-Buttons nicht unterscheidbar (${editLabels.join(" | ")})`);
+  assert(editLabels.every((text) => text.startsWith("Notiz zum Foto ") && text !== "Notiz zum Foto"), `${label}: aria-label ohne Foto-Bezug (${editLabels.join(" | ")})`);
+  for (const id of ["m-own-1", "m-own-2"]) {
+    const btn = page.locator(`[data-page="current"] [data-testid="photo-caption-edit"][data-media-id="${id}"]`);
+    assert((await btn.locator('[data-testid="photo-caption-edit-thumb"]').count()) === 1, `${label}: Button ${id} ohne Miniatur`);
+    const tileSrc = await page.locator(`[data-testid="place-photo"][data-media-id="${id}"] img`).getAttribute("src");
+    const btnSrc = await btn.locator('[data-testid="photo-caption-edit-thumb"]').getAttribute("src");
+    assert(tileSrc && btnSrc === tileSrc, `${label}: Miniatur von ${id} gehört zu einem anderen Foto`);
+  }
+  await page.locator('[data-testid="photo-caption-edit"][data-media-id="m-own-1"] [data-testid="photo-caption-edit-thumb"]').click();
+  await page.waitForSelector('[data-testid="photo-caption-sheet"]');
+  assert((await page.locator('[data-testid="photo-caption-sheet"]').count()) === 1, `${label}: Miniatur öffnet mehr als ein Sheet`);
+  assert((await page.locator('[data-testid="photo-caption-text"]').inputValue()) === "Morgenlicht", `${label}: Miniatur öffnet die falsche Notiz`);
+  await page.click('[data-testid="photo-caption-cancel"]');
+  await page.waitForSelector('[data-testid="photo-caption-sheet"]', { state: "detached" });
+  await page.locator('[data-testid="photo-caption-edit"][data-media-id="m-own-2"] [data-testid="photo-caption-edit-thumb"]').click();
+  await page.waitForSelector('[data-testid="photo-caption-sheet"]');
+  assert((await page.locator('[data-testid="photo-caption-text"]').inputValue()) === "", `${label}: zweites Foto öffnet die Notiz des ersten`);
+  await page.click('[data-testid="photo-caption-cancel"]');
+  await page.waitForSelector('[data-testid="photo-caption-sheet"]', { state: "detached" });
 
   await row.click();
   await page.waitForSelector('[data-testid="media-viewer-caption"]');
@@ -463,9 +525,14 @@ async function runFlows(page, state, label) {
   state.mediaSelects.length = 0;
   await page.reload();
   await page.waitForSelector('[data-testid="place-photo"][data-media-id="m-own-1"]');
-  assert((await page.locator('[data-testid="place-media-error"]').count()) === 0, `${label}: Lesen ohne Spalte zeigt einen Fehler`);
-  assert(state.mediaSelects.some((select) => select.includes("caption")), `${label}: Lesen fragt caption nicht ab`);
-  assert(state.mediaSelects.some((select) => select && !select.includes("caption")), `${label}: Lesen fällt nicht auf die Spalten ohne caption zurück`);
+  await page.waitForSelector('[data-media-id="m-ufer"]');
+  assert((await page.locator('[data-testid="place-media-error"]').count()) === 0, `${label}: paralleles Lesen ohne Spalte zeigt einen Fehler`);
+  assert((await page.locator('[data-testid="place-photo"][data-media-id="m-own-1"]').count()) === 1, `${label}: Foto des ersten Orts fehlt`);
+  assert((await page.locator('[data-media-id="m-ufer"]').count()) >= 1, `${label}: Foto des zweiten Orts fehlt`);
+  const withCaption = state.mediaSelects.filter((select) => select.includes("caption")).length;
+  const withoutCaption = state.mediaSelects.filter((select) => select && !select.includes("caption")).length;
+  assert(withCaption >= 2, `${label}: nur ${withCaption} Abfragen mit caption`);
+  assert(withoutCaption >= 2, `${label}: nur ${withoutCaption} Wiederholungen ohne caption`);
   await openCaptionSheet(page, "m-own-1");
   await page.fill('[data-testid="photo-caption-text"]', "Ohne Spalte");
   const attemptsAtFallback = state.captionAttempts.length;

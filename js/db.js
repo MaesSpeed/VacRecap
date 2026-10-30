@@ -52,8 +52,12 @@ function mediaSelect() {
 }
 
 async function runMediaRead(run) {
-  const first = await run(mediaSelect());
-  if (first?.error && isMissingCaptionColumn(first.error) && !omitCaptionColumn) {
+  const cols = mediaSelect();
+  const first = await run(cols);
+  // Parallele Abfragen haben caption schon in ihrer eigenen Liste, auch wenn
+  // eine andere Anfrage das Flag inzwischen gesetzt hat. Sonst liefert die
+  // zweite den Fehler zurück und der Ort bleibt ohne Fotos.
+  if (first?.error && isMissingCaptionColumn(first.error) && cols !== MEDIA_FIELDS) {
     omitCaptionColumn = true;
     return run(MEDIA_FIELDS);
   }
