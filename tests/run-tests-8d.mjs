@@ -378,7 +378,7 @@ async function runSuite(browserType, baseUrl, label) {
 
   await page.goto(baseUrl);
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 53, `${label}: Build ${build}, erwartet 53`);
+  assert(Number(build) === 54, `${label}: Build ${build}, erwartet 54`);
 
   state.setFailWaypointWrites(true);
   await loginAndCreateTrip(page);
@@ -507,7 +507,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 8d tests OK (Build 53)");
+  console.log("Playwright 8d tests OK (Build 54)");
 }
 
 main().catch((err) => {
