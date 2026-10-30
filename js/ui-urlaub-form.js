@@ -74,7 +74,7 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
       <div class="field">
         <span class="field__label">Titelbild</span>
         <div class="cover-preview${vacation.cover?.type === "media" && !coverUnknown ? " cover-preview--photo" : ""}${coverUnknown ? " cover-preview--unknown" : ""}" data-role="cover-preview" data-testid="cover-preview">
-          <span class="cover-preview__badge" data-role="cover-badge" data-testid="cover-badge">${escapeHtml(coverUnknown ? "Titelbild wird geladen" : coverStatusLabel(vacation, { media: coverMedia, places }))}</span>
+          <span class="cover-preview__badge" data-role="cover-badge" data-testid="cover-badge">${escapeHtml(coverUnknown ? "Titelbild nicht geladen" : coverStatusLabel(vacation, { media: coverMedia, places }))}</span>
           <img data-testid="cover-preview-img" alt="" ${coverUnknown ? "hidden" : ""} />
           <div class="cover-preview__overlay">
             <strong data-role="cover-title">${escapeHtml(vacation.title || "Titel")}</strong>
@@ -139,7 +139,7 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
     coverPreview?.classList.toggle("cover-preview--unknown", unknown);
     if (coverBadge) {
       coverBadge.textContent = unknown
-        ? "Titelbild wird geladen"
+        ? "Titelbild nicht geladen"
         : coverStatusLabel(vacation, { media: coverMedia, places: placeList });
     }
     if (resetBtn) resetBtn.hidden = !photo;

@@ -179,6 +179,10 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
         const dimMedia = dim ? newestUploadedPhoto(media) : null;
         const dimThumb = dimMedia ? thumbUrls[dimMedia.id] : null;
         const dimOwn = dimMedia ? mediaOwnedBy(dimMedia, photoSelect?.userId) : false;
+        const dimCaptionMark =
+          dimMedia?.caption && dimMedia.type !== "video"
+            ? `<span class="tile__dur" data-testid="photo-caption-mark" aria-hidden="true">${ICON_NOTE}</span>`
+            : "";
         const dimPicked = Boolean(photoSelect?.active && dimMedia && photoSelect.selectedIds?.has(dimMedia.id));
         const showSelectStart = selected && uploadedPhotoCount(media) > 0 && !photoSelect?.active;
         const foreignHint =
@@ -193,9 +197,14 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
             ? `<p class="photo-select-hint" data-testid="photo-foreign-hint">Fremde Fotos sind nicht wählbar.</p>`
             : "";
 
+        const captionRows = selected ? renderPhotoCaptionRows(media, thumbUrls) : "";
+        const captionEdits = selected ? renderPhotoCaptionEdits(media, canEditMedia, photoSelect?.userId) : "";
+
         const notesBlock =
           sortedNotes.length || selected
             ? `<div class="np">
+              ${captionEdits}
+              ${captionRows}
               ${previewNotes
                 .map(
                   (n) => `
@@ -261,8 +270,8 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
           ${
             dim && dimMedia
               ? dimThumb
-                ? `<div class="th${dimPicked ? " th--selected" : ""}${photoSelect?.active && !dimOwn ? " th--locked" : ""}" data-media-id="${dimMedia.id}" data-own="${dimOwn ? "1" : "0"}"><img class="th__img" src="${dimThumb}" alt="" decoding="async" data-media-id="${dimMedia.id}" /></div>`
-                : `<div class="th th--ph${photoSelect?.active && !dimOwn ? " th--locked" : ""}" aria-hidden="true" data-media-id="${dimMedia.id}" data-own="${dimOwn ? "1" : "0"}"></div>`
+                ? `<div class="th${dimPicked ? " th--selected" : ""}${photoSelect?.active && !dimOwn ? " th--locked" : ""}" data-media-id="${dimMedia.id}" data-own="${dimOwn ? "1" : "0"}"><img class="th__img" src="${dimThumb}" alt="" decoding="async" data-media-id="${dimMedia.id}" />${dimCaptionMark}</div>`
+                : `<div class="th th--ph${photoSelect?.active && !dimOwn ? " th--locked" : ""}" aria-hidden="true" data-media-id="${dimMedia.id}" data-own="${dimOwn ? "1" : "0"}">${dimCaptionMark}</div>`
               : dim && hasMedia && !dimMedia
                 ? ""
                 : ""
@@ -277,6 +286,33 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
     mediaErrorHtml,
     selectBarHtml: photoSelect?.active ? renderSelectBar(photoSelect) : "",
   };
+}
+
+function renderPhotoCaptionEdits(media, canEditMedia, userId) {
+  return (media || [])
+    .filter((item) => item.type !== "video" && (item.uploadStatus || "uploaded") === "uploaded" && mediaOwnedBy(item, userId) && canEditMedia)
+    .slice()
+    .sort((a, b) => a.ts - b.ts)
+    .map(
+      (item) =>
+        `<button type="button" class="notes-add" data-action="edit-photo-caption" data-media-id="${item.id}" data-testid="photo-caption-edit">${ICON_NOTE} Notiz zum Foto</button>`
+    )
+    .join("");
+}
+
+function renderPhotoCaptionRows(media, thumbUrls) {
+  return (media || [])
+    .filter((item) => item.type !== "video" && (item.uploadStatus || "uploaded") === "uploaded" && item.caption)
+    .slice()
+    .sort((a, b) => a.ts - b.ts)
+    .map((item) => {
+      const thumb = thumbUrls[item.id];
+      const img = thumb
+        ? `<img class="credits-list__thumb" src="${thumb}" alt="" data-testid="photo-caption-thumb" />`
+        : "";
+      return `<button type="button" class="nr nr__text--btn" data-action="open-photo-caption" data-media-id="${item.id}" data-testid="photo-caption-row">${img}<span class="nr__text">${escapeHtml(item.caption)}</span></button>`;
+    })
+    .join("");
 }
 
 function renderTiles(media, thumbUrls, canEditMedia, photoSelect) {
@@ -307,6 +343,10 @@ function renderTiles(media, thumbUrls, canEditMedia, photoSelect) {
           : "";
       const play = isVideo ? `<span class="tile__play-wrap">${PLAY_SVG}</span>` : "";
       const badge = uploadStateBadge(m);
+      const captionMark =
+        !isVideo && m.caption
+          ? `<span class="tile__dur" data-testid="photo-caption-mark" aria-hidden="true">${ICON_NOTE}</span>`
+          : "";
       const removeBtn =
         failed && canEditMedia && !selecting
           ? `<span class="tile__remove" data-action="remove-failed-media" data-media-id="${m.id}" aria-label="Entfernen">×</span>`
@@ -319,7 +359,7 @@ function renderTiles(media, thumbUrls, canEditMedia, photoSelect) {
           ? "Fehlgeschlagenes Foto entfernen"
           : "Medium anzeigen";
       const pressed = selecting && own ? ` aria-pressed="${picked ? "true" : "false"}"` : "";
-      return `<button type="button" class="tile tile--btn${failed ? " tile--failed" : ""}${openable ? "" : " tile--no-open"}${picked ? " tile--selected" : ""}${locked ? " tile--locked" : ""}" data-testid="place-photo" data-media-id="${m.id}" data-own="${own ? "1" : "0"}" data-upload-status="${status}"${pressed}${locked ? ' aria-disabled="true"' : ""} aria-label="${label}">${img}${mark}${badge}${removeBtn}${play}${dur}${overlayExtra}</button>`;
+      return `<button type="button" class="tile tile--btn${failed ? " tile--failed" : ""}${openable ? "" : " tile--no-open"}${picked ? " tile--selected" : ""}${locked ? " tile--locked" : ""}" data-testid="place-photo" data-media-id="${m.id}" data-own="${own ? "1" : "0"}" data-upload-status="${status}"${pressed}${locked ? ' aria-disabled="true"' : ""} aria-label="${label}">${img}${mark}${badge}${captionMark}${removeBtn}${play}${dur}${overlayExtra}</button>`;
     })
     .join("");
 }
@@ -364,6 +404,9 @@ export function visibleThumbMediaIds(items, selectedId) {
     if (place.id === selectedId) {
       visible.forEach((m) => {
         if ((m.uploadStatus || "uploaded") === "uploaded") ids.add(m.id);
+      });
+      media.forEach((m) => {
+        if (m.caption && (m.uploadStatus || "uploaded") === "uploaded") ids.add(m.id);
       });
     }
     if (dimMedia) ids.add(dimMedia.id);

@@ -1,4 +1,5 @@
 import { updateMediaPlacement } from "./db.js";
+import { canEditTripMedia } from "./trip-role.js";
 
 /** Eigenes, hochgeladenes Foto. Fremde Zeilen und Videos bleiben liegen. */
 export function mediaOwnedBy(media, userId) {
@@ -6,6 +7,12 @@ export function mediaOwnedBy(media, userId) {
   if (media.author !== userId) return false;
   if (media.type === "video") return false;
   return (media.uploadStatus || "uploaded") === "uploaded";
+}
+
+/** Bildunterschrift: nur eigene Fotos, und nur Owner/Editor wie beim übrigen Medien-Update. */
+export function canCaptionMedia(media, role, userId) {
+  if (!canEditTripMedia(role)) return false;
+  return mediaOwnedBy(media, userId);
 }
 
 /**

@@ -12,8 +12,10 @@ import { createShareFileFromMedia, shareFileNameForMedia } from "./media-file-me
 import { getSignedOriginalUrl } from "./media-signed-url-cache.js";
 import { ICON_BACK_CHEVRON_WHITE } from "./icons.js";
 import { openConfirmDialog } from "./ui-confirm.js";
+import { openPhotoCaptionSheet, PHOTO_CAPTION_ICON } from "./ui-photo-caption-sheet.js";
 import { getSupabase } from "./supabase-client.js";
 import { showToast, showWarnToast } from "./toast.js";
+import { escapeHtml } from "./utils.js";
 
 const PLAY_ICON = `<svg class="tile__play" width="18" height="18" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>`;
 
@@ -117,6 +119,8 @@ function hideViewerShareSnack(overlay) {
 export function openMediaViewer(mediaItems, startId, options = {}) {
   const { onChanged } = options;
   const canDelete = options.canDelete !== false;
+  const canEditCaption =
+    typeof options.canEditCaption === "function" ? options.canEditCaption : () => false;
   const sorted = mediaItems.slice().sort((a, b) => a.ts - b.ts);
   let index = sorted.findIndex((m) => m.id === startId);
   if (index < 0) index = 0;
@@ -151,6 +155,8 @@ export function openMediaViewer(mediaItems, startId, options = {}) {
     }
     const url = !navigator.onLine && item.storagePath && !item.blob ? "" : await resolveDisplayUrl(item);
     const isVideo = item.type === "video";
+    const caption = !isVideo && item.caption ? String(item.caption) : "";
+    const allowCaption = !isVideo && canEditCaption(item);
     const offlineCloud = !navigator.onLine && item.storagePath && !item.blob;
     const missing = offlineCloud
       ? `<p class="media-viewer__missing" data-testid="media-viewer-offline">Du bist offline.</p>`
@@ -180,6 +186,19 @@ export function openMediaViewer(mediaItems, startId, options = {}) {
         </div>
         <footer class="media-viewer__save-wrap">
           <div class="media-viewer__share-snack toast toast--pill toast--no-icon" data-role="share-snack" data-testid="media-viewer-share-snack" hidden aria-live="polite"></div>
+          ${
+            caption
+              ? `<p class="media-viewer__caption" data-testid="media-viewer-caption">${escapeHtml(caption)}</p>`
+              : ""
+          }
+          ${
+            allowCaption
+              ? `<button type="button" class="media-viewer__save-pill" data-action="edit-caption" data-testid="photo-caption-edit" data-media-id="${escapeHtml(item.id)}">
+            ${PHOTO_CAPTION_ICON}
+            <span>Notiz zum Foto</span>
+          </button>`
+              : ""
+          }
           <button type="button" class="media-viewer__save-pill" data-action="save-photos" data-testid="media-viewer-save" aria-label="In Fotos sichern">
             ${ICON_SHARE}
             <span>In Fotos sichern</span>
@@ -194,6 +213,20 @@ export function openMediaViewer(mediaItems, startId, options = {}) {
     overlay.querySelector(".media-viewer__img")?.addEventListener("error", () => {
       const stage = overlay.querySelector('[data-role="stage"]');
       if (stage) stage.innerHTML = missing;
+    });
+    let captionBusy = false;
+    overlay.querySelector('[data-action="edit-caption"]')?.addEventListener("click", () => {
+      if (captionBusy) return;
+      captionBusy = true;
+      void openPhotoCaptionSheet({
+        media: item,
+        onSaved: () => {
+          onChanged?.();
+          if (!overlay.hidden && overlay.querySelector('[data-testid="media-viewer"]')) void render();
+        },
+      }).finally(() => {
+        captionBusy = false;
+      });
     });
     overlay.querySelector('[data-action="save-photos"]').addEventListener("click", () => {
       const tapAt = Date.now();
