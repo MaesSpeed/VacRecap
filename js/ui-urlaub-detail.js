@@ -320,6 +320,14 @@ export async function renderUrlaubDetail(appEl, id) {
           <p class="trip-empty__hint">Ort merken, Foto machen oder Notiz schreiben.</p>
         </div>`;
 
+  const daySkeletonHtml = `
+        <div class="place-list-wrap" data-testid="day-skeleton" aria-busy="true">
+          <ul class="place-list" data-testid="place-list">
+            <li><article class="oc oc--skeleton" aria-hidden="true"><div class="pinb"></div><div class="oc__body"><h4 class="oc__title">&nbsp;</h4><div class="oc__meta">&nbsp;</div></div></article></li>
+            <li><article class="oc oc--skeleton" aria-hidden="true"><div class="pinb"></div><div class="oc__body"><h4 class="oc__title">&nbsp;</h4><div class="oc__meta">&nbsp;</div></div></article></li>
+          </ul>
+        </div>`;
+
   let warmHtml = new Map();
   let warmPlaces = null;
 
@@ -386,6 +394,35 @@ export async function renderUrlaubDetail(appEl, id) {
     }
   }
 
+  function paintDay(built) {
+    if (!contentEl.isConnected || !built?.html) return;
+    const previousThumbUrls = state.thumbUrls;
+    state.thumbUrls = built.thumbUrls || {};
+    const idx = days.indexOf(state.activeDay);
+    contentEl.dataset.canPrev = idx > 0 ? "1" : "0";
+    contentEl.dataset.canNext = idx < days.length - 1 ? "1" : "0";
+    setDaySwipePage(contentEl, built.html);
+    contentEl.dataset.activeDay = state.activeDay;
+    bindBrokenThumbs(contentEl);
+    if (previousThumbUrls && previousThumbUrls !== state.thumbUrls) revokeThumbUrls(previousThumbUrls);
+  }
+
+  function paintCachedOrSkeleton(dayIso) {
+    const idx = days.indexOf(dayIso);
+    contentEl.dataset.canPrev = idx > 0 ? "1" : "0";
+    contentEl.dataset.canNext = idx < days.length - 1 ? "1" : "0";
+    contentEl.dataset.activeDay = dayIso;
+    const cached = warmHtml.get(dayIso);
+    if (cached?.html) {
+      paintDay(cached);
+      return;
+    }
+    const previousThumbUrls = state.thumbUrls;
+    state.thumbUrls = {};
+    setDaySwipePage(contentEl, daySkeletonHtml);
+    if (previousThumbUrls && previousThumbUrls !== state.thumbUrls) revokeThumbUrls(previousThumbUrls);
+  }
+
   async function refreshDayList({ reuse = false } = {}) {
     const token = ++state.listRefreshToken;
     await maybeSoftOnOpen();
@@ -394,6 +431,7 @@ export async function renderUrlaubDetail(appEl, id) {
     if (!warmPlaces) warmPlaces = await getPlacesForVacation(id);
     if (token !== state.listRefreshToken) return;
     let built = reuse ? warmHtml.get(state.activeDay) : null;
+    const reusedWarm = Boolean(built);
     if (!built) {
       built = await buildDayHtml(state.activeDay, warmPlaces);
       if (token !== state.listRefreshToken) {
@@ -403,25 +441,29 @@ export async function renderUrlaubDetail(appEl, id) {
       warmHtml.set(state.activeDay, built);
     }
     if (!contentEl.isConnected) return;
-    const previousThumbUrls = state.thumbUrls;
-    state.thumbUrls = built.thumbUrls;
-    const idx = days.indexOf(state.activeDay);
-    contentEl.dataset.canPrev = idx > 0 ? "1" : "0";
-    contentEl.dataset.canNext = idx < days.length - 1 ? "1" : "0";
-    setDaySwipePage(contentEl, built.html);
-    contentEl.dataset.activeDay = state.activeDay;
-    bindBrokenThumbs(contentEl);
-    if (previousThumbUrls && previousThumbUrls !== built.thumbUrls) revokeThumbUrls(previousThumbUrls);
+    paintDay(built);
     persistSelection(id, state);
+    if (reusedWarm) {
+      const day = state.activeDay;
+      const fresh = await buildDayHtml(day, warmPlaces);
+      if (token !== state.listRefreshToken || !contentEl.isConnected) {
+        revokeThumbUrls(fresh?.thumbUrls);
+        return;
+      }
+      warmHtml.set(day, fresh);
+      paintDay(fresh);
+    }
+    if (token !== state.listRefreshToken || !contentEl.isConnected) return;
     void prefetchNeighbors(token);
   }
 
-  async function setActiveDay(dayIso) {
+  function setActiveDay(dayIso) {
     if (!days.includes(dayIso) || dayIso === state.activeDay) return;
     state.activeDay = dayIso;
     persistSelection(id, state);
     renderChips();
-    await refreshDayList();
+    paintCachedOrSkeleton(dayIso);
+    void refreshDayList({ reuse: true });
   }
 
   function shiftDay(direction) {

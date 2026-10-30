@@ -2014,6 +2014,18 @@ body {
   background: linear-gradient(135deg, #d5dee7, #b8c8d8);
 }
 
+.oc--skeleton {
+  min-height: 76px;
+  pointer-events: none;
+}
+
+.oc--skeleton .oc__title,
+.oc--skeleton .oc__meta {
+  border-radius: 6px;
+  background: #d5dee7;
+  color: transparent;
+}
+
 .soft {
   display: flex;
   gap: 9px;

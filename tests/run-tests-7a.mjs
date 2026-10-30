@@ -127,6 +127,26 @@ function createMockSupabaseState(baseUrl) {
         const slash = rest.indexOf("/");
         const bucket = slash >= 0 ? rest.slice(0, slash) : rest;
         const objectPath = slash >= 0 ? decodeURIComponent(rest.slice(slash + 1)) : "";
+        let payload = {};
+        try {
+          payload = JSON.parse(body || "{}");
+        } catch {
+          payload = {};
+        }
+        if (Array.isArray(payload.paths)) {
+          for (const one of payload.paths) {
+            const storageKey = `${bucket}/${one}`;
+            if (!storageObjects.has(storageKey)) storageObjects.set(storageKey, TINY_PNG);
+          }
+          return {
+            status: 200,
+            json: payload.paths.map((one) => ({
+              error: null,
+              path: one,
+              signedURL: `/object/sign/mock?token=${encodeURIComponent(`${bucket}/${one}`)}`,
+            })),
+          };
+        }
         const key = objectPath ? `${bucket}/${objectPath}` : bucket;
         if (objectPath && !storageObjects.has(`${bucket}/${objectPath}`)) {
           storageObjects.set(`${bucket}/${objectPath}`, TINY_PNG);
@@ -372,7 +392,7 @@ async function runPhotoSuite(page, baseUrl, state, fixturePaths, label) {
   const [fixturePath, fixturePathB, fixturePathC] = fixturePaths;
   await page.goto(baseUrl);
   const v = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  if (Number(v) !== 52) throw new Error(`${label}: Build ${v} != 52`);
+  if (Number(v) !== 53) throw new Error(`${label}: Build ${v} != 53`);
   await login(page);
   const { tripId, day, placeId } = await seedTripWithPlace(page);
 

@@ -205,9 +205,27 @@ function createMockSupabaseState() {
       if (pathName.endsWith("/user") && method === "GET") return { status: 200, json: session.user };
       return { status: 404, json: {} };
     },
-    handleStorage(url, method) {
+    handleStorage(url, method, body) {
       const p = url.pathname;
-      if (p.includes("/object/sign/") && method === "POST") return { status: 200, json: { signedURL: "/object/sign/mock?token=1" } };
+      if (p.includes("/object/sign/") && method === "POST") {
+        let payload = {};
+        try {
+          payload = JSON.parse(body || "{}");
+        } catch {
+          payload = {};
+        }
+        if (Array.isArray(payload.paths)) {
+          return {
+            status: 200,
+            json: payload.paths.map((one) => ({
+              error: null,
+              path: one,
+              signedURL: `/object/sign/mock?token=${encodeURIComponent(one)}`,
+            })),
+          };
+        }
+        return { status: 200, json: { signedURL: "/object/sign/mock?token=1" } };
+      }
       if (p.includes("/object/") && (method === "POST" || method === "PUT")) return { status: 200, json: { Key: "ok" } };
       return { status: 404, json: {} };
     },
@@ -281,7 +299,7 @@ async function installSupabaseMocks(page, state, geocode) {
     const url = new URL(req.url());
     let result;
     if (url.pathname.includes("/auth/v1/")) result = state.handleAuth(url, req.method(), req.postData());
-    else if (url.pathname.includes("/storage/v1/")) result = state.handleStorage(url, req.method());
+    else if (url.pathname.includes("/storage/v1/")) result = state.handleStorage(url, req.method(), req.postData());
     else if (url.pathname.includes("/rest/v1/")) result = state.handleRest(url, req.method(), req.postData(), req.headers());
     else result = { status: 404, json: {} };
     await route.fulfill({
@@ -468,7 +486,7 @@ async function runSuite(browserType, baseUrl, label) {
 
   await page.goto(baseUrl);
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 52, `${label}: Build ${build}`);
+  assert(Number(build) === 53, `${label}: Build ${build}`);
 
   const heicBytes = [...heicWithExif({ lat: 45.5, lng: 10.25, date: "2026:10:28 15:12:00" })];
   const heic = await page.evaluate(async (bytes) => {
@@ -791,7 +809,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 9a tests OK (Build 52)");
+  console.log("Playwright 9a tests OK (Build 53)");
 }
 
 main().catch((err) => {
