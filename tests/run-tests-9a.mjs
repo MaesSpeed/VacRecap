@@ -437,6 +437,21 @@ async function runSuite(browserType, baseUrl, label) {
   await installSupabaseMocks(page, state, geocode);
   const pageErrors = [];
   page.on("pageerror", (err) => pageErrors.push(String(err)));
+  // Feste Test-Uhr: «heute» bleibt der 29.10.2026, Timer laufen weiter echt.
+  await page.addInitScript(() => {
+    const RealDate = Date;
+    const fixed = new RealDate(2026, 9, 29, 12, 0, 0, 0).getTime();
+    function TestDate(...args) {
+      if (!new.target) return new RealDate(fixed).toString();
+      if (args.length === 0) return new RealDate(fixed);
+      return new RealDate(...args);
+    }
+    TestDate.prototype = RealDate.prototype;
+    TestDate.now = () => fixed;
+    TestDate.parse = RealDate.parse.bind(RealDate);
+    TestDate.UTC = RealDate.UTC.bind(RealDate);
+    window.Date = TestDate;
+  });
   await page.addInitScript(() => {
     const geo = navigator.geolocation;
     if (!geo || geo.__vacWrapped) return;
