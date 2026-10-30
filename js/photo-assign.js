@@ -126,7 +126,10 @@ export function planPhotoGroups({
     const dayPlaces = hardPlacesOnDay(places, photo.day);
     const selected =
       photo.day === activeDay ? dayPlaces.find((p) => p.id === selectedPlaceId) || null : null;
-    const hasGps = photo.lat != null && photo.lng != null;
+    const hasGps =
+      photo.lat != null &&
+      photo.lng != null &&
+      !(Number(photo.lat) === 0 && Number(photo.lng) === 0);
 
     if (!hasGps) {
       if (selected) {

@@ -1,5 +1,12 @@
 import { deletePlace, getMediaForPlace, getNotesForPlace, getPlace, getPlacesForDay, putPlace, updateMediaRow } from "./db.js";
-import { fallbackPlaceName, getCapturePosition, haversineMeters, isLocationUnavailable, reverseGeocodeName } from "./geo.js";
+import {
+  coordinatesAreUsable,
+  fallbackPlaceName,
+  getCapturePosition,
+  haversineMeters,
+  isLocationUnavailable,
+  reverseGeocodeName,
+} from "./geo.js";
 import { updatePlaceName } from "./place-service.js";
 import {
   distanceFitsPlace,
@@ -82,6 +89,11 @@ async function resolveWithGps({ vacationId, day }) {
     lng = pos.coords.longitude;
     accuracy = pos.coords.accuracy;
   }
+  if (!coordinatesAreUsable(lat, lng)) {
+    const err = new Error("position unavailable");
+    err.code = 2;
+    throw err;
+  }
   const dedupM = await getSamePlaceRadiusM();
   const all = await getPlacesForDay(vacationId, day);
   const hard = all.filter((p) => !p.soft);
@@ -132,6 +144,7 @@ export async function previewNoteCaptureTarget({ vacationId, day, selectedPlaceI
     try {
       const pos = await getCapturePosition();
       const { latitude: lat, longitude: lng } = pos.coords;
+      if (!coordinatesAreUsable(lat, lng)) throw new Error("position unavailable");
       const dedupM = await getSamePlaceRadiusM();
       const near = findPlaceWithinMeters(hard, lat, lng, dedupM);
       if (near) return { label: near.name, kind: "gps-match" };
@@ -180,6 +193,11 @@ async function readCaptureFix() {
     longitude: pos.coords.longitude,
     accuracy: pos.coords.accuracy,
   };
+}
+
+function usableFix(fix) {
+  if (!fix || !coordinatesAreUsable(fix.latitude, fix.longitude)) return null;
+  return fix;
 }
 
 /**
@@ -318,7 +336,7 @@ export async function resolvePhotoCaptureTarget({
 
   let fix = null;
   try {
-    fix = await readCaptureFix();
+    fix = usableFix(await readCaptureFix());
   } catch (err) {
     if (!isLocationUnavailable(err)) throw err;
   }

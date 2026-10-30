@@ -213,6 +213,14 @@ async function fileView(file) {
  * DateTimeOriginal und GPSLatitude/GPSLongitude (inkl. Ref) aus JPEG oder HEIC.
  * @returns {Promise<{ takenAt: number|null, latitude: number|null, longitude: number|null }>}
  */
+function dropNullIsland(parsed) {
+  if (!parsed) return parsed;
+  if (Number(parsed.latitude) === 0 && Number(parsed.longitude) === 0) {
+    return { ...parsed, latitude: null, longitude: null };
+  }
+  return parsed;
+}
+
 export async function readPhotoExif(file) {
   const empty = { takenAt: null, latitude: null, longitude: null };
   if (!file) return empty;
@@ -222,9 +230,9 @@ export async function readPhotoExif(file) {
     if (!view) return empty;
     if (isJpeg(file)) {
       const jpeg = parseJpegExif(view);
-      if (jpeg) return jpeg;
+      if (jpeg) return dropNullIsland(jpeg);
     }
-    return findEmbeddedExif(view) || empty;
+    return dropNullIsland(findEmbeddedExif(view)) || empty;
   } catch {
     return empty;
   }

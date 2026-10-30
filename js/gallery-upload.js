@@ -24,6 +24,21 @@ export function splitGalleryFiles(files) {
   return { hasVideo, images };
 }
 
+async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await fn(items[index], index);
+    }
+  }
+  const workers = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: workers }, () => worker()));
+  return results;
+}
+
 async function placesForDays(vacationId, days) {
   const lists = await Promise.all([...days].map((day) => getPlacesForDay(vacationId, day)));
   return lists.flat();
@@ -164,7 +179,7 @@ export async function startGalleryPhotoUpload({
   }
 
   try {
-    const metas = await Promise.all(images.map((file) => readPhotoExif(file)));
+    const metas = await mapLimit(images, 2, (file) => readPhotoExif(file));
     const photos = images.map((file, index) => {
       const meta = metas[index] || {};
       const takenAt = meta.takenAt ?? null;
