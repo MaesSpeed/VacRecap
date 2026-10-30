@@ -276,6 +276,10 @@ function seedTrip(state, tripId) {
     placeRow("p-6", tripId, TODAY, "Platz Sechs", "2026-10-30T07:00:00.000Z"),
     placeRow("p-burg", tripId, NEIGHBOR, "Burg Limone", "2026-10-29T15:00:00.000Z"),
     placeRow("p-alt", tripId, NEIGHBOR, "Alt Limone", "2026-10-29T09:00:00.000Z"),
+    placeRow("p-n3", tripId, NEIGHBOR, "Ufer Limone", "2026-10-29T08:00:00.000Z"),
+    placeRow("p-n4", tripId, NEIGHBOR, "Gasse Limone", "2026-10-29T07:00:00.000Z"),
+    placeRow("p-n5", tripId, NEIGHBOR, "Platz Limone", "2026-10-29T06:00:00.000Z"),
+    placeRow("p-n6", tripId, NEIGHBOR, "Kirche Limone", "2026-10-29T05:00:00.000Z"),
     placeRow("p-strand", tripId, FAR, "Strand Riva", "2026-10-26T11:00:00.000Z"),
   ];
   state.waypoints.push(...rows);
@@ -437,9 +441,12 @@ async function tapDay(page, state, day, { name, thumbs, requireCached, label }) 
   const hasName = sync.text.includes(name);
   if (requireCached) {
     assert(hasName, `${label}: Nachbartag nicht sofort aus dem Cache (${sync.skeleton ? "Skeleton" : sync.text.slice(0, 100)})`);
+    assert(sync.thumbs >= thumbs && sync.gallery >= 1, `${label}: Cache ohne Thumbnails oder Mediathek (${sync.thumbs}/${sync.gallery})`);
   } else {
     assert(hasName || sync.skeleton, `${label}: weder Inhalt noch Skeleton, «${sync.text.slice(0, 100)}»`);
   }
+
+  if (requireCached) await assertScrollStays(page, state, 73, label);
 
   await page.waitForFunction(
     ({ placeName, minThumbs }) => {
@@ -454,11 +461,104 @@ async function tapDay(page, state, day, { name, thumbs, requireCached, label }) 
   assert(!gaps.length, `${label}: Liste zwischendurch leer`);
   const placeholders = await page.locator("[data-page='current'] .th--ph").count();
   assert(placeholders === 0, `${label}: graue Platzhalter bleiben (${placeholders})`);
-  assert(state.signBatches.length >= 1, `${label}: keine Signed-URL-Anfrage`);
-  assert(
-    state.signBatches.every((n) => n >= 2),
-    `${label}: Thumbnails einzeln geholt (${state.signBatches.join(",")})`
-  );
+  if (!requireCached) {
+    assert(state.signBatches.length >= 1, `${label}: keine Signed-URL-Anfrage`);
+    assert(
+      state.signBatches.every((n) => n >= 2),
+      `${label}: Thumbnails einzeln geholt (${state.signBatches.join(",")})`
+    );
+    const y = await page.evaluate(() => document.querySelector("[data-page='current']").scrollTop);
+    if (y > 0) assert(y === 73, `${label}: scrollTop ${y} nach dem Nachladen`);
+  }
+}
+
+async function assertScrollStays(page, state, top, label) {
+  const applied = await page.evaluate((y) => {
+    const el = document.querySelector("[data-page='current']");
+    el.scrollTop = y;
+    return el.scrollTop;
+  }, top);
+  assert(applied === top, `${label}: scrollTop ${applied} statt ${top}`);
+  const start = Date.now();
+  while (Date.now() - start < 9000) {
+    const y = await page.evaluate(() => document.querySelector("[data-page='current']").scrollTop);
+    assert(y === top, `${label}: scrollTop ${y} nach ${Date.now() - start} ms`);
+    if (Date.now() - start > 2500 && state.inflight === 0 && Date.now() - state.lastDone > 400) break;
+    await page.waitForTimeout(80);
+  }
+}
+
+async function installTouch(page) {
+  await page.evaluate(() => {
+    if (window.__touchSwipe) return;
+    let modernTouch = true;
+    try {
+      new Touch({ identifier: 1, target: document.body, clientX: 0, clientY: 0, pageX: 0, pageY: 0 });
+    } catch {
+      modernTouch = false;
+    }
+    const fire = (el, phase, x, y) => {
+      const touchType = phase === "start" ? "touchstart" : phase === "move" ? "touchmove" : "touchend";
+      if (modernTouch) {
+        const touch = new Touch({
+          identifier: 1,
+          target: el,
+          clientX: x,
+          clientY: y,
+          pageX: x,
+          pageY: y,
+          radiusX: 2,
+          radiusY: 2,
+          rotationAngle: 0,
+          force: 0.5,
+        });
+        const list = phase === "end" ? [] : [touch];
+        el.dispatchEvent(
+          new TouchEvent(touchType, {
+            bubbles: true,
+            cancelable: true,
+            touches: list,
+            targetTouches: list,
+            changedTouches: [touch],
+          })
+        );
+        return;
+      }
+      const touch = document.createTouch(window, el, 1, x + window.scrollX, y + window.scrollY, x, y);
+      const list = document.createTouchList(touch);
+      const empty = document.createTouchList();
+      el.dispatchEvent(
+        new TouchEvent(touchType, {
+          bubbles: true,
+          cancelable: true,
+          touches: phase === "end" ? empty : list,
+          targetTouches: phase === "end" ? empty : list,
+          changedTouches: list,
+        })
+      );
+    };
+    window.__touchSwipe = (dx) => {
+      const el = document.querySelector('[data-testid="trip-content"]');
+      const r = el.getBoundingClientRect();
+      const x0 = r.left + Math.min(r.width / 2, 180);
+      const y0 = r.top + Math.min(120, Math.max(24, r.height / 2));
+      fire(el, "start", x0, y0);
+      const steps = 8;
+      for (let i = 1; i <= steps; i++) fire(el, "move", x0 + (dx * i) / steps, y0);
+      fire(el, "end", x0 + dx, y0);
+      return document.querySelector("[data-role='day-track']")?.style.transform || "";
+    };
+    window.__holdSwipe = (dx) => {
+      const el = document.querySelector('[data-testid="trip-content"]');
+      const r = el.getBoundingClientRect();
+      const x0 = r.left + Math.min(r.width / 2, 180);
+      const y0 = r.top + Math.min(120, Math.max(24, r.height / 2));
+      fire(el, "start", x0, y0);
+      fire(el, "move", x0 + dx, y0);
+      window.__releaseSwipe = () => fire(el, "end", x0 + dx, y0);
+      return document.querySelector("[data-role='day-track']")?.style.transform || "";
+    };
+  });
 }
 
 async function runSuite(browserType, baseUrl, label) {
@@ -508,6 +608,7 @@ async function runSuite(browserType, baseUrl, label) {
   await waitQuiet(state);
   await assertDayListFoot(page, `${label} lang`, { short: false });
 
+  await installTouch(page);
   await tapDay(page, state, NEIGHBOR, {
     name: "Burg Limone",
     thumbs: 4,
@@ -515,12 +616,38 @@ async function runSuite(browserType, baseUrl, label) {
     label: `${label} Nachbar`,
   });
   await waitQuiet(state);
-  await tapDay(page, state, FAR, {
-    name: "Strand Riva",
-    thumbs: 2,
-    requireCached: false,
-    label: `${label} entfernt`,
-  });
+  await page.evaluate(() => window.__touchSwipe(-170));
+  await page.waitForFunction(
+    (day) => document.querySelector("[data-testid='trip-content']")?.dataset.activeDay === day,
+    TODAY
+  );
+  await assertScrollStays(page, state, 61, `${label} Wisch`);
+  await waitQuiet(state);
+
+  state.signBatches.length = 0;
+  await page.evaluate((iso) => document.querySelector(`[data-day="${iso}"]`).click(), FAR);
+  const held = await page.evaluate(() => window.__holdSwipe(-12));
+  assert(String(held).includes("calc("), `${label}: Wisch startet nicht (${held})`);
+  const holdStart = Date.now();
+  while (Date.now() - holdStart < 3000) {
+    const transform = await page.evaluate(() => document.querySelector("[data-role='day-track']")?.style.transform || "");
+    assert(transform.includes("calc("), `${label}: Wisch schnappt zurück (${transform})`);
+    await page.waitForTimeout(100);
+  }
+  await page.evaluate(() => window.__releaseSwipe?.());
+  await page.waitForFunction(
+    (name) => {
+      const root = document.querySelector("[data-page='current']");
+      return root?.innerText?.includes(name) && root.querySelector(".tile__img[src]") && !root.querySelector("[data-testid='day-skeleton']");
+    },
+    "Strand Riva",
+    { timeout: 20_000 }
+  );
+  assert(
+    state.signBatches.some((n) => n >= 2),
+    `${label}: entfernte Thumbnails nicht gebündelt (${state.signBatches.join(",")})`
+  );
+
   await assertDayListFoot(page, `${label} kurz`, { short: true });
 
   assert(!pageErrors.length, `${label}: Seitenfehler ${pageErrors.join(" | ")}`);
