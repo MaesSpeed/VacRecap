@@ -968,7 +968,9 @@ body {
   font-size: 0.72rem;
   font-weight: 750;
   border-radius: 999px;
-  padding: 6px 10px;
+  padding: 10px 14px;
+  min-height: 44px;
+  min-width: 44px;
   cursor: pointer;
   white-space: nowrap;
   margin-left: 4px;
@@ -3969,4 +3971,247 @@ body:has(.screen--trip-swipe) {
 .target-row__radio--on {
   border-color: #0066b3;
   background: radial-gradient(circle, #0066b3 0 5px, #fff 6px);
+}
+
+/* Paket 9c: Fotos verschieben */
+.photo-select-start,
+.photo-select-bar button,
+.move-day,
+.move-place,
+.move-cancel {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.photo-select-start {
+  margin-top: 8px;
+  border: none;
+  background: #e7f1fb;
+  color: #0b4f86;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 750;
+  border-radius: 12px;
+  padding: 0 14px;
+  cursor: pointer;
+}
+
+.photo-select-hint {
+  margin: 8px 0 0;
+  font-size: 13px;
+  font-weight: 650;
+  color: #5b6b7a;
+}
+
+.photo-select-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 4px;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 1px 0 #e6eef5;
+}
+
+.photo-select-bar button {
+  border: none;
+  background: #e7f1fb;
+  color: #0b4f86;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 750;
+  border-radius: 12px;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.photo-select-bar button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.photo-select-bar__count {
+  flex: 1 1 auto;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 800;
+  color: #14202b;
+}
+
+.tile,
+.th {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.tile__mark {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  z-index: 1;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: rgba(20, 32, 43, 0.35);
+  box-sizing: border-box;
+}
+
+.tile--selected {
+  box-shadow: inset 0 0 0 3px #0066b3;
+}
+
+.tile--selected .tile__mark {
+  background: #0066b3;
+}
+
+.tile--selected .tile__mark::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.tile--locked,
+.th--locked {
+  opacity: 0.45;
+}
+
+.th--selected {
+  box-shadow: inset 0 0 0 3px #0066b3;
+}
+
+.move-layer {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.sheet--move {
+  width: 100%;
+  max-width: 480px;
+  max-height: min(88dvh, 720px);
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  border-radius: 22px 22px 0 0;
+}
+
+.move-sheet__lead {
+  margin: 4px 0 10px;
+  text-align: center;
+  color: #5b6b7a;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.move-days {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.move-day {
+  flex: 0 0 auto;
+  border: 1px solid #d5dee7;
+  background: #fff;
+  color: #14202b;
+  border-radius: 14px;
+  padding: 6px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  font: inherit;
+  cursor: pointer;
+}
+
+.move-day--on {
+  background: #e7f1fb;
+  border-color: #9ec3ea;
+  color: #0b4f86;
+}
+
+.move-day__date {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.move-day__role {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.move-places {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.move-place {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid #eef2f6;
+  background: #fff;
+  text-align: left;
+  padding: 8px 4px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  font: inherit;
+  cursor: pointer;
+}
+
+.move-place:disabled,
+.move-place--blocked {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.move-place__name {
+  font-size: 16px;
+  font-weight: 750;
+  color: #14202b;
+}
+
+.move-place__sub {
+  font-size: 12px;
+  font-weight: 650;
+  color: #5b6b7a;
+}
+
+.move-place-empty {
+  padding: 16px 4px;
+  color: #5b6b7a;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.move-cancel {
+  margin-top: 8px;
+  border: none;
+  background: #f4f7fb;
+  color: #0b4f86;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 750;
+  border-radius: 14px;
+  cursor: pointer;
 }

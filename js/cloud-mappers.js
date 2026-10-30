@@ -133,6 +133,7 @@ export function mediaRowToApp(row) {
     h: row.height ?? null,
     sizeBytes: row.size_bytes ?? null,
     sourceKey: row.source_key ?? null,
+    author: row.created_by ?? null,
   };
 }
 

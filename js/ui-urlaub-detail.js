@@ -6,6 +6,7 @@ import {
   defaultActiveDay,
   vacationDays,
 } from "./days.js";
+import { getUserId } from "./auth-service.js";
 import { getFreeNotesForDay, getPlacesForDay, getPlacesForVacation, getVacation } from "./db.js";
 import { ICON_BACK_CHEVRON, ICON_GEAR, ICON_MAP } from "./icons.js";
 import { fallbackPlaceName, formatTimeFromTs } from "./geo.js";
@@ -28,7 +29,7 @@ import { consumePendingFooter } from "./pending-footer.js";
 import { loadTripSelection, saveTripSelection } from "./trip-selection-store.js";
 import { prefetchCaptureGps, resetCaptureGpsPrefetch } from "./capture-gps-prefetch.js";
 import { blockTripFooter, isTripFooterBlocked, SHEET_INPUT_BLOCK_MS } from "./overlay-stack.js";
-import { photoKeptMessage } from "./cloud-errors.js";
+import { CloudNetworkError, CloudOfflineError, photoKeptMessage } from "./cloud-errors.js";
 import { dismissActiveToast, showToast, showTwoLineToast, showWarnToast } from "./toast.js";
 import { openNoteSheet } from "./ui-note-sheet.js";
 import { DAY_SWIPE_MS, daySwipeEase, installDaySwipe, setDaySwipeNeighbor, setDaySwipePage } from "./day-swipe.js";
@@ -47,6 +48,8 @@ import { deleteMedia } from "./db.js";
 import { openConfirmDialog } from "./ui-confirm.js";
 import { startGalleryPhotoUpload } from "./gallery-upload.js";
 import { openPhotoUploadSheet } from "./ui-photo-upload-sheet.js";
+import { mediaOwnedBy, movePhotosToPlace, restorePhotoPlacement } from "./photo-move.js";
+import { openPhotoMoveSheet } from "./ui-photo-move-sheet.js";
 import { openPhotoTargetSheet } from "./ui-photo-target-sheet.js";
 import { openMediaViewer } from "./ui-media-viewer.js";
 
@@ -97,10 +100,16 @@ async function getState(id, vacation) {
       listRefreshToken: 0,
       thumbUrls: {},
       freshPlaceIds: new Set(),
+      photoSelecting: false,
+      photoSelected: new Set(),
+      userId: null,
+      moveBusy: false,
     };
     tripUiState.set(id, state);
   }
   if (!state.freshPlaceIds) state.freshPlaceIds = new Set();
+  if (!state.photoSelected) state.photoSelected = new Set();
+  if (state.photoSelecting == null) state.photoSelecting = false;
   return state;
 }
 
@@ -122,6 +131,13 @@ export async function renderUrlaubDetail(appEl, id) {
 
   const days = vacationDays(vacation);
   const state = await getState(id, vacation);
+  if (!state.userId) {
+    try {
+      state.userId = await getUserId();
+    } catch {
+      state.userId = null;
+    }
+  }
 
   appEl.className = "screen screen--trip screen--trip-swipe";
   appEl.dataset.vacationId = id;
@@ -338,37 +354,121 @@ export async function renderUrlaubDetail(appEl, id) {
 
   let warmHtml = new Map();
   let warmPlaces = null;
+  let dayCache = new Map();
+  let cacheEpoch = 0;
+  const thumbPool = {};
 
   function stripTestIds(html) {
     return String(html || "").replace(/\sdata-testid="[^"]*"/g, "");
   }
 
-  async function buildDayHtml(dayIso, knownPlaces) {
-    const items = await loadDayPlacesEnriched(id, dayIso, knownPlaces);
+  function syncMediaCounts(item) {
+    const media = item.media || [];
+    item.photos = media.filter((entry) => entry.type !== "video" && (entry.uploadStatus || "uploaded") === "uploaded").length;
+    item.videos = media.filter((entry) => entry.type === "video").length;
+  }
+
+  function findCachedMedia(mediaId) {
+    for (const bundle of dayCache.values()) {
+      for (const item of bundle.items || []) {
+        const hit = item.media?.find((entry) => entry.id === mediaId);
+        if (hit) return hit;
+      }
+    }
+    return null;
+  }
+
+  function applyPlacement(mediaList, placeId, day) {
+    const ids = new Set(mediaList.map((entry) => entry.id));
+    for (const bundle of dayCache.values()) {
+      for (const item of bundle.items || []) {
+        if (!item.media?.length) continue;
+        const next = item.media.filter((entry) => !ids.has(entry.id));
+        if (next.length !== item.media.length) {
+          item.media = next;
+          syncMediaCounts(item);
+        }
+      }
+    }
+    const bundle = dayCache.get(day);
+    const item = bundle?.items?.find((entry) => entry.place.id === placeId);
+    if (!item) return;
+    for (const entry of mediaList) {
+      entry.placeId = placeId;
+      entry.day = day;
+      if (!item.media.some((existing) => existing.id === entry.id)) item.media.push(entry);
+    }
+    item.media.sort((a, b) => a.ts - b.ts);
+    syncMediaCounts(item);
+  }
+
+  async function thumbUrlsFor(media, ids) {
+    const map = {};
+    const missing = new Set();
+    for (const mediaId of ids) {
+      if (thumbPool[mediaId]) map[mediaId] = thumbPool[mediaId];
+      else missing.add(mediaId);
+    }
+    if (missing.size) {
+      const extra = await resolveThumbUrlMap(media, missing);
+      Object.assign(thumbPool, extra);
+      Object.assign(map, extra);
+    }
+    return map;
+  }
+
+  async function buildDayHtml(dayIso, knownPlaces, { fresh = false, selection = false } = {}) {
+    const epochAtStart = cacheEpoch;
+    let bundle = !fresh && dayCache.has(dayIso) ? dayCache.get(dayIso) : null;
+    if (!bundle) {
+      const items = await loadDayPlacesEnriched(id, dayIso, knownPlaces);
+      const freeNotes = await getFreeNotesForDay(id, dayIso);
+      if (cacheEpoch === epochAtStart) {
+        bundle = { items, freeNotes };
+        dayCache.set(dayIso, bundle);
+      } else if (dayCache.has(dayIso)) {
+        bundle = dayCache.get(dayIso);
+      } else {
+        bundle = { items, freeNotes };
+      }
+    }
+    const stale = cacheEpoch !== epochAtStart;
     const active = dayIso === state.activeDay;
-    const selectedId = await ensureSelectedForDay(items, dayIso);
-    const freeNotes = await getFreeNotesForDay(id, dayIso);
-    const allMedia = items.flatMap((i) => i.media);
-    const visibleIds = visibleThumbMediaIds(items, selectedId);
-    const thumbUrls = await resolveThumbUrlMap(allMedia, visibleIds);
+    const selectedId = await ensureSelectedForDay(bundle.items, dayIso);
+    const selecting = Boolean(selection) && active && state.photoSelecting;
+    const allMedia = bundle.items.flatMap((entry) => entry.media);
+    const visibleIds = visibleThumbMediaIds(bundle.items, selectedId);
+    if (selecting) {
+      const card = bundle.items.find((entry) => entry.place.id === selectedId);
+      for (const entry of card?.media || []) {
+        if ((entry.uploadStatus || "uploaded") === "uploaded") visibleIds.add(entry.id);
+      }
+    }
+    const thumbUrls = await thumbUrlsFor(allMedia, visibleIds);
     const canEditMedia = canEditTripMedia(await getMyTripRole(id));
     let placeHtml = emptyDayHtml;
-    if (items.length) {
-      const { listHtml, mediaErrorHtml } = renderPlaceListHtml(items, {
+    if (bundle.items.length) {
+      const { listHtml, mediaErrorHtml, selectBarHtml } = renderPlaceListHtml(bundle.items, {
         selectedId,
         notesExpanded: active ? state.notesExpanded : new Set(),
         thumbUrls,
         canEditMedia,
         freshPlaceIds: state.freshPlaceIds,
+        photoSelect: {
+          active: selecting,
+          selectedIds: state.photoSelected || new Set(),
+          userId: state.userId,
+        },
       });
-      placeHtml = wrapPlaceList(listHtml, mediaErrorHtml);
+      placeHtml = wrapPlaceList(listHtml, mediaErrorHtml, selectBarHtml || "");
     }
     return {
-      html: withFreeNotesHtml(placeHtml, freeNotes, {
+      html: withFreeNotesHtml(placeHtml, bundle.freeNotes, {
         expanded: active && state.freeNotesExpanded,
-        replaceEmpty: items.length === 0,
+        replaceEmpty: bundle.items.length === 0,
       }),
       thumbUrls,
+      stale,
     };
   }
 
@@ -376,6 +476,44 @@ export async function renderUrlaubDetail(appEl, id) {
     for (const built of warmHtml.values()) revokeThumbUrls(built?.thumbUrls);
     warmHtml = new Map();
     warmPlaces = null;
+    dayCache = new Map();
+    for (const key of Object.keys(thumbPool)) delete thumbPool[key];
+  }
+
+  function syncNeighborHold() {
+    const idx = days.indexOf(state.activeDay);
+    const prev = idx > 0 ? days[idx - 1] : null;
+    const next = idx < days.length - 1 ? days[idx + 1] : null;
+    neighborHold.prev = prev && warmHtml.get(prev)?.html ? stripTestIds(warmHtml.get(prev).html) : "";
+    neighborHold.next = next && warmHtml.get(next)?.html ? stripTestIds(warmHtml.get(next).html) : "";
+  }
+
+  async function paintCachedDays(dayList) {
+    const unique = [...new Set(dayList.filter(Boolean))];
+    for (const day of unique) {
+      if (!dayCache.has(day)) continue;
+      const plain = await buildDayHtml(day, warmPlaces, { selection: false });
+      if (!plain.stale) warmHtml.set(day, plain);
+    }
+    syncNeighborHold();
+    const active = state.photoSelecting
+      ? await buildDayHtml(state.activeDay, warmPlaces, { selection: true })
+      : warmHtml.get(state.activeDay);
+    if (!active?.html || active.stale) return;
+    contentEl.dataset.photoSelecting = state.photoSelecting ? "1" : "0";
+    queuePaint(active, state.listRefreshToken, { keepScroll: true });
+  }
+
+  function clearPhotoSelect() {
+    state.photoSelecting = false;
+    state.photoSelected = new Set();
+    contentEl.dataset.photoSelecting = "0";
+  }
+
+  async function ensureDayBundle(day) {
+    if (!day || dayCache.has(day)) return;
+    if (!warmPlaces) warmPlaces = await getPlacesForVacation(id);
+    await buildDayHtml(day, warmPlaces, { fresh: true, selection: false });
   }
 
   async function prefetchNeighbors(token) {
@@ -401,6 +539,7 @@ export async function renderUrlaubDetail(appEl, id) {
           revokeThumbUrls(built?.thumbUrls);
           return;
         }
+        if (built?.stale) continue;
         warmHtml.set(day, built);
       }
       neighborHold[key] = stripTestIds(built.html);
@@ -431,6 +570,7 @@ export async function renderUrlaubDetail(appEl, id) {
 
   function paintDay(built, { keepScroll = false } = {}) {
     if (!contentEl.isConnected || !built?.html) return;
+    contentEl.dataset.photoSelecting = state.photoSelecting ? "1" : "0";
     const previousThumbUrls = state.thumbUrls;
     state.thumbUrls = built.thumbUrls || {};
     syncDayEdges();
@@ -538,15 +678,21 @@ export async function renderUrlaubDetail(appEl, id) {
       if (token !== state.listRefreshToken) return;
       let built = reuse ? warmHtml.get(state.activeDay) : null;
       if (!built) {
-        built = await buildDayHtml(state.activeDay, warmPlaces);
+        built = await buildDayHtml(state.activeDay, warmPlaces, { selection: false });
         if (token !== state.listRefreshToken) {
           revokeThumbUrls(built?.thumbUrls);
           return;
         }
-        warmHtml.set(state.activeDay, built);
+        if (built?.stale) {
+          built = await buildDayHtml(state.activeDay, warmPlaces, { selection: false });
+        }
+        if (!built?.stale) warmHtml.set(state.activeDay, built);
       }
-      if (!contentEl.isConnected) return;
-      queuePaint(built, token, { keepScroll: reuse });
+      if (!contentEl.isConnected || !built?.html) return;
+      const view = state.photoSelecting
+        ? await buildDayHtml(state.activeDay, warmPlaces, { selection: true })
+        : built;
+      queuePaint(view?.html && !view.stale ? view : built, token, { keepScroll: reuse });
       persistSelection(id, state);
       if (token !== state.listRefreshToken || !contentEl.isConnected) return;
       void prefetchNeighbors(token);
@@ -558,6 +704,7 @@ export async function renderUrlaubDetail(appEl, id) {
 
   function setActiveDay(dayIso) {
     if (!days.includes(dayIso) || dayIso === state.activeDay) return;
+    clearPhotoSelect();
     state.activeDay = dayIso;
     persistSelection(id, state);
     renderChips();
@@ -568,6 +715,7 @@ export async function renderUrlaubDetail(appEl, id) {
   function shiftDay(direction) {
     const next = adjacentDay(vacation, state.activeDay, direction);
     if (next === state.activeDay) return;
+    clearPhotoSelect();
     state.activeDay = next;
     persistSelection(id, state);
     renderChips();
@@ -931,7 +1079,192 @@ export async function renderUrlaubDetail(appEl, id) {
     });
   }
 
+  function moveErrorText(err) {
+    if (!navigator.onLine || err instanceof CloudOfflineError) {
+      return "Du bist offline. Die Fotos bleiben am bisherigen Ort.";
+    }
+    if (err instanceof CloudNetworkError) {
+      return "Die Fotos konnten nicht verschoben werden. Bitte Verbindung prüfen.";
+    }
+    return "Die Fotos konnten nicht verschoben werden. Bitte erneut versuchen.";
+  }
+
+  function chosenPhotos() {
+    const ids = [...(state.photoSelected || [])];
+    return ids.map((mediaId) => findCachedMedia(mediaId)).filter((media) => mediaOwnedBy(media, state.userId));
+  }
+
+  async function enterPhotoSelect({ mediaId = null, placeId = null } = {}) {
+    if (placeId) {
+      state.selectedByDay[state.activeDay] = placeId;
+      persistSelection(id, state);
+    }
+    state.photoSelecting = true;
+    if (!state.photoSelected) state.photoSelected = new Set();
+    if (mediaId) state.photoSelected.add(mediaId);
+    contentEl.dataset.photoSelecting = "1";
+    await paintCachedDays([state.activeDay]);
+  }
+
+  async function exitPhotoSelect() {
+    clearPhotoSelect();
+    await paintCachedDays([state.activeDay]);
+  }
+
+  async function onMoveSelectedPhotos() {
+    if (state.moveBusy || !state.photoSelecting) return;
+    const chosen = chosenPhotos();
+    if (!chosen.length) {
+      showWarnToast("Wähle mindestens ein eigenes Foto.");
+      return;
+    }
+    if (!warmPlaces) warmPlaces = await getPlacesForVacation(id);
+    const blockedPlaceId = chosen.every((media) => media.placeId === chosen[0].placeId) ? chosen[0].placeId : null;
+    const place = await openPhotoMoveSheet({
+      vacation,
+      places: warmPlaces.filter((entry) => !entry.soft),
+      initialDay: state.activeDay,
+      blockedPlaceId,
+    });
+    if (!place || !contentEl.isConnected) return;
+    const targetDay = place.day || place.dayDate;
+    if (!targetDay || chosen.every((media) => media.placeId === place.id)) return;
+    const previous = chosen.map((media) => ({ id: media.id, placeId: media.placeId, day: media.day }));
+    const sourceDays = [...new Set(previous.map((snap) => snap.day).filter(Boolean))];
+    state.moveBusy = true;
+    try {
+      await movePhotosToPlace(chosen, place);
+      cacheEpoch += 1;
+      await ensureDayBundle(targetDay);
+      applyPlacement(chosen, place.id, targetDay);
+      clearPhotoSelect();
+      await paintCachedDays([...sourceDays, targetDay, state.activeDay]);
+      const count = chosen.length;
+      showToast(count === 1 ? "1 Foto verschoben" : `${count} Fotos verschoben`, {
+        undoLabel: "Rückgängig",
+        onUndo: () => {
+          void undoPhotoMove(chosen, previous);
+        },
+      });
+    } catch (err) {
+      if (err?.placementRolledBack === false) {
+        cacheEpoch += 1;
+        await refreshDayList();
+      }
+      showWarnToast(moveErrorText(err));
+    } finally {
+      state.moveBusy = false;
+    }
+  }
+
+  async function undoPhotoMove(chosen, previous) {
+    if (state.moveBusy) return;
+    state.moveBusy = true;
+    try {
+      await restorePhotoPlacement(previous);
+      cacheEpoch += 1;
+      const groups = new Map();
+      for (const snap of previous) {
+        const key = `${snap.day}|${snap.placeId}`;
+        if (!groups.has(key)) groups.set(key, { day: snap.day, placeId: snap.placeId, media: [] });
+        const media = chosen.find((entry) => entry.id === snap.id);
+        if (media) groups.get(key).media.push(media);
+      }
+      for (const group of groups.values()) {
+        await ensureDayBundle(group.day);
+        applyPlacement(group.media, group.placeId, group.day);
+      }
+      await paintCachedDays([...groups.values()].map((group) => group.day).concat(state.activeDay));
+      showToast("Wieder am bisherigen Ort.");
+    } catch {
+      cacheEpoch += 1;
+      await refreshDayList();
+      showWarnToast("Rückgängig ist fehlgeschlagen. Bitte erneut versuchen.");
+    } finally {
+      state.moveBusy = false;
+    }
+  }
+
+  let suppressTileClick = false;
+  const photoPress = { timer: 0, x: 0, y: 0, id: null, placeId: null };
+
+  function clearPhotoPress() {
+    if (photoPress.timer) clearTimeout(photoPress.timer);
+    photoPress.timer = 0;
+  }
+
+  contentEl.addEventListener("pointerdown", (event) => {
+    if (event.button > 0) return;
+    const tile = event.target.closest(".tile[data-media-id], .th[data-media-id]");
+    if (!tile) return;
+    clearPhotoPress();
+    photoPress.x = event.clientX;
+    photoPress.y = event.clientY;
+    photoPress.id = tile.dataset.mediaId;
+    photoPress.placeId = tile.closest("[data-place-id]")?.dataset.placeId || null;
+    photoPress.timer = setTimeout(() => {
+      photoPress.timer = 0;
+      suppressTileClick = true;
+      setTimeout(() => {
+        suppressTileClick = false;
+      }, 700);
+      const media = findCachedMedia(photoPress.id);
+      const own = mediaOwnedBy(media, state.userId);
+      if (!own) showWarnToast("Nur eigene Fotos kannst du verschieben.");
+      void enterPhotoSelect({ mediaId: own ? photoPress.id : null, placeId: photoPress.placeId });
+    }, 550);
+  });
+  contentEl.addEventListener("pointermove", (event) => {
+    if (!photoPress.timer) return;
+    if (Math.hypot(event.clientX - photoPress.x, event.clientY - photoPress.y) > 12) clearPhotoPress();
+  });
+  for (const type of ["pointerup", "pointercancel"]) {
+    contentEl.addEventListener(type, clearPhotoPress);
+  }
+  contentEl.addEventListener("contextmenu", (event) => {
+    if (event.target.closest(".tile[data-media-id], .th[data-media-id]")) event.preventDefault();
+  });
+
   contentEl.addEventListener("click", async (e) => {
+    if (suppressTileClick) {
+      suppressTileClick = false;
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+
+    if (e.target.closest("[data-action='photo-select-exit']")) {
+      e.preventDefault();
+      await exitPhotoSelect();
+      return;
+    }
+    if (e.target.closest("[data-action='photo-select-start']")) {
+      e.preventDefault();
+      const host = e.target.closest(".oc[data-place-id]");
+      await enterPhotoSelect({ placeId: host?.dataset.placeId || null });
+      return;
+    }
+    if (e.target.closest("[data-action='photo-move']")) {
+      e.preventDefault();
+      await onMoveSelectedPhotos();
+      return;
+    }
+    if (state.photoSelecting) {
+      const tile = e.target.closest(".tile[data-media-id], .th[data-media-id]");
+      if (tile) {
+        e.preventDefault();
+        if (tile.dataset.own !== "1") {
+          showWarnToast("Nur eigene Fotos kannst du verschieben.");
+          return;
+        }
+        if (!state.photoSelected) state.photoSelected = new Set();
+        if (state.photoSelected.has(tile.dataset.mediaId)) state.photoSelected.delete(tile.dataset.mediaId);
+        else state.photoSelected.add(tile.dataset.mediaId);
+        await paintCachedDays([state.activeDay]);
+      }
+      return;
+    }
+
     const camBtn = e.target.closest('[data-action="camera-place"]');
     const galleryPlaceBtn = e.target.closest('[data-action="gallery-place"]');
     if (camBtn || galleryPlaceBtn) {

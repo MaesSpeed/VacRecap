@@ -1,5 +1,6 @@
 import { fetchMediaForPlace, getNotesForPlace } from "./db.js";
 import { formatMediaDuration } from "./media-process.js";
+import { mediaOwnedBy } from "./photo-move.js";
 import { buildPlaceMetaLine } from "./place-stats.js";
 import { filterSoftPointsHidden, softPointLabel } from "./place-service.js";
 import { sortPlacesChronologicalDesc } from "./places.js";
@@ -126,8 +127,22 @@ function uploadStateBadge(media) {
   return "";
 }
 
-export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrls = {}, canEditMedia = true, freshPlaceIds = null }) {
-  if (!items.length) return { listHtml: "", mediaErrorHtml: "" };
+function renderSelectBar(photoSelect) {
+  const count = photoSelect.selectedIds?.size || 0;
+  return `
+    <div class="photo-select-bar" data-testid="photo-select-bar">
+      <button type="button" data-action="photo-select-exit" data-testid="photo-select-exit">Beenden</button>
+      <span class="photo-select-bar__count" data-testid="photo-select-count">${count} ausgewählt</span>
+      <button type="button" data-action="photo-move" data-testid="photo-move"${count ? "" : " disabled"}>Verschieben nach …</button>
+    </div>`;
+}
+
+function uploadedPhotoCount(media) {
+  return (media || []).filter((item) => item.type !== "video" && (item.uploadStatus || "uploaded") === "uploaded").length;
+}
+
+export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrls = {}, canEditMedia = true, freshPlaceIds = null, photoSelect = null }) {
+  if (!items.length) return { listHtml: "", mediaErrorHtml: "", selectBarHtml: "" };
 
   const anyMediaError = items.some((i) => i.mediaLoadError);
   const mediaErrorHtml = anyMediaError
@@ -163,6 +178,20 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
         const hiddenCount = Math.max(0, sortedNotes.length - 2);
         const dimMedia = dim ? newestUploadedPhoto(media) : null;
         const dimThumb = dimMedia ? thumbUrls[dimMedia.id] : null;
+        const dimOwn = dimMedia ? mediaOwnedBy(dimMedia, photoSelect?.userId) : false;
+        const dimPicked = Boolean(photoSelect?.active && dimMedia && photoSelect.selectedIds?.has(dimMedia.id));
+        const showSelectStart = selected && uploadedPhotoCount(media) > 0 && !photoSelect?.active;
+        const foreignHint =
+          photoSelect?.active &&
+          selected &&
+          media.some(
+            (item) =>
+              item.type !== "video" &&
+              (item.uploadStatus || "uploaded") === "uploaded" &&
+              !mediaOwnedBy(item, photoSelect.userId)
+          )
+            ? `<p class="photo-select-hint" data-testid="photo-foreign-hint">Fremde Fotos sind nicht wählbar.</p>`
+            : "";
 
         const notesBlock =
           sortedNotes.length || selected
@@ -208,7 +237,7 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
                 <div class="oc__meta">${escapeHtml(meta)}</div>
               </div>
               ${
-                selected
+                selected && !photoSelect?.active
                   ? `<div class="qa">
                 <button type="button" class="qa__btn" data-action="edit-place" aria-label="Bearbeiten">${ICON_EDIT}</button>
                 ${
@@ -220,14 +249,20 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
                   : ""
               }
             </div>
-            ${selected && hasMedia ? `<div class="tiles">${renderTiles(media, thumbUrls, canEditMedia)}</div>` : ""}
+            ${selected && hasMedia ? `<div class="tiles">${renderTiles(media, thumbUrls, canEditMedia, photoSelect)}</div>` : ""}
+            ${foreignHint}
+            ${
+              showSelectStart
+                ? `<button type="button" class="photo-select-start" data-action="photo-select-start" data-testid="photo-select-start">Auswählen</button>`
+                : ""
+            }
             ${notesBlock}
           </div>
           ${
             dim && dimMedia
               ? dimThumb
-                ? `<div class="th"><img class="th__img" src="${dimThumb}" alt="" decoding="async" data-media-id="${dimMedia.id}" /></div>`
-                : `<div class="th th--ph" aria-hidden="true" data-media-id="${dimMedia.id}"></div>`
+                ? `<div class="th${dimPicked ? " th--selected" : ""}${photoSelect?.active && !dimOwn ? " th--locked" : ""}" data-media-id="${dimMedia.id}" data-own="${dimOwn ? "1" : "0"}"><img class="th__img" src="${dimThumb}" alt="" decoding="async" data-media-id="${dimMedia.id}" /></div>`
+                : `<div class="th th--ph${photoSelect?.active && !dimOwn ? " th--locked" : ""}" aria-hidden="true" data-media-id="${dimMedia.id}" data-own="${dimOwn ? "1" : "0"}"></div>`
               : dim && hasMedia && !dimMedia
                 ? ""
                 : ""
@@ -237,13 +272,18 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
       })
       .join("");
 
-  return { listHtml, mediaErrorHtml };
+  return {
+    listHtml,
+    mediaErrorHtml,
+    selectBarHtml: photoSelect?.active ? renderSelectBar(photoSelect) : "",
+  };
 }
 
-function renderTiles(media, thumbUrls, canEditMedia) {
+function renderTiles(media, thumbUrls, canEditMedia, photoSelect) {
+  const selecting = Boolean(photoSelect?.active);
   const sorted = media.slice().sort((a, b) => b.ts - a.ts);
-  const visible = sorted.slice(0, 4).sort((a, b) => a.ts - b.ts);
-  const extra = media.length - visible.length;
+  const visible = (selecting ? sorted : sorted.slice(0, 4)).slice().sort((a, b) => a.ts - b.ts);
+  const extra = selecting ? 0 : media.length - visible.length;
 
   return visible
     .map((m, i) => {
@@ -254,6 +294,9 @@ function renderTiles(media, thumbUrls, canEditMedia) {
       const status = m.uploadStatus || "uploaded";
       const uploaded = status === "uploaded";
       const failed = status === "failed";
+      const own = mediaOwnedBy(m, photoSelect?.userId);
+      const picked = selecting && own && photoSelect.selectedIds?.has(m.id);
+      const locked = selecting && !own;
       const img =
         thumb && uploaded
           ? `<img class="tile__img" src="${thumb}" alt="" decoding="async" data-media-id="${m.id}" />`
@@ -265,11 +308,18 @@ function renderTiles(media, thumbUrls, canEditMedia) {
       const play = isVideo ? `<span class="tile__play-wrap">${PLAY_SVG}</span>` : "";
       const badge = uploadStateBadge(m);
       const removeBtn =
-        failed && canEditMedia
+        failed && canEditMedia && !selecting
           ? `<span class="tile__remove" data-action="remove-failed-media" data-media-id="${m.id}" aria-label="Entfernen">×</span>`
           : "";
       const openable = uploaded && !failed;
-      return `<button type="button" class="tile tile--btn${failed ? " tile--failed" : ""}${openable ? "" : " tile--no-open"}" data-media-id="${m.id}" data-upload-status="${status}" aria-label="${failed ? "Fehlgeschlagenes Foto entfernen" : "Medium anzeigen"}">${img}${badge}${removeBtn}${play}${dur}${overlayExtra}</button>`;
+      const mark = selecting && own ? `<span class="tile__mark" aria-hidden="true"></span>` : "";
+      const label = locked
+        ? "Fremdes Foto, nicht verschiebbar"
+        : failed
+          ? "Fehlgeschlagenes Foto entfernen"
+          : "Medium anzeigen";
+      const pressed = selecting && own ? ` aria-pressed="${picked ? "true" : "false"}"` : "";
+      return `<button type="button" class="tile tile--btn${failed ? " tile--failed" : ""}${openable ? "" : " tile--no-open"}${picked ? " tile--selected" : ""}${locked ? " tile--locked" : ""}" data-testid="place-photo" data-media-id="${m.id}" data-own="${own ? "1" : "0"}" data-upload-status="${status}"${pressed}${locked ? ' aria-disabled="true"' : ""} aria-label="${label}">${img}${mark}${badge}${removeBtn}${play}${dur}${overlayExtra}</button>`;
     })
     .join("");
 }
@@ -327,10 +377,11 @@ export function revokeThumbUrls(map) {
   });
 }
 
-export function wrapPlaceList(innerHtml, mediaErrorHtml = "") {
+export function wrapPlaceList(innerHtml, mediaErrorHtml = "", prefixHtml = "") {
   return `
     ${mediaErrorHtml}
     <div class="place-list-wrap">
+      ${prefixHtml}
       <ul class="place-list" data-testid="place-list">${innerHtml}</ul>
     </div>`;
 }

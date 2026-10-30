@@ -435,6 +435,28 @@ export async function updateMediaRow(id, patch) {
   return mapped;
 }
 
+/**
+ * Verschiebt ein Foto auf einen anderen Ort/Tag.
+ * Der Patch enthält nur waypoint_id, day und updated_at — nie created_by.
+ * Kein vacrecap:data-changed, damit die Tagesansicht Ort und Zähler aus dem Cache malt.
+ */
+export async function updateMediaPlacement(id, { waypointId, day }) {
+  assertWritable();
+  const patch = {
+    waypoint_id: waypointId,
+    day,
+    updated_at: new Date().toISOString(),
+  };
+  const { data, error } = await getSupabase()
+    .from("media")
+    .update(patch)
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw mapApiError(error);
+  return mediaRowToApp(data);
+}
+
 export async function getMedia(id) {
   if (!id) return null;
   const { data, error } = await getSupabase()
