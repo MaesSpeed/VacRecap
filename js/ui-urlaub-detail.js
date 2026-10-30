@@ -482,14 +482,16 @@ export async function renderUrlaubDetail(appEl, id) {
     const previous = r.previousPlace;
     if (!previous || !r.createdNew) return;
     r.cancelRename?.();
-    await r.renamed;
-    await redirect.run(async () => {
-      redirect.place = previous;
-      redirect.retirePlaceId = r.place.id;
-      const ids = redirect.captureMediaIds();
-      if (ids.length) await movePlacePhotos(r.place.id, previous, ids);
-      if (redirect.pending === 0) await deletePlaceIfEmpty(r.place.id);
-    });
+    const gate = r.enqueue || ((fn) => fn());
+    await gate(() =>
+      redirect.run(async () => {
+        redirect.place = previous;
+        redirect.retirePlaceId = r.place.id;
+        const ids = redirect.captureMediaIds();
+        if (ids.length) await movePlacePhotos(r.place.id, previous, ids);
+        if (redirect.pending === 0) await deletePlaceIfEmpty(r.place.id);
+      })
+    );
     state.freshPlaceIds.delete(r.place.id);
     state.selectedByDay[previous.day || previous.dayDate || r.day] = previous.id;
     if (previous.day && days.includes(previous.day)) state.activeDay = previous.day;

@@ -447,9 +447,11 @@ export async function renderMapScreen(appEl, vacationId) {
           undoLabel: "Rückgängig",
           onUndo: async () => {
             r.cancelRename?.();
-            await r.renamed;
-            if (savedMedia?.id) await movePlacePhotos(r.place.id, r.previousPlace, [savedMedia.id]);
-            await deletePlaceIfEmpty(r.place.id);
+            const gate = r.enqueue || ((fn) => fn());
+            await gate(async () => {
+              if (savedMedia?.id) await movePlacePhotos(r.place.id, r.previousPlace, [savedMedia.id]);
+              await deletePlaceIfEmpty(r.place.id);
+            });
           },
         });
       } else if (r.toast?.line) {

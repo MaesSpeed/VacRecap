@@ -184,12 +184,23 @@ async function readCaptureFix() {
 
 /**
  * Neue Karte sofort mit Ortsnamen, sonst «Ort HH:MM» und Name nachziehen.
- * @returns {{ place: object, cancelRename: () => void }}
+ * Rückgängig bricht Nominatim ab und wartet nicht auf den Namen.
+ * @returns {{ place: object, renamed: Promise<object|null>, enqueue: Function, cancelRename: () => void }}
  */
 export async function createCapturePlace({ vacationId, day, lat, lng, accuracy, ts = Date.now() }) {
   let cancelled = false;
+  const abort = new AbortController();
+  let chain = Promise.resolve();
+  function enqueue(fn) {
+    const next = chain.then(() => fn(), () => fn());
+    chain = next.then(
+      () => {},
+      () => {}
+    );
+    return next;
+  }
   const fallback = fallbackPlaceName(ts);
-  const geocode = reverseGeocodeName(lat, lng)
+  const geocode = reverseGeocodeName(lat, lng, { signal: abort.signal })
     .then((name) => (name ? clampTitle(name) : null))
     .catch(() => null);
   const quick = await Promise.race([
@@ -211,20 +222,24 @@ export async function createCapturePlace({ vacationId, day, lat, lng, accuracy, 
   const saved = await putPlace(place);
   const renamed =
     quick === GEOCODE_TIMEOUT
-      ? geocode.then(async (late) => {
-          if (!late || cancelled || late === saved.name) return null;
-          try {
-            return await updatePlaceName(saved, late);
-          } catch {
-            return null;
-          }
-        })
+      ? geocode.then((late) =>
+          enqueue(async () => {
+            if (!late || cancelled || late === saved.name) return null;
+            try {
+              return await updatePlaceName(saved, late);
+            } catch {
+              return null;
+            }
+          })
+        )
       : Promise.resolve(null);
   return {
     place: saved,
     renamed,
+    enqueue,
     cancelRename() {
       cancelled = true;
+      abort.abort();
     },
   };
 }
@@ -398,6 +413,7 @@ export async function resolvePhotoCaptureTarget({
     radiusM,
     cancelRename: created.cancelRename,
     renamed: created.renamed,
+    enqueue: created.enqueue,
     needsRefresh: true,
     toast: {
       title: `Neue Karte «${created.place.name}»`,
