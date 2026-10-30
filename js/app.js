@@ -140,7 +140,10 @@ async function startApp() {
     scheduleRender();
   });
   startRouter();
-  window.addEventListener("vacrecap:data-changed", scheduleRender);
+  window.addEventListener("vacrecap:data-changed", () => {
+    if (document.querySelector("[data-testid='cover-sheet']")) return;
+    scheduleRender();
+  });
   window.addEventListener("online", () => {
     setOfflineReadOnly(false);
     scheduleRender();

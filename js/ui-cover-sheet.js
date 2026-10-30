@@ -182,6 +182,8 @@ export function openCoverSheet({ vacation, photos = [], places = [], allowDevice
         </button>`;
       }).join("");
 
+      layer.dataset.draftType = draft.type;
+      layer.dataset.draftMedia = draft.mediaId || "";
       layer.innerHTML = `
         <header class="cover-layer__bar">
           <button type="button" class="link-btn" data-action="cancel" data-testid="cover-sheet-cancel">Abbrechen</button>
@@ -289,7 +291,6 @@ export function openCoverSheet({ vacation, photos = [], places = [], allowDevice
       }
     }
 
-    render();
     void refreshThumbs().then(() => {
       if (layer.isConnected) render();
     });

@@ -206,14 +206,6 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
         allowDevice: isEdit,
       });
       if (!next || !appEl.isConnected) return;
-      if (isEdit) {
-        const [freshPhotos, freshPlaces] = await Promise.all([
-          fetchUploadedPhotosForTrip(vacation.id),
-          getPlacesForVacation(vacation.id).catch(() => placeList),
-        ]);
-        tripPhotos.splice(0, tripPhotos.length, ...(freshPhotos?.media || []).filter((photo) => photo.vacationId === vacation.id));
-        placeList = freshPlaces || placeList;
-      }
       const presetId = normalizePresetId(next.presetId || vacation.cover?.presetId);
       if (next.type === "media" && next.mediaId) {
         vacation.cover = { type: "media", mediaId: next.mediaId, presetId };
@@ -223,13 +215,34 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
         vacation.cover = { type: "preset", presetId };
         coverMedia = null;
       }
-      coverInfo = await resolveVacationCover(vacation, { variant: "original" });
-      if (coverInfo.invalid && vacation.cover?.type === "media") {
+      coverInfo = {
+        src: presetUrl(presetId),
+        kind: vacation.cover.type === "media" ? "media" : "preset",
+        presetId,
+        path: "",
+        bucket: "",
+        media: coverMedia,
+        fellBack: false,
+      };
+      paintCover();
+      const resolved = await resolveVacationCover(vacation, { variant: "original" });
+      if (!appEl.isConnected) return;
+      if (resolved.invalid && vacation.cover?.type === "media") {
         vacation.cover = { type: "preset", presetId };
         coverMedia = null;
-        coverInfo = await resolveVacationCover(vacation, { variant: "original" });
-      } else if (coverInfo.media) {
-        coverMedia = coverInfo.media;
+        coverInfo = {
+          src: presetUrl(presetId),
+          kind: "preset",
+          presetId,
+          path: "",
+          bucket: "",
+          media: null,
+          fellBack: true,
+          invalid: true,
+        };
+      } else {
+        coverInfo = resolved;
+        if (resolved.media) coverMedia = resolved.media;
       }
       paintCover();
     })();

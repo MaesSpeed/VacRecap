@@ -41,7 +41,8 @@ export async function resolveVacationCover(vacation, { variant = "thumb" } = {})
   const presetId = normalizePresetId(vacation?.cover?.presetId);
   const mediaId = vacation?.cover?.type === "media" ? vacation.cover.mediaId : null;
   if (!mediaId) return presetResult(presetId);
-  const [row] = await fetchMediaByIds([mediaId]);
+  const rows = await fetchMediaByIds([mediaId]);
+  const row = rows.find((entry) => entry.id === mediaId) || null;
   if (!mediaIsUsable(row, vacation.id)) return presetResult(presetId, { fellBack: true, invalid: true });
   const path = pathFor(row, variant);
   const bucket = bucketFor(row, variant);
