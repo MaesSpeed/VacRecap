@@ -3754,6 +3754,10 @@ body:has(.screen--trip-swipe) {
   box-sizing: border-box;
 }
 
+.sheet--assign .sheet__header--photo-upload {
+  margin-bottom: 0;
+}
+
 .assign-sheet__lead,
 .assign-sheet__daynote {
   margin: 0 0 8px;
