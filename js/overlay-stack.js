@@ -11,11 +11,11 @@ export const SHEET_INPUT_BLOCK_MS = 450;
 let footerBlockedUntil = 0;
 
 export function blockTripFooter(ms = SHEET_INPUT_BLOCK_MS) {
-  footerBlockedUntil = Date.now() + ms;
+  footerBlockedUntil = performance.now() + ms;
 }
 
 export function isTripFooterBlocked() {
-  return Date.now() < footerBlockedUntil;
+  return performance.now() < footerBlockedUntil;
 }
 
 export function initOverlayHistory() {
@@ -117,14 +117,14 @@ export function bindOverlay(overlay, domClose, dismissHandler) {
     domClose();
   };
   openOverlayHistory(activeDomClose);
-  const openedAt = Date.now();
+  const openedAt = performance.now();
   const sheet = overlay.querySelector(".sheet");
   if (sheet) {
     sheet.classList.add("sheet--input-blocked");
     setTimeout(() => sheet.classList.remove("sheet--input-blocked"), SHEET_INPUT_BLOCK_MS);
   }
   unbindBackdrop = bindBackdropDismiss(overlay, () => {
-    if (Date.now() - openedAt < SHEET_INPUT_BLOCK_MS) return;
+    if (performance.now() - openedAt < SHEET_INPUT_BLOCK_MS) return;
     if (dismissHandler) void dismissHandler();
     else closeOverlayHistory(activeDomClose);
   });
