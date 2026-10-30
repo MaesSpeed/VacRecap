@@ -23,6 +23,11 @@ export function distanceFitsPlace(distanceM, radiusM, accuracyM) {
 
 export function formatApproxMeters(meters) {
   const n = Math.max(0, Math.round(Number(meters) || 0));
+  if (n >= 1000) {
+    const km = Math.round(n / 100) / 10;
+    const text = Number.isInteger(km) ? String(km) : km.toFixed(1).replace(".", ",");
+    return `ca. ${text} km`;
+  }
   return `ca. ${n} m`;
 }
 
