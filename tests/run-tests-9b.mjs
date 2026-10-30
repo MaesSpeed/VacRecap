@@ -267,10 +267,9 @@ async function installSupabaseMocks(page, state) {
 
 async function waitQuiet(state) {
   const start = Date.now();
-  let saw = false;
+  if (!state.lastDone) state.lastDone = start;
   while (Date.now() - start < 30000) {
-    if (state.inflight > 0) saw = true;
-    if (saw && state.inflight === 0 && Date.now() - state.lastDone > 350) return;
+    if (state.inflight === 0 && Date.now() - state.lastDone > 350) return;
     await new Promise((r) => setTimeout(r, 40));
   }
   throw new Error(`Netz nicht ruhig (inflight ${state.inflight})`);
