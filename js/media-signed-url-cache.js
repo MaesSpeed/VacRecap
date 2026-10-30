@@ -35,6 +35,32 @@ export async function getSignedThumbUrl(supabase, thumbPath) {
   return data.signedUrl;
 }
 
+export async function getSignedThumbUrls(supabase, paths) {
+  const out = {};
+  const missing = [];
+  const seen = new Set();
+  for (const path of paths) {
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    const cached = getCached(thumbCache, path);
+    if (cached) out[path] = cached;
+    else missing.push(path);
+  }
+  if (!missing.length) return out;
+  const { data, error } = await supabase.storage.from("media-thumbs").createSignedUrls(missing, 3600);
+  if (error || !Array.isArray(data)) return out;
+  for (let i = 0; i < missing.length; i++) {
+    const item = data[i];
+    const path = item?.path || missing[i];
+    const url = item?.signedUrl || null;
+    if (!url || item?.error) continue;
+    setCached(thumbCache, path, url, 3600);
+    out[path] = url;
+    if (path !== missing[i]) out[missing[i]] = url;
+  }
+  return out;
+}
+
 export async function getSignedOriginalUrl(supabase, storagePath) {
   if (!storagePath) return null;
   const cached = getCached(originalCache, storagePath);

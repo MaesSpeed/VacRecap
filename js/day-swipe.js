@@ -59,19 +59,21 @@ function ensureStructure(root) {
   }
 }
 
-export function setDaySwipePage(root, html) {
+export function setDaySwipePage(root, html, opts = {}) {
   ensureStructure(root);
   const page = root.querySelector("[data-page='current']");
+  const track = trackOf(root);
+  const gesturing = root.dataset.gesture === "1";
+  const scrollTop = page && (gesturing || opts.keepScroll) ? page.scrollTop : 0;
   if (page) {
     page.innerHTML = html;
-    page.scrollTop = 0;
+    page.scrollTop = scrollTop;
   }
-  const track = trackOf(root);
-  if (track) {
+  if (track && !gesturing) {
     track.style.transition = "none";
     track.style.transform = REST;
+    root.dataset.swipeLock = "0";
   }
-  root.dataset.swipeLock = "0";
 }
 
 export function setDaySwipeNeighbor(root, which, html) {
@@ -145,6 +147,7 @@ export function installDaySwipe(root, onShift, hooks = {}) {
     vel = 0;
     width = root.clientWidth || window.innerWidth || 1;
     track.style.transition = "none";
+    root.dataset.gesture = "1";
   };
 
   const onMove = (x, y, event) => {
@@ -178,6 +181,7 @@ export function installDaySwipe(root, onShift, hooks = {}) {
     const dx = x - startX;
     tracking = false;
     mode = null;
+    root.dataset.gesture = "0";
     detachDoc();
     if (!wasH) return;
     if (Math.abs(dx) > 36) {
@@ -260,6 +264,7 @@ export function installDaySwipe(root, onShift, hooks = {}) {
     if (!tracking) return;
     tracking = false;
     mode = null;
+    root.dataset.gesture = "0";
     detachDoc();
     rest();
   });
@@ -281,6 +286,7 @@ export function installDaySwipe(root, onShift, hooks = {}) {
     if (!tracking) return;
     tracking = false;
     mode = null;
+    root.dataset.gesture = "0";
     detachDoc();
     rest();
   });

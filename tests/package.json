@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node run-tests-6a.mjs && node run-tests-7a.mjs && node run-tests-7b.mjs && node run-tests-8a.mjs && node run-tests-8b.mjs && node run-tests-8c.mjs && node run-tests-8d.mjs && node run-tests-9a.mjs"
+    "test": "node run-tests-6a.mjs && node run-tests-7a.mjs && node run-tests-7b.mjs && node run-tests-8a.mjs && node run-tests-8b.mjs && node run-tests-8c.mjs && node run-tests-8d.mjs && node run-tests-9a.mjs && node run-tests-9b.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.0",

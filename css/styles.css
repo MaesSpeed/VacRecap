@@ -1554,15 +1554,13 @@ body {
 }
 
 .place-list-fade {
-  position: fixed;
+  position: absolute;
   left: 0;
   right: 0;
-  bottom: var(--footer-body);
-  height: 96px;
+  bottom: 0;
+  height: 24px;
   pointer-events: none;
-  background: linear-gradient(180deg, rgba(238, 243, 247, 0), #eef3f7 38%);
-  max-width: 480px;
-  margin: 0 auto;
+  background: linear-gradient(180deg, rgba(238, 243, 247, 0), #eef3f7);
   z-index: 2;
 }
 
@@ -2012,6 +2010,18 @@ body {
 
 .th--ph {
   background: linear-gradient(135deg, #d5dee7, #b8c8d8);
+}
+
+.oc--skeleton {
+  min-height: 76px;
+  pointer-events: none;
+}
+
+.oc--skeleton .oc__title,
+.oc--skeleton .oc__meta {
+  border-radius: 6px;
+  background: #d5dee7;
+  color: transparent;
 }
 
 .soft {
@@ -3671,7 +3681,7 @@ body:has(.screen--trip-swipe) {
   touch-action: pan-y;
   overscroll-behavior-y: contain;
   box-sizing: border-box;
-  padding-bottom: 16px;
+  padding-bottom: 28px;
 }
 
 .day-swipe__page[data-page="prev"],

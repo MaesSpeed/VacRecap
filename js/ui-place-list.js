@@ -276,16 +276,24 @@ function renderTiles(media, thumbUrls, canEditMedia) {
 
 export async function resolveThumbUrlMap(mediaList, onlyIds = null) {
   const { getSupabase } = await import("./supabase-client.js");
-  const { getSignedThumbUrl } = await import("./media-signed-url-cache.js");
+  const { getSignedThumbUrls } = await import("./media-signed-url-cache.js");
   const supabase = getSupabase();
-  const map = {};
+  const rows = [];
   for (const m of mediaList) {
     if (onlyIds && !onlyIds.has(m.id)) continue;
     if ((m.uploadStatus || "uploaded") !== "uploaded") continue;
     const path = m.thumbPath || m.storagePath;
     if (!path) continue;
-    const url = await getSignedThumbUrl(supabase, path);
-    if (url) map[m.id] = url;
+    rows.push({ id: m.id, path });
+  }
+  const urls = await getSignedThumbUrls(
+    supabase,
+    rows.map((row) => row.path)
+  );
+  const map = {};
+  for (const row of rows) {
+    const url = urls[row.path];
+    if (url) map[row.id] = url;
   }
   return map;
 }

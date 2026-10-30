@@ -201,6 +201,22 @@ function createMockSupabaseState() {
           return { status: 400, json: { message: "missing" } };
         }
         signCount += 1;
+        let payload = {};
+        try {
+          payload = JSON.parse(body || "{}");
+        } catch {
+          payload = {};
+        }
+        if (Array.isArray(payload.paths)) {
+          return {
+            status: 200,
+            json: payload.paths.map((one) => ({
+              error: null,
+              path: one,
+              signedURL: `/object/sign/mock?token=${encodeURIComponent(one)}`,
+            })),
+          };
+        }
         const rest = p.split("/object/sign/")[1] || "";
         const token = encodeURIComponent(rest || "x");
         return { status: 200, json: { signedURL: `/object/sign/mock?token=${token}` } };
@@ -507,7 +523,7 @@ async function swipeNext(page) {
 async function runLibrarySuite(page, state, label, shotPath) {
   await page.goto(state.baseUrl || "/");
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  if (Number(build) !== 52) throw new Error(`${label}: Build ${build} != 52`);
+  if (Number(build) !== 53) throw new Error(`${label}: Build ${build} != 53`);
   await login(page);
   const { tripId, placeId, placeB } = await seedTrip(page);
 
@@ -1014,7 +1030,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 7b tests OK (Build 52)");
+  console.log("Playwright 7b tests OK (Build 53)");
 }
 
 main().catch((err) => {
