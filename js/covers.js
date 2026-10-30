@@ -91,6 +91,10 @@ export const COVER_CREDITS = [
   },
 ];
 
+export function normalizePresetId(id) {
+  return COVER_PRESETS.some((p) => p.id === id) ? id : "stadt";
+}
+
 export function presetById(id) {
   return COVER_PRESETS.find((p) => p.id === id) ?? COVER_PRESETS[0];
 }
@@ -104,15 +108,11 @@ export function presetThumbUrl(presetId) {
 }
 
 export async function resolveCoverSrc(vacation, getBlobFn) {
-  if (!vacation?.cover) return presetUrl("stadt");
-  if (vacation.cover.type === "preset") {
-    return presetUrl(vacation.cover.presetId || "stadt");
-  }
+  const presetId = normalizePresetId(vacation?.cover?.presetId);
+  if (!vacation?.cover || vacation.cover.type === "preset") return presetUrl(presetId);
   if (vacation.cover.type === "custom" && vacation.cover.blobId) {
     const record = await getBlobFn(vacation.cover.blobId);
-    if (record?.data) {
-      return URL.createObjectURL(record.data);
-    }
+    if (record?.data) return URL.createObjectURL(record.data);
   }
-  return presetUrl("stadt");
+  return presetUrl(presetId);
 }

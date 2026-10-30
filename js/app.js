@@ -81,6 +81,10 @@ async function renderNow() {
     appEl._libraryCleanup();
     delete appEl._libraryCleanup;
   }
+  if (typeof appEl?._screenCleanup === "function") {
+    appEl._screenCleanup();
+    delete appEl._screenCleanup;
+  }
 
   updateOnlineBanner();
 
@@ -136,7 +140,10 @@ async function startApp() {
     scheduleRender();
   });
   startRouter();
-  window.addEventListener("vacrecap:data-changed", scheduleRender);
+  window.addEventListener("vacrecap:data-changed", () => {
+    if (document.querySelector("[data-testid='cover-sheet']")) return;
+    scheduleRender();
+  });
   window.addEventListener("online", () => {
     setOfflineReadOnly(false);
     scheduleRender();

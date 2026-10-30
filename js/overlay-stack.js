@@ -103,6 +103,18 @@ export function hasActiveOverlay() {
   return Boolean(activeClose);
 }
 
+/** Schließt das oberste Sheet wie Abbrechen oder der Zurück-Pfad. */
+export function requestOverlayDismiss() {
+  if (!activeClose) return false;
+  if (overlayDismissHandler) {
+    void overlayDismissHandler();
+    return true;
+  }
+  const fn = activeClose;
+  closeOverlayHistory(fn);
+  return true;
+}
+
 /**
  * @param {HTMLElement} overlay
  * @param {() => void} domClose – synchrones Aufräumen (immer activeClose)

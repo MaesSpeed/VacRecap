@@ -1,4 +1,21 @@
+import { normalizePresetId } from "./covers.js";
 import { clampTitle } from "./utils.js";
+
+export function coverFromTripRow(row) {
+  const presetId = normalizePresetId(row?.cover_preset);
+  const mediaId = row?.cover_media_id || null;
+  if (mediaId) return { type: "media", mediaId, presetId };
+  return { type: "preset", presetId };
+}
+
+export function coverMediaIdForVacation(vacation) {
+  if (vacation?.cover?.type !== "media" || !vacation.cover.mediaId) return null;
+  return vacation.cover.mediaId;
+}
+
+export function coverPresetForVacation(vacation) {
+  return normalizePresetId(vacation?.cover?.presetId);
+}
 
 export function tripRowToVacation(row) {
   if (!row) return null;
@@ -11,7 +28,7 @@ export function tripRowToVacation(row) {
     title: row.title || "",
     startDate: row.start_date || "",
     endDate: row.end_date || "",
-    cover: { type: "preset", presetId: "stadt" },
+    cover: coverFromTripRow(row),
     companions: { tags: [], names: companions },
     stats: { places: 0, photos: 0, notes: 0 },
   };
@@ -24,6 +41,8 @@ export function vacationToTripRow(vacation) {
     start_date: vacation.startDate || null,
     end_date: vacation.endDate || null,
     companions: names,
+    cover_media_id: coverMediaIdForVacation(vacation),
+    cover_preset: coverPresetForVacation(vacation),
   };
   if (vacation.id) row.id = vacation.id;
   return row;
@@ -134,6 +153,7 @@ export function mediaRowToApp(row) {
     sizeBytes: row.size_bytes ?? null,
     sourceKey: row.source_key ?? null,
     author: row.created_by ?? null,
+    deletedAt: row.deleted_at || null,
   };
 }
 
