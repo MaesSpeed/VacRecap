@@ -115,6 +115,8 @@ function createMockSupabaseState() {
   let role = "owner";
   let uploads = 0;
   const calls = [];
+  let mediaByIdFault = null;
+  let failCoverImageGets = 0;
 
   function represent(row, headers) {
     const accept = headers.accept || "";
@@ -165,6 +167,18 @@ function createMockSupabaseState() {
       return uploads;
     },
     calls,
+    get mediaByIdFault() {
+      return mediaByIdFault;
+    },
+    set mediaByIdFault(value) {
+      mediaByIdFault = value;
+    },
+    get failCoverImageGets() {
+      return failCoverImageGets;
+    },
+    set failCoverImageGets(value) {
+      failCoverImageGets = value;
+    },
     trip(id) {
       return trips.find((row) => row.id === id);
     },
@@ -199,6 +213,10 @@ function createMockSupabaseState() {
         return { status: 200, json: { signedURL: `/object/sign/mock?token=${token}` } };
       }
       if (pathName.includes("/object/sign/mock") && method === "GET") {
+        if (this.failCoverImageGets > 0) {
+          this.failCoverImageGets -= 1;
+          return { status: 500, json: { message: "bild" } };
+        }
         return { status: 200, raw: TINY_PNG, contentType: "image/png" };
       }
       if (pathName.includes("/object/") && (method === "POST" || method === "PUT")) {
@@ -272,6 +290,24 @@ async function installSupabaseMocks(page, state) {
       return;
     }
     const url = new URL(req.url());
+    if (
+      req.method() === "GET" &&
+      url.pathname.includes("/rest/v1/media") &&
+      url.search.includes("id=in.") &&
+      state.mediaByIdFault
+    ) {
+      if (state.mediaByIdFault === "network") {
+        await route.abort("failed");
+        return;
+      }
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        headers: corsHeaders(req),
+        body: JSON.stringify({ message: "media" }),
+      });
+      return;
+    }
     let result;
     const body = req.method() === "GET" || req.method() === "HEAD" ? null : req.postData();
     if (url.pathname.includes("/auth/v1/")) result = state.handleAuth(url, req.method());
@@ -385,6 +421,46 @@ async function runFlows(page, state, label) {
   assert(await page.locator('[data-testid="cover-reset"]').isVisible(), `${label}: Zurücksetzen fehlt`);
   await saveForm(page);
   assert(state.trip(tripId).cover_media_id === "m-see", `${label}: cover_media_id ${state.trip(tripId).cover_media_id}`);
+
+  await openEdit(page, tripId);
+  await page.locator('[data-testid="cover-change"]').evaluate((btn) => {
+    btn.click();
+    btn.click();
+  });
+  await page.waitForSelector('[data-testid="cover-sheet"]');
+  assert((await page.locator('[data-testid="cover-sheet"]').count()) === 1, `${label}: zwei Tipps öffnen zwei Sheets`);
+  await page.click('[data-testid="cover-sheet-cancel"]');
+  await page.waitForSelector('[data-testid="cover-sheet"]', { state: "detached" });
+
+  state.failCoverImageGets = 2;
+  await page.reload();
+  await openEdit(page, tripId);
+  await page.waitForFunction(() => (document.querySelector('[data-testid="cover-preview-img"]')?.getAttribute("src") || "").includes("stadt"));
+  state.failCoverImageGets = 0;
+  const brokenSrc = await page.locator('[data-testid="cover-preview-img"]').getAttribute("src");
+  assert(brokenSrc && !brokenSrc.includes("sign"), `${label}: Ladefehler bleibt leer «${brokenSrc}»`);
+
+  async function keepCoverDespite(fault, title) {
+    await page.evaluate((id) => {
+      window.location.hash = `#/urlaub/${id}`;
+    }, tripId);
+    await page.waitForSelector(".screen--trip");
+    if (fault === "offline") await page.evaluate(() => { window.__online = false; });
+    else state.mediaByIdFault = fault;
+    await openEdit(page, tripId);
+    const badge = await page.locator('[data-testid="cover-badge"]').innerText();
+    assert(!badge.includes("Automatisch"), `${label}: ${fault} zeigt Automatisch «${badge}»`);
+    assert(badge.includes("geladen"), `${label}: ${fault} ohne Ladehinweis «${badge}»`);
+    if (fault === "offline") await page.evaluate(() => { window.__online = true; });
+    else state.mediaByIdFault = null;
+    await page.fill('input[name="title"]', title);
+    await saveForm(page);
+    assert(state.trip(tripId).cover_media_id === "m-see", `${label}: ${fault} löscht cover_media_id`);
+    assert(state.trip(tripId).title === title, `${label}: ${fault} speichert den Titel nicht`);
+  }
+  await keepCoverDespite("500", "Gardasee 500");
+  await keepCoverDespite("network", "Gardasee Netz");
+  await keepCoverDespite("offline", "Gardasee Offline");
 
   await openEdit(page, tripId);
   assert((await page.locator('[data-testid="cover-badge"]').innerText()).includes("Foto"), `${label}: Foto nach Neuladen weg`);

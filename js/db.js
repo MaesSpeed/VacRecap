@@ -693,15 +693,17 @@ export async function fetchUploadedPhotosForTrip(vacationId) {
   }
 }
 
+/** @returns {Promise<object[]|null>} null bei Netz, 5xx, 401 oder offline. Leere Id-Liste ist []. */
 export async function fetchMediaByIds(ids) {
   const unique = [...new Set((ids || []).filter(Boolean))];
-  if (!unique.length || !navigator.onLine) return [];
+  if (!unique.length) return [];
+  if (!navigator.onLine) return null;
   try {
     const { data, error } = await getSupabase().from("media").select("*").in("id", unique);
-    if (error) return [];
+    if (error) return null;
     return (data || []).map(mediaRowToApp).filter(Boolean);
   } catch {
-    return [];
+    return null;
   }
 }
 

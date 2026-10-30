@@ -39,11 +39,12 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
   const tripPhotos = (photoResult?.media || []).filter((photo) => photo.vacationId === vacation.id);
   let placeList = places;
   let coverInfo = await resolveVacationCover(vacation, { variant: "original" });
-  if (coverInfo.invalid && vacation.cover?.type === "media") {
+  if (coverInfo.invalid && !coverInfo.unknown && vacation.cover?.type === "media") {
     vacation.cover = { type: "preset", presetId: normalizePresetId(vacation.cover?.presetId) };
     coverInfo = await resolveVacationCover(vacation, { variant: "original" });
   }
   let coverMedia = coverInfo.media;
+  const coverUnknown = Boolean(coverInfo.unknown) && vacation.cover?.type === "media";
   if (appEl?.dataset?.appRenderGen !== mountGen) return;
 
   appEl.className = "screen screen--form";
@@ -72,9 +73,9 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
 
       <div class="field">
         <span class="field__label">Titelbild</span>
-        <div class="cover-preview${vacation.cover?.type === "media" ? " cover-preview--photo" : ""}" data-role="cover-preview" data-testid="cover-preview">
-          <span class="cover-preview__badge" data-role="cover-badge" data-testid="cover-badge">${escapeHtml(coverStatusLabel(vacation, { media: coverMedia, places }))}</span>
-          <img data-testid="cover-preview-img" alt="" />
+        <div class="cover-preview${vacation.cover?.type === "media" && !coverUnknown ? " cover-preview--photo" : ""}${coverUnknown ? " cover-preview--unknown" : ""}" data-role="cover-preview" data-testid="cover-preview">
+          <span class="cover-preview__badge" data-role="cover-badge" data-testid="cover-badge">${escapeHtml(coverUnknown ? "Titelbild wird geladen" : coverStatusLabel(vacation, { media: coverMedia, places }))}</span>
+          <img data-testid="cover-preview-img" alt="" ${coverUnknown ? "hidden" : ""} />
           <div class="cover-preview__overlay">
             <strong data-role="cover-title">${escapeHtml(vacation.title || "Titel")}</strong>
             <span data-role="cover-dates">${vacation.startDate && vacation.endDate ? formatDateRangeOverlay(vacation.startDate, vacation.endDate) : ""}</span>
@@ -89,7 +90,8 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
         <button type="button" class="cover-reset" data-action="reset-cover" data-testid="cover-reset" hidden>
           <span aria-hidden="true">↺</span> Auf automatisches Titelbild zurücksetzen
         </button>
-        <p class="cover-save-hint" data-testid="cover-save-hint" hidden>Erst «Speichern» übernimmt das Bild, auch für Mitreisende.</p>`
+        <p class="cover-save-hint" data-testid="cover-save-hint" hidden>Erst «Speichern» übernimmt das Bild, auch für Mitreisende.</p>
+        <button type="button" class="cover-retry" data-action="retry-cover" data-testid="cover-retry"${coverUnknown ? "" : " hidden"}>Erneut versuchen</button>`
             : ""
         }
       </div>
@@ -125,17 +127,34 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
   const coverBadge = appEl.querySelector('[data-role="cover-badge"]');
   const coverImg = appEl.querySelector(".cover-preview img");
   const resetBtn = appEl.querySelector('[data-action="reset-cover"]');
+  const retryBtn = appEl.querySelector('[data-action="retry-cover"]');
   const saveHint = appEl.querySelector('[data-testid="cover-save-hint"]');
   const nameInput = appEl.querySelector('[data-role="name-input"]');
   const nameChipsEl = appEl.querySelector('[data-role="name-chips"]');
 
   function paintCover() {
     const photo = vacation.cover?.type === "media";
-    coverPreview?.classList.toggle("cover-preview--photo", photo);
-    if (coverBadge) coverBadge.textContent = coverStatusLabel(vacation, { media: coverMedia, places: placeList });
+    const unknown = Boolean(coverInfo?.unknown) && photo;
+    coverPreview?.classList.toggle("cover-preview--photo", photo && !unknown);
+    coverPreview?.classList.toggle("cover-preview--unknown", unknown);
+    if (coverBadge) {
+      coverBadge.textContent = unknown
+        ? "Titelbild wird geladen"
+        : coverStatusLabel(vacation, { media: coverMedia, places: placeList });
+    }
     if (resetBtn) resetBtn.hidden = !photo;
-    if (saveHint) saveHint.hidden = !photo;
-    if (coverImg) bindCoverImage(coverImg, coverInfo, vacation, { variant: "original" });
+    if (saveHint) saveHint.hidden = !photo || unknown;
+    if (retryBtn) retryBtn.hidden = !unknown;
+    if (coverImg) {
+      if (unknown) {
+        coverImg.onerror = null;
+        coverImg.removeAttribute("src");
+        coverImg.hidden = true;
+      } else {
+        coverImg.hidden = false;
+        bindCoverImage(coverImg, coverInfo, vacation, { variant: "original" });
+      }
+    }
   }
 
   function refreshNames() {
@@ -189,8 +208,12 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
 
   titleInput.addEventListener("input", syncMeta);
 
+  let coverOpening = false;
   appEl.querySelector('[data-action="change-cover"]')?.addEventListener("click", () => {
+    if (coverOpening) return;
+    coverOpening = true;
     void (async () => {
+      try {
       if (isEdit) {
         const [freshPhotos, freshPlaces] = await Promise.all([
           fetchUploadedPhotosForTrip(vacation.id),
@@ -227,7 +250,7 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
       paintCover();
       const resolved = await resolveVacationCover(vacation, { variant: "original" });
       if (!appEl.isConnected) return;
-      if (resolved.invalid && vacation.cover?.type === "media") {
+      if (resolved.invalid && !resolved.unknown && vacation.cover?.type === "media") {
         vacation.cover = { type: "preset", presetId };
         coverMedia = null;
         coverInfo = {
@@ -244,6 +267,24 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
         coverInfo = resolved;
         if (resolved.media) coverMedia = resolved.media;
       }
+      paintCover();
+      } finally {
+        coverOpening = false;
+      }
+    })();
+  });
+
+  retryBtn?.addEventListener("click", () => {
+    void (async () => {
+      const resolved = await resolveVacationCover(vacation, { variant: "original" });
+      if (!appEl.isConnected) return;
+      if (resolved.invalid && !resolved.unknown && vacation.cover?.type === "media") {
+        vacation.cover = { type: "preset", presetId: normalizePresetId(vacation.cover?.presetId) };
+        coverMedia = null;
+      } else if (resolved.media) {
+        coverMedia = resolved.media;
+      }
+      coverInfo = resolved;
       paintCover();
     })();
   });

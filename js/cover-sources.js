@@ -42,6 +42,7 @@ export async function resolveVacationCover(vacation, { variant = "thumb" } = {})
   const mediaId = vacation?.cover?.type === "media" ? vacation.cover.mediaId : null;
   if (!mediaId) return presetResult(presetId);
   const rows = await fetchMediaByIds([mediaId]);
+  if (rows === null) return presetResult(presetId, { fellBack: true, unknown: true });
   const row = rows.find((entry) => entry.id === mediaId) || null;
   if (!mediaIsUsable(row, vacation.id)) return presetResult(presetId, { fellBack: true, invalid: true });
   const path = pathFor(row, variant);
@@ -68,7 +69,7 @@ export async function resolveVacationCoverMap(vacations, { variant = "thumb" } =
   }
   if (!pending.length) return result;
 
-  const rows = await fetchMediaByIds(pending.map((vacation) => vacation.cover.mediaId));
+  const rows = (await fetchMediaByIds(pending.map((vacation) => vacation.cover.mediaId))) || [];
   const byId = new Map(rows.map((row) => [row.id, row]));
   const thumbPaths = [];
   const originalPaths = [];
@@ -135,12 +136,21 @@ export function bindCoverImage(img, info, vacation, { variant = "thumb" } = {}) 
   img.src = info.src || "";
   img.dataset.coverKind = info.kind || "preset";
   img.onerror = async () => {
-    if (img.dataset.coverRetried === "1") return;
+    if (img.dataset.coverRetried === "1") {
+      img.onerror = null;
+      img.src = presetUrl(info.presetId);
+      return;
+    }
     if (info.kind !== "media" || !info.path) return;
     img.dataset.coverRetried = "1";
     if (info.bucket === "original") invalidateSignedOriginal(info.path);
     else invalidateSignedThumb(info.path);
     const again = await resolveVacationCover(vacation, { variant });
-    if (again?.src) img.src = again.src;
+    if (again?.src && again.src !== img.src) {
+      img.src = again.src;
+      return;
+    }
+    img.onerror = null;
+    img.src = presetUrl(info.presetId);
   };
 }
