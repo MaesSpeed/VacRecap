@@ -6,18 +6,23 @@ import {
   defaultActiveDay,
   vacationDays,
 } from "./days.js";
-import { getFreeNotesForDay, getPlacesForVacation, getVacation } from "./db.js";
+import { getFreeNotesForDay, getPlacesForDay, getPlacesForVacation, getVacation } from "./db.js";
 import { ICON_BACK_CHEVRON, ICON_GEAR, ICON_MAP } from "./icons.js";
+import { fallbackPlaceName, formatTimeFromTs } from "./geo.js";
+import { readPhotoTakenAt } from "./exif-taken-at.js";
 import { rememberPlaceFromGps, trySoftPointOnOpen } from "./place-service.js";
 import { newestHardPlace } from "./places.js";
 import { leaveTripToOverview, navigate } from "./router.js";
 import { getRememberLocationOnOpen } from "./settings-store.js";
 import {
+  createCapturePlace,
+  createPlaceRedirect,
+  deletePlaceIfEmpty,
+  getOrCreateOhneOrtPlace,
+  movePlacePhotos,
   previewNoteCaptureTarget,
   resolveCaptureTarget,
-  resolveFooterCaptureTarget,
-  resolveGalleryPhotoTarget,
-  resolvePlaceCardCaptureTarget,
+  resolvePhotoCaptureTarget,
 } from "./target-place.js";
 import { consumePendingFooter } from "./pending-footer.js";
 import { loadTripSelection, saveTripSelection } from "./trip-selection-store.js";
@@ -42,6 +47,7 @@ import { deleteMedia } from "./db.js";
 import { openConfirmDialog } from "./ui-confirm.js";
 import { startGalleryPhotoUpload } from "./gallery-upload.js";
 import { openPhotoUploadSheet } from "./ui-photo-upload-sheet.js";
+import { openPhotoTargetSheet } from "./ui-photo-target-sheet.js";
 import { openMediaViewer } from "./ui-media-viewer.js";
 
 import { openEditPlaceSheet, openSoftPointSheet } from "./ui-place-sheets.js";
@@ -90,9 +96,11 @@ async function getState(id, vacation) {
       captureBusy: false,
       listRefreshToken: 0,
       thumbUrls: {},
+      freshPlaceIds: new Set(),
     };
     tripUiState.set(id, state);
   }
+  if (!state.freshPlaceIds) state.freshPlaceIds = new Set();
   return state;
 }
 
@@ -335,6 +343,7 @@ export async function renderUrlaubDetail(appEl, id) {
         notesExpanded: active ? state.notesExpanded : new Set(),
         thumbUrls,
         canEditMedia,
+        freshPlaceIds: state.freshPlaceIds,
       });
       placeHtml = wrapPlaceList(listHtml, mediaErrorHtml);
     }
@@ -446,25 +455,146 @@ export async function renderUrlaubDetail(appEl, id) {
     await refreshDayList();
   }
 
-  async function resolveTargetPlace(mediaKind = "photo") {
-    const selectedPlaceId = state.selectedByDay[state.activeDay];
-    const r = captureTargetPlaceId
-      ? await resolvePlaceCardCaptureTarget({
-          vacationId: id,
-          day: state.activeDay,
-          placeId: captureTargetPlaceId,
-          mediaKind,
-        })
-      : await resolveFooterCaptureTarget({
-          vacationId: id,
-          day: state.activeDay,
-          selectedPlaceId,
-          mediaKind,
-        });
-    state.selectedByDay[state.activeDay] = r.place.id;
+  function watchCaptureRename(r) {
+    const captureId = r?.place?.id;
+    if (!captureId) return;
+    void r?.renamed?.then((updated) => {
+      if (!updated?.name || updated.id !== captureId) return;
+      if (r.place?.id === captureId) {
+        r.place.name = updated.name;
+        r.place.title = updated.name;
+      }
+      if (r.toast?.title?.startsWith("Neue Karte")) {
+        r.toast.title = `Neue Karte «${updated.name}»`;
+      }
+      const title = document.querySelector(
+        `[data-testid="app-toast"][data-capture-id="${CSS.escape(captureId)}"] .toast__line--title`
+      );
+      if (title?.textContent?.startsWith("Neue Karte")) {
+        title.textContent = `Neue Karte «${updated.name}»`;
+      }
+    });
+  }
+
+  function applyCaptureSelection(r) {
+    if (r.day && days.includes(r.day)) state.activeDay = r.day;
+    state.selectedByDay[r.day] = r.place.id;
+    if (r.createdNew) state.freshPlaceIds.add(r.place.id);
     persistSelection(id, state);
-    if (r.needsRefresh) await refreshDayList();
-    return r;
+    watchCaptureRename(r);
+  }
+
+  async function undoNewCapture(r, redirect) {
+    const previous = r.previousPlace;
+    if (!previous || !r.createdNew) return;
+    r.cancelRename?.();
+    const gate = r.enqueue || ((fn) => fn());
+    await gate(() =>
+      redirect.run(async () => {
+        redirect.place = previous;
+        redirect.retirePlaceId = r.place.id;
+        const ids = redirect.captureMediaIds();
+        if (ids.length) await movePlacePhotos(r.place.id, previous, ids);
+        if (redirect.pending === 0) await deletePlaceIfEmpty(r.place.id);
+      })
+    );
+    state.freshPlaceIds.delete(r.place.id);
+    state.selectedByDay[previous.day || previous.dayDate || r.day] = previous.id;
+    if (previous.day && days.includes(previous.day)) state.activeDay = previous.day;
+    persistSelection(id, state);
+    await refreshDayList();
+  }
+
+  async function changeInaccurateCapture(r, redirect) {
+    const captureDay = r.day;
+    const places = (await getPlacesForDay(id, captureDay)).filter((p) => !p.soft);
+    const options = [];
+    if (r.position?.latitude != null) {
+      const ts = Date.now();
+      options.push({
+        key: "new",
+        kind: "new",
+        title: `Neue Karte «${fallbackPlaceName(ts)}»`,
+        sub: "Name aus Standort",
+        selected: false,
+        ts,
+      });
+    }
+    for (const place of places) {
+      const selected = place.id === r.place?.id;
+      options.push({
+        key: place.id,
+        kind: "place",
+        place,
+        title: place.name,
+        sub: selected ? `ausgewählte Karte · ${formatTimeFromTs(place.ts)}` : formatTimeFromTs(place.ts),
+        selected,
+      });
+    }
+    options.push({
+      key: "ohne",
+      kind: "ohne",
+      title: "Ohne Ort",
+      sub: "keine Karte, nur der Tag",
+      selected: r.place?.name === "Ohne Ort" && r.place?.lat == null,
+    });
+    const choice = await openPhotoTargetSheet({ title: "Ziel für 1 Foto", options });
+    if (!choice) return;
+    let next = choice.place || null;
+    if (choice.kind === "new") {
+      const created = await createCapturePlace({
+        vacationId: id,
+        day: captureDay,
+        lat: r.position.latitude,
+        lng: r.position.longitude,
+        accuracy: r.position.accuracy,
+        ts: choice.ts || Date.now(),
+      });
+      next = created.place;
+      state.freshPlaceIds.add(next.id);
+      watchCaptureRename({ place: next, toast: null, renamed: created.renamed });
+    } else if (choice.kind === "ohne") {
+      next = (await getOrCreateOhneOrtPlace({ vacationId: id, day: captureDay, showToastOnCreate: false })).place;
+    }
+    if (!next || next.id === redirect.place?.id) return;
+    const fromId = redirect.place?.id;
+    await redirect.run(async () => {
+      const ids = redirect.captureMediaIds();
+      redirect.place = next;
+      if (fromId && fromId !== next.id && ids.length) await movePlacePhotos(fromId, next, ids);
+    });
+    state.selectedByDay[next.day || captureDay] = next.id;
+    persistSelection(id, state);
+    await refreshDayList();
+  }
+
+  function presentCaptureToast(r, redirect) {
+    const toast = r.toast;
+    if (!toast?.line && !toast?.title) return;
+    const captureId = r.place?.id;
+    if (toast.variant === "warn") {
+      showWarnToast(toast.line, {
+        title: toast.title,
+        captureId,
+        undoLabel: "Ändern",
+        onUndo: () => {
+          void changeInaccurateCapture(r, redirect);
+        },
+      });
+      return;
+    }
+    if (toast.action === "undo" && r.previousPlace) {
+      showTwoLineToast(toast.title, toast.line, {
+        undoLabel: "Rückgängig",
+        captureId,
+        onUndo: () => {
+          void undoNewCapture(r, redirect);
+        },
+      });
+      return;
+    }
+    if (toast.line) showTwoLineToast(toast.title, toast.line, { captureId });
+    else if (toast.title) showToast(toast.title, { captureId });
   }
 
   function showCaptureResultToast(r, mediaKind) {
@@ -500,34 +630,41 @@ export async function renderUrlaubDetail(appEl, id) {
     showToast("Videos kommen in einem späteren Paket.", { icon: "none" });
   }
 
-  async function assignPhotoPlace(preferSelectedPlace) {
-    const selectedPlaceId = state.selectedByDay[state.activeDay];
-    const r = preferSelectedPlace
-      ? await resolveGalleryPhotoTarget({
-          vacationId: id,
-          day: state.activeDay,
-          selectedPlaceId,
-        })
-      : await resolveTargetPlace("photo");
-    state.selectedByDay[state.activeDay] = r.place.id;
-    persistSelection(id, state);
-    if (r.needsRefresh) await refreshDayList();
+  async function resolveCameraTarget(files) {
+    const selectedPlaceId = captureTargetPlaceId || state.selectedByDay[state.activeDay];
+    const takenAt = (await readPhotoTakenAt(files?.[0])) ?? Date.now();
+    const r = await resolvePhotoCaptureTarget({
+      vacation,
+      vacationId: id,
+      day: state.activeDay,
+      selectedPlaceId,
+      takenAt,
+      mediaKind: "photo",
+    });
+    applyCaptureSelection(r);
+    if (r.needsRefresh) {
+      renderChips();
+      await refreshDayList();
+    }
     return r;
   }
 
-  async function beginPhotoUpload(files, { preferSelectedPlace = false } = {}) {
+  async function beginPhotoUpload(files) {
     if (!files?.length || state.captureBusy) return;
     state.captureBusy = true;
     appEl.dataset.captureBusy = "1";
     try {
-      const r = await assignPhotoPlace(preferSelectedPlace);
+      const r = await resolveCameraTarget(files);
+      const redirect = createPlaceRedirect(r.place);
       openPhotoUploadSheet({
         files,
         place: r.place,
         vacationId: id,
-        day: state.activeDay,
+        day: r.day,
+        redirect,
         onDone: () => refreshDayList(),
       });
+      presentCaptureToast(r, redirect);
     } catch (err) {
       const message = photoKeptMessage(err);
       showWarnToast(message);
@@ -537,7 +674,7 @@ export async function renderUrlaubDetail(appEl, id) {
         vacationId: id,
         day: state.activeDay,
         heldMessage: message,
-        ensurePlace: async () => (await assignPhotoPlace(preferSelectedPlace)).place,
+        ensurePlace: async () => (await resolveCameraTarget(files)).place,
         onDone: () => refreshDayList(),
       });
     } finally {
@@ -919,7 +1056,9 @@ export async function renderUrlaubDetail(appEl, id) {
     })
       .then((target) => {
         if (!target?.place) return;
-        state.selectedByDay[state.activeDay] = target.place.id;
+        if (target.day && days.includes(target.day)) state.selectedByDay[target.day] = target.place.id;
+        else state.selectedByDay[state.activeDay] = target.place.id;
+        for (const freshId of target.freshIds || []) state.freshPlaceIds.add(freshId);
         persistSelection(id, state);
         if (target.needsRefresh) return refreshDayList();
         return null;

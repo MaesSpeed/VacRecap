@@ -13,7 +13,7 @@ import { savePhotoForPlace, saveVideoForPlace } from "./media-service.js";
 import { leaveMapScreen, returnToTripFromMap } from "./map-nav.js";
 import { queuePendingFooter } from "./pending-footer.js";
 import { navigate } from "./router.js";
-import { resolveFooterCaptureTarget } from "./target-place.js";
+import { deletePlaceIfEmpty, movePlacePhotos, resolveFooterCaptureTarget } from "./target-place.js";
 import { loadTripSelection } from "./trip-selection-store.js";
 import { storeTripSelection, setTripSelection } from "./ui-urlaub-detail.js";
 import { mountTripFooter } from "./ui-trip-footer.js";
@@ -427,26 +427,35 @@ export async function renderMapScreen(appEl, vacationId) {
       day = resolved.day;
       selectedPlaceId = resolved.selectedPlaceId;
       const r = await resolveFooterCaptureTarget({
+        vacation,
         vacationId,
         day,
         selectedPlaceId,
         mediaKind: kind,
       });
+      let savedMedia = null;
       if (kind === "video") {
-        await saveVideoForPlace({ file, place: r.place, vacationId, day });
+        await saveVideoForPlace({ file, place: r.place, vacationId, day: r.day || day });
       } else {
-        await savePhotoForPlace({ file, place: r.place, vacationId, day });
+        savedMedia = await savePhotoForPlace({ file, place: r.place, vacationId, day: r.day || day });
       }
       dismissActiveToast();
-      if (r.toast?.line) {
-        if (r.toast.variant === "warn") {
-          showWarnToast(r.toast.line);
-        } else {
-          showTwoLineToast(
-            r.toast.title || (kind === "video" ? "Video gespeichert" : "Foto gespeichert"),
-            r.toast.line
-          );
-        }
+      if (r.toast?.variant === "warn") {
+        showWarnToast(r.toast.line, { title: r.toast.title, undoLabel: "Ändern" });
+      } else if (r.toast?.action === "undo" && r.previousPlace) {
+        showTwoLineToast(r.toast.title, r.toast.line, {
+          undoLabel: "Rückgängig",
+          onUndo: async () => {
+            r.cancelRename?.();
+            const gate = r.enqueue || ((fn) => fn());
+            await gate(async () => {
+              if (savedMedia?.id) await movePlacePhotos(r.place.id, r.previousPlace, [savedMedia.id]);
+              await deletePlaceIfEmpty(r.place.id);
+            });
+          },
+        });
+      } else if (r.toast?.line) {
+        showTwoLineToast(r.toast.title || (kind === "video" ? "Video gespeichert" : "Foto gespeichert"), r.toast.line);
       } else {
         showToast(kind === "video" ? "Video gespeichert" : "Foto gespeichert");
       }
@@ -465,6 +474,7 @@ export async function renderMapScreen(appEl, vacationId) {
           heldMessage: message,
           ensurePlace: async () => {
             const again = await resolveFooterCaptureTarget({
+              vacation,
               vacationId,
               day,
               selectedPlaceId,

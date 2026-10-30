@@ -1,5 +1,13 @@
 const WEEKDAYS_SHORT = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
 
+export const TEXT_TITLE_MAX = 200;
+
+export function clampTitle(value) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (text.length <= TEXT_TITLE_MAX) return text;
+  return text.slice(0, TEXT_TITLE_MAX).trim();
+}
+
 export function createId() {
   if (crypto.randomUUID) return crypto.randomUUID();
   return `id-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;

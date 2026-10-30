@@ -6,7 +6,8 @@ const KEY_REMEMBER_CAPTURE = "rememberCaptureLocation";
 const KEY_LAST_BACKUP = "lastBackupByVacation";
 const KEY_MAP_ROUTES = "mapRoutesEnabled";
 
-const RADIUS_OPTIONS = [50, 100, 150, 200, 300];
+const RADIUS_OPTIONS = [50, 100, 150, 200, 250, 300];
+const DEFAULT_SAME_PLACE_RADIUS_M = 250;
 
 export function samePlaceRadiusOptions() {
   return RADIUS_OPTIONS;
@@ -27,7 +28,7 @@ export async function getSamePlaceRadiusM() {
   const n = Number(value);
   if (n === 500) return 300;
   if (RADIUS_OPTIONS.includes(n)) return n;
-  return 150;
+  return DEFAULT_SAME_PLACE_RADIUS_M;
 }
 
 export async function setSamePlaceRadiusM(meters) {

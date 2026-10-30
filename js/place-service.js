@@ -195,7 +195,7 @@ export async function filterSoftPointsHidden(items, vacationId, day) {
 }
 
 export async function updatePlaceName(place, name) {
-  const trimmed = name.trim();
+  const trimmed = String(name || "").trim().slice(0, 200);
   const updated = normalizePlace({
     ...place,
     name: trimmed,

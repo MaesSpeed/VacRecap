@@ -1,5 +1,21 @@
-import { getPlacesForDay, putPlace } from "./db.js";
-import { fallbackPlaceName, getCapturePosition, isLocationUnavailable } from "./geo.js";
+import { deletePlace, getMediaForPlace, getNotesForPlace, getPlace, getPlacesForDay, putPlace, updateMediaRow } from "./db.js";
+import {
+  coordinatesAreUsable,
+  fallbackPlaceName,
+  getCapturePosition,
+  haversineMeters,
+  isLocationUnavailable,
+  reverseGeocodeName,
+} from "./geo.js";
+import { updatePlaceName } from "./place-service.js";
+import {
+  distanceFitsPlace,
+  formatApproxMeters,
+  GEOCODE_WAIT_MS,
+  gpsIsUsable,
+  nearestPlaceWithin,
+  resolveCaptureDay,
+} from "./photo-assign.js";
 import {
   createPlace,
   findPlaceWithinMeters,
@@ -8,7 +24,7 @@ import {
 } from "./places.js";
 import { getRememberCaptureLocation, getSamePlaceRadiusM } from "./settings-store.js";
 import { showToast } from "./toast.js";
-import { todayIso } from "./utils.js";
+import { clampTitle, todayIso } from "./utils.js";
 
 const OHNE_ORT = "Ohne Ort";
 
@@ -73,6 +89,11 @@ async function resolveWithGps({ vacationId, day }) {
     lng = pos.coords.longitude;
     accuracy = pos.coords.accuracy;
   }
+  if (!coordinatesAreUsable(lat, lng)) {
+    const err = new Error("position unavailable");
+    err.code = 2;
+    throw err;
+  }
   const dedupM = await getSamePlaceRadiusM();
   const all = await getPlacesForDay(vacationId, day);
   const hard = all.filter((p) => !p.soft);
@@ -123,6 +144,7 @@ export async function previewNoteCaptureTarget({ vacationId, day, selectedPlaceI
     try {
       const pos = await getCapturePosition();
       const { latitude: lat, longitude: lng } = pos.coords;
+      if (!coordinatesAreUsable(lat, lng)) throw new Error("position unavailable");
       const dedupM = await getSamePlaceRadiusM();
       const near = findPlaceWithinMeters(hard, lat, lng, dedupM);
       if (near) return { label: near.name, kind: "gps-match" };
@@ -153,63 +175,345 @@ export async function resolveGalleryPhotoTarget({ vacationId, day, selectedPlace
   };
 }
 
-/** Footer-Kamera/Video: immer GPS (wie Ort merken), sonst Fallback auf Auswahl/Ohne Ort. */
-export async function resolveFooterCaptureTarget({
-  vacationId,
-  day,
-  selectedPlaceId,
-  mediaKind = "photo",
-}) {
-  const title =
-    mediaKind === "video"
-      ? "Video gespeichert"
-      : mediaKind === "note"
-        ? "Notiz gespeichert"
-        : "Foto gespeichert";
+const GEOCODE_TIMEOUT = Symbol("geocode-timeout");
 
-  try {
-    const gps = await resolveWithGps({ vacationId, day });
-    const toast = gps.toast
-      ? { ...gps.toast, title }
-      : { title, line: `«${gps.place.name}»` };
-    return { ...gps, needsRefresh: true, toast };
-  } catch (err) {
-    if (!isLocationUnavailable(err)) throw err;
-    const fb = await fallbackPlace({ vacationId, day, selectedPlaceId });
-    const line =
-      fb.place.name === OHNE_ORT
-        ? "Kein GPS – Ohne Ort"
-        : `Kein GPS – bei «${fb.place.name}»`;
+async function readCaptureFix() {
+  const { consumePrefetchedCaptureGps } = await import("./capture-gps-prefetch.js");
+  const prefetched = await consumePrefetchedCaptureGps();
+  if (prefetched) {
     return {
-      ...fb,
-      needsRefresh: fb.createdOhneOrt,
-      toast: {
-        title,
-        line,
-        variant: "warn",
-      },
+      latitude: prefetched.latitude,
+      longitude: prefetched.longitude,
+      accuracy: prefetched.accuracy,
     };
+  }
+  const pos = await getCapturePosition();
+  return {
+    latitude: pos.coords.latitude,
+    longitude: pos.coords.longitude,
+    accuracy: pos.coords.accuracy,
+  };
+}
+
+function usableFix(fix) {
+  if (!fix || !coordinatesAreUsable(fix.latitude, fix.longitude)) return null;
+  return fix;
+}
+
+/**
+ * Neue Karte sofort mit Ortsnamen, sonst «Ort HH:MM» und Name nachziehen.
+ * Rückgängig bricht Nominatim ab und wartet nicht auf den Namen.
+ * @returns {{ place: object, renamed: Promise<object|null>, enqueue: Function, cancelRename: () => void }}
+ */
+export async function createCapturePlace({ vacationId, day, lat, lng, accuracy, ts = Date.now() }) {
+  let cancelled = false;
+  const abort = new AbortController();
+  let chain = Promise.resolve();
+  function enqueue(fn) {
+    const next = chain.then(() => fn(), () => fn());
+    chain = next.then(
+      () => {},
+      () => {}
+    );
+    return next;
+  }
+  const fallback = fallbackPlaceName(ts);
+  const geocode = reverseGeocodeName(lat, lng, { signal: abort.signal })
+    .then((name) => (name ? clampTitle(name) : null))
+    .catch(() => null);
+  const quick = await Promise.race([
+    geocode,
+    new Promise((resolve) => setTimeout(() => resolve(GEOCODE_TIMEOUT), GEOCODE_WAIT_MS)),
+  ]);
+  const name = quick && quick !== GEOCODE_TIMEOUT ? quick : fallback;
+  const place = createPlace({
+    vacationId,
+    day,
+    ts,
+    lat,
+    lng,
+    accuracy,
+    name,
+    soft: false,
+    source: "capture",
+  });
+  const saved = await putPlace(place);
+  const renamed =
+    quick === GEOCODE_TIMEOUT
+      ? geocode.then((late) =>
+          enqueue(async () => {
+            if (!late || cancelled || late === saved.name || !saved.id) return null;
+            try {
+              const fresh = await getPlace(saved.id);
+              if (!fresh || cancelled || fresh.id !== saved.id) return null;
+              return await updatePlaceName(fresh, late);
+            } catch {
+              return null;
+            }
+          })
+        )
+      : Promise.resolve(null);
+  return {
+    place: saved,
+    renamed,
+    enqueue,
+    cancelRename() {
+      cancelled = true;
+      abort.abort();
+    },
+  };
+}
+
+/**
+ * Verschiebt Fotos auf eine andere Karte.
+ * Mit `mediaIds` nur diese Aufnahme, sonst alle Fotos von `fromId`.
+ */
+export async function movePlacePhotos(fromId, toPlace, mediaIds = null) {
+  if (!toPlace?.id) return [];
+  const day = toPlace.day || toPlace.dayDate;
+  if (Array.isArray(mediaIds)) {
+    const moved = [];
+    for (const id of mediaIds) {
+      if (!id) continue;
+      moved.push(await updateMediaRow(id, { waypoint_id: toPlace.id, day }));
+    }
+    return moved;
+  }
+  if (!fromId) return [];
+  const media = await getMediaForPlace(fromId);
+  const moved = [];
+  for (const item of media) {
+    moved.push(await updateMediaRow(item.id, { waypoint_id: toPlace.id, day }));
+  }
+  return moved;
+}
+
+export async function deletePlaceIfEmpty(placeId) {
+  if (!placeId) return false;
+  try {
+    const place = await getPlace(placeId);
+    if (!place) return false;
+    const [media, notes] = await Promise.all([getMediaForPlace(placeId), getNotesForPlace(placeId)]);
+    if (media.length || notes.length) return false;
+    await deletePlace(placeId);
+    return true;
+  } catch {
+    return false;
   }
 }
 
+function inaccurateToast(placeName) {
+  return {
+    variant: "warn",
+    title: "Standort ungenau",
+    line: `Foto bei «${placeName}»`,
+    action: "change",
+  };
+}
+
+/**
+ * Footer-Kamera und Kamera auf der Karte: dieselbe Distanzregel.
+ * Passt nicht = Abstand zur ausgewählten Karte > Radius «Gleicher Ort» und > 2× GPS-Genauigkeit.
+ */
+export async function resolvePhotoCaptureTarget({
+  vacation = null,
+  vacationId,
+  day,
+  selectedPlaceId,
+  takenAt = Date.now(),
+  mediaKind = "photo",
+}) {
+  const captureDay = resolveCaptureDay(takenAt, day, vacation);
+  const radiusM = await getSamePlaceRadiusM();
+  const all = await getPlacesForDay(vacationId, captureDay);
+  const hard = all.filter((p) => !p.soft);
+  const selectedOnCaptureDay = hard.find((p) => p.id === selectedPlaceId) || null;
+  let previousPlace = selectedOnCaptureDay;
+  if (!previousPlace && selectedPlaceId && captureDay !== day) {
+    const viewed = await getPlacesForDay(vacationId, day);
+    previousPlace = viewed.find((p) => p.id === selectedPlaceId && !p.soft) || null;
+  }
+
+  let fix = null;
+  try {
+    fix = usableFix(await readCaptureFix());
+  } catch (err) {
+    if (!isLocationUnavailable(err)) throw err;
+  }
+
+  const usable = Boolean(fix) && gpsIsUsable(fix.accuracy);
+  if (!usable) {
+    const fb = await fallbackPlace({
+      vacationId,
+      day: captureDay,
+      selectedPlaceId: selectedOnCaptureDay?.id || (captureDay === day ? selectedPlaceId : null),
+    });
+    return {
+      place: fb.place,
+      day: captureDay,
+      createdOhneOrt: fb.createdOhneOrt,
+      createdNew: false,
+      previousPlace: previousPlace && previousPlace.id !== fb.place.id ? previousPlace : null,
+      distanceM: null,
+      inaccurate: true,
+      position: fix,
+      radiusM,
+      needsRefresh: fb.createdOhneOrt || captureDay !== day,
+      toast: inaccurateToast(fb.place.name),
+      mediaKind,
+    };
+  }
+
+  const { latitude: lat, longitude: lng, accuracy } = fix;
+  if (selectedOnCaptureDay?.lat != null && selectedOnCaptureDay?.lng != null) {
+    const distanceM = haversineMeters(lat, lng, selectedOnCaptureDay.lat, selectedOnCaptureDay.lng);
+    if (distanceFitsPlace(distanceM, radiusM, accuracy)) {
+      return {
+        place: normalizePlace(selectedOnCaptureDay),
+        day: captureDay,
+        createdOhneOrt: false,
+        createdNew: false,
+        previousPlace: null,
+        distanceM,
+        inaccurate: false,
+        position: fix,
+        radiusM,
+        matchedSelected: true,
+        needsRefresh: captureDay !== day,
+        toast: null,
+        mediaKind,
+      };
+    }
+  }
+
+  const near = nearestPlaceWithin(hard, lat, lng, radiusM, selectedOnCaptureDay?.id);
+  if (near) {
+    return {
+      place: normalizePlace(near.place),
+      day: captureDay,
+      createdOhneOrt: false,
+      createdNew: false,
+      previousPlace: selectedOnCaptureDay,
+      distanceM: near.distanceM,
+      inaccurate: false,
+      position: fix,
+      radiusM,
+      matchedOther: true,
+      needsRefresh: true,
+      toast: {
+        title: mediaKind === "video" ? "Video gespeichert" : "Foto gespeichert",
+        line: `Zu «${near.place.name}» hinzugefügt`,
+      },
+      mediaKind,
+    };
+  }
+
+  let distanceM = null;
+  if (selectedOnCaptureDay?.lat != null && selectedOnCaptureDay?.lng != null) {
+    distanceM = haversineMeters(lat, lng, selectedOnCaptureDay.lat, selectedOnCaptureDay.lng);
+  }
+  const created = await createCapturePlace({
+    vacationId,
+    day: captureDay,
+    lat,
+    lng,
+    accuracy,
+    ts: takenAt || Date.now(),
+  });
+  const line = distanceM != null ? `${formatApproxMeters(distanceM)} entfernt` : "aus dem Foto-Standort";
+  return {
+    place: created.place,
+    day: captureDay,
+    createdOhneOrt: false,
+    createdNew: true,
+    previousPlace: selectedOnCaptureDay,
+    distanceM,
+    inaccurate: false,
+    position: fix,
+    radiusM,
+    cancelRename: created.cancelRename,
+    renamed: created.renamed,
+    enqueue: created.enqueue,
+    needsRefresh: true,
+    toast: {
+      title: `Neue Karte «${created.place.name}»`,
+      line,
+      action: previousPlace ? "undo" : null,
+    },
+    mediaKind,
+  };
+}
+
+/** Footer-Kamera/Video: dieselbe Regel wie der Kamera-Button auf der Karte. */
+export async function resolveFooterCaptureTarget(args) {
+  return resolvePhotoCaptureTarget(args);
+}
+
 export async function resolvePlaceCardCaptureTarget({
+  vacation = null,
   vacationId,
   day,
   placeId,
+  takenAt = Date.now(),
   mediaKind = "photo",
 }) {
   const all = await getPlacesForDay(vacationId, day);
   const place = all.find((p) => p.id === placeId && !p.soft);
-  if (!place) {
-    throw new Error("place missing");
+  if (!place) throw new Error("place missing");
+  return resolvePhotoCaptureTarget({
+    vacation,
+    vacationId,
+    day,
+    selectedPlaceId: placeId,
+    takenAt,
+    mediaKind,
+  });
+}
+
+/** Laufendes Upload-Ziel, damit Rückgängig und Ändern nicht mit dem Insert kollidieren. */
+export function createPlaceRedirect(place) {
+  let current = place;
+  let chain = Promise.resolve();
+  let retirePlaceId = null;
+  let pending = 0;
+  const captureMediaIds = [];
+  function run(fn) {
+    const next = chain.then(() => fn(), () => fn());
+    chain = next.then(
+      () => {},
+      () => {}
+    );
+    return next;
   }
-  const title =
-    mediaKind === "video" ? "Video gespeichert" : "Foto gespeichert";
   return {
-    place: normalizePlace(place),
-    createdOhneOrt: false,
-    needsRefresh: false,
-    toast: { title, line: `«${place.name}»` },
+    get place() {
+      return current;
+    },
+    set place(value) {
+      current = value;
+    },
+    get retirePlaceId() {
+      return retirePlaceId;
+    },
+    set retirePlaceId(id) {
+      retirePlaceId = id;
+    },
+    get pending() {
+      return pending;
+    },
+    hold() {
+      pending += 1;
+    },
+    release() {
+      pending = Math.max(0, pending - 1);
+    },
+    noteMedia(id) {
+      if (id && !captureMediaIds.includes(id)) captureMediaIds.push(id);
+    },
+    captureMediaIds() {
+      return captureMediaIds.slice();
+    },
+    run,
   };
 }
 

@@ -126,7 +126,7 @@ function uploadStateBadge(media) {
   return "";
 }
 
-export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrls = {}, canEditMedia = true }) {
+export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrls = {}, canEditMedia = true, freshPlaceIds = null }) {
   if (!items.length) return { listHtml: "", mediaErrorHtml: "" };
 
   const anyMediaError = items.some((i) => i.mediaLoadError);
@@ -200,7 +200,11 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
           <div class="oc__body">
             <div class="oc__head">
               <div class="oc__head-text">
-                <h4 class="oc__title">${escapeHtml(place.name)}</h4>
+                <h4 class="oc__title"><span>${escapeHtml(place.name)}</span>${
+                  freshPlaceIds?.has(place.id)
+                    ? `<span class="oc__new" data-testid="place-new-badge">NEU</span>`
+                    : ""
+                }</h4>
                 <div class="oc__meta">${escapeHtml(meta)}</div>
               </div>
               ${

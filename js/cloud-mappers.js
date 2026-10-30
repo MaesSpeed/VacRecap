@@ -1,3 +1,5 @@
+import { clampTitle } from "./utils.js";
+
 export function tripRowToVacation(row) {
   if (!row) return null;
   const companions = Array.isArray(row.companions) ? row.companions : [];
@@ -18,7 +20,7 @@ export function tripRowToVacation(row) {
 export function vacationToTripRow(vacation) {
   const names = vacation.companions?.names?.filter(Boolean) ?? [];
   const row = {
-    title: vacation.title?.trim() || "Reise",
+    title: clampTitle(vacation.title || "") || "Reise",
     start_date: vacation.startDate || null,
     end_date: vacation.endDate || null,
     companions: names,
@@ -79,7 +81,7 @@ export function placeToWaypointRow(place) {
     lat: place.lat ?? null,
     lng: place.lng ?? null,
     accuracy_m: place.accuracy ?? null,
-    title: place.name || place.title || "",
+    title: clampTitle(place.name || place.title || ""),
     is_soft: Boolean(place.soft),
     source: waypointSourceForDb(place),
   };

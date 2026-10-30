@@ -3,12 +3,12 @@ let suppressUntil = 0;
 let suppressRoot = null;
 
 export function armPointerSuppression(ms = SUPPRESS_MS, rootEl = null) {
-  suppressUntil = Date.now() + ms;
+  suppressUntil = performance.now() + ms;
   suppressRoot = rootEl;
 }
 
 export function isPointerSuppressed() {
-  return Date.now() < suppressUntil;
+  return performance.now() < suppressUntil;
 }
 
 export function installGestureGuards() {

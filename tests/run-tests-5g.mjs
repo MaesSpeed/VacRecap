@@ -182,14 +182,14 @@ async function assertNoGpsToastText(page, label, vacationId) {
   else await page.locator('[data-testid="capture-photo-input"]').setInputFiles(file);
   await page.waitForFunction(() => {
     const t = document.querySelector('[data-testid="app-toast"]')?.textContent ?? "";
-    return t.includes("Kein GPS");
+    return t.includes("Standort ungenau");
   });
   const text = await page.evaluate(() => document.querySelector('[data-testid="app-toast"]')?.textContent ?? "");
   if (text.includes("gespeichert")) {
-    throw new Error(`${label}: Kein-GPS-Toast enthält doppeltes 'gespeichert' (${text})`);
+    throw new Error(`${label}: Standort-Toast enthält 'gespeichert' (${text})`);
   }
-  if (!/Kein GPS – bei «/.test(text) && !text.includes("Kein GPS – Ohne Ort")) {
-    throw new Error(`${label}: Kein-GPS-Text unerwartet (${text})`);
+  if (!text.includes("Standort ungenau") || !/Foto bei «/.test(text)) {
+    throw new Error(`${label}: Standort-Text unerwartet (${text})`);
   }
   const lineCount = await page.evaluate(() => {
     const body = document.querySelector('[data-testid="app-toast"] .toast__body');

@@ -29,7 +29,7 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
       </header>
       <label class="field">
         <span class="field__label">Name</span>
-        <input type="text" data-role="name" value="${escapeHtml(place.name)}" />
+        <input type="text" data-role="name" maxlength="200" value="${escapeHtml(place.name)}" />
       </label>
       <div class="sheet-actions">
         <button type="button" class="btn btn-emaille btn-emaille--block" data-action="save" disabled>Speichern</button>

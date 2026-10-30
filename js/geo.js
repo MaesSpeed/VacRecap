@@ -1,4 +1,32 @@
 const NOMINATIM = "https://nominatim.openstreetmap.org/reverse";
+const GEOCODE_TIMEOUT_MS = 4000;
+const GEOCODE_GAP_MS = 1000;
+
+let geocodeChain = Promise.resolve();
+let lastGeocodeAt = 0;
+
+export function coordinatesAreUsable(lat, lng) {
+  const la = Number(lat);
+  const ln = Number(lng);
+  if (!Number.isFinite(la) || !Number.isFinite(ln)) return false;
+  if (la === 0 && ln === 0) return false;
+  return la >= -90 && la <= 90 && ln >= -180 && ln <= 180;
+}
+
+function sleep(ms, signal) {
+  if (ms <= 0 || signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true }
+    );
+  });
+}
 
 export function haversineMeters(lat1, lon1, lat2, lon2) {
   const R = 6371000;
@@ -23,7 +51,7 @@ export function getCapturePosition() {
     capturePositionFlight = getCurrentPosition({
       enableHighAccuracy: false,
       timeout: 4000,
-      maximumAge: 5000,
+      maximumAge: 0,
     }).finally(() => {
       capturePositionFlight = null;
     });
@@ -73,22 +101,50 @@ export function fallbackPlaceName(ts) {
   return `Ort ${formatTimeFromTs(ts)}`;
 }
 
-export async function reverseGeocodeName(lat, lng) {
+async function fetchGeocodeName(lat, lng, signal) {
   const url = `${NOMINATIM}?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&accept-language=de&zoom=18`;
-  const res = await fetch(url, {
-    headers: { Accept: "application/json" },
-  });
-  if (!res.ok) throw new Error("geocode failed");
-  const data = await res.json();
-  const addr = data.address ?? {};
-  if (data.name) return String(data.name);
-  const road = addr.road || addr.pedestrian || addr.footway;
-  if (road) {
-    const num = addr.house_number ? ` ${addr.house_number}` : "";
-    return `${road}${num}`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), GEOCODE_TIMEOUT_MS);
+  const onAbort = () => ctrl.abort();
+  if (signal) {
+    if (signal.aborted) ctrl.abort();
+    else signal.addEventListener("abort", onAbort, { once: true });
   }
-  if (addr.suburb) return addr.suburb;
-  if (addr.neighbourhood) return addr.neighbourhood;
-  if (addr.city || addr.town || addr.village) return addr.city || addr.town || addr.village;
-  return null;
+  try {
+    const res = await fetch(url, {
+      headers: { Accept: "application/json" },
+      signal: ctrl.signal,
+    });
+    if (!res.ok) throw new Error("geocode failed");
+    const data = await res.json();
+    const addr = data.address ?? {};
+    if (data.name) return String(data.name);
+    const road = addr.road || addr.pedestrian || addr.footway;
+    if (road) {
+      const num = addr.house_number ? ` ${addr.house_number}` : "";
+      return `${road}${num}`;
+    }
+    if (addr.suburb) return addr.suburb;
+    if (addr.neighbourhood) return addr.neighbourhood;
+    if (addr.city || addr.town || addr.village) return addr.city || addr.town || addr.village;
+    return null;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
+  }
+}
+
+export async function reverseGeocodeName(lat, lng, { signal } = {}) {
+  const run = geocodeChain.then(async () => {
+    const wait = lastGeocodeAt ? Math.max(0, GEOCODE_GAP_MS - (performance.now() - lastGeocodeAt)) : 0;
+    await sleep(wait, signal);
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    lastGeocodeAt = performance.now();
+    return fetchGeocodeName(lat, lng, signal);
+  });
+  geocodeChain = run.then(
+    () => {},
+    () => {}
+  );
+  return run;
 }
