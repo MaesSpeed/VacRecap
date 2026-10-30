@@ -456,14 +456,20 @@ export async function renderUrlaubDetail(appEl, id) {
   }
 
   function watchCaptureRename(r) {
+    const captureId = r?.place?.id;
+    if (!captureId) return;
     void r?.renamed?.then((updated) => {
-      if (!updated?.name) return;
-      r.place.name = updated.name;
-      r.place.title = updated.name;
+      if (!updated?.name || updated.id !== captureId) return;
+      if (r.place?.id === captureId) {
+        r.place.name = updated.name;
+        r.place.title = updated.name;
+      }
       if (r.toast?.title?.startsWith("Neue Karte")) {
         r.toast.title = `Neue Karte «${updated.name}»`;
       }
-      const title = document.querySelector('[data-testid="app-toast"] .toast__line--title');
+      const title = document.querySelector(
+        `[data-testid="app-toast"][data-capture-id="${CSS.escape(captureId)}"] .toast__line--title`
+      );
       if (title?.textContent?.startsWith("Neue Karte")) {
         title.textContent = `Neue Karte «${updated.name}»`;
       }
@@ -565,9 +571,11 @@ export async function renderUrlaubDetail(appEl, id) {
   function presentCaptureToast(r, redirect) {
     const toast = r.toast;
     if (!toast?.line && !toast?.title) return;
+    const captureId = r.place?.id;
     if (toast.variant === "warn") {
       showWarnToast(toast.line, {
         title: toast.title,
+        captureId,
         undoLabel: "Ändern",
         onUndo: () => {
           void changeInaccurateCapture(r, redirect);
@@ -578,14 +586,15 @@ export async function renderUrlaubDetail(appEl, id) {
     if (toast.action === "undo" && r.previousPlace) {
       showTwoLineToast(toast.title, toast.line, {
         undoLabel: "Rückgängig",
+        captureId,
         onUndo: () => {
           void undoNewCapture(r, redirect);
         },
       });
       return;
     }
-    if (toast.line) showTwoLineToast(toast.title, toast.line);
-    else if (toast.title) showToast(toast.title);
+    if (toast.line) showTwoLineToast(toast.title, toast.line, { captureId });
+    else if (toast.title) showToast(toast.title, { captureId });
   }
 
   function showCaptureResultToast(r, mediaKind) {

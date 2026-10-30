@@ -71,6 +71,7 @@ export function showToast(
     undoLabel,
     onUndo,
     onDismiss,
+    captureId,
   } = {}
 ) {
   const root = document.getElementById("toast-root");
@@ -84,6 +85,7 @@ export function showToast(
   const isWarn = variant === "warn";
   el.className = `toast toast--pill${isWarn ? " toast--warn" : ""}`;
   el.setAttribute("data-testid", "app-toast");
+  if (captureId) el.setAttribute("data-capture-id", String(captureId));
 
   const line = message ?? "";
   const lines = [];

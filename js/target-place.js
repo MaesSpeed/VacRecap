@@ -224,9 +224,11 @@ export async function createCapturePlace({ vacationId, day, lat, lng, accuracy, 
     quick === GEOCODE_TIMEOUT
       ? geocode.then((late) =>
           enqueue(async () => {
-            if (!late || cancelled || late === saved.name) return null;
+            if (!late || cancelled || late === saved.name || !saved.id) return null;
             try {
-              return await updatePlaceName(saved, late);
+              const fresh = await getPlace(saved.id);
+              if (!fresh || cancelled || fresh.id !== saved.id) return null;
+              return await updatePlaceName(fresh, late);
             } catch {
               return null;
             }
