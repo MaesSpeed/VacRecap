@@ -20,7 +20,7 @@ function thumbStack(urls) {
 }
 
 /**
- * Sheet «N Fotos zuordnen». Löst mit { type: "upload", groups } oder { type: "keep" }.
+ * Sheet «N Fotos zuordnen». Löst mit { type: "upload", groups }, { type: "keep" } oder { type: "cancel" }.
  */
 export function openPhotoAssignSheet({
   groups,
@@ -32,7 +32,7 @@ export function openPhotoAssignSheet({
   namesReady = null,
 }) {
   const overlay = document.getElementById("overlay-root");
-  if (!overlay) return Promise.resolve({ type: "keep" });
+  if (!overlay) return Promise.resolve({ type: "cancel" });
   let current = mergeAssignableGroups(groups);
   const urls = [];
   const urlFor = (key) => {
@@ -146,7 +146,10 @@ export function openPhotoAssignSheet({
       overlay.innerHTML = `
         <div class="sheet sheet--assign" data-testid="photo-assign-sheet" role="dialog" aria-modal="true">
           <div class="sheet-handle" aria-hidden="true"></div>
-          <h2 class="sheet__title">${escapeHtml(fotoCountLabel(count))} zuordnen</h2>
+          <div class="sheet__header sheet__header--photo-upload">
+            <h2 class="sheet__title">${escapeHtml(fotoCountLabel(count))} zuordnen</h2>
+            <button type="button" class="sheet__close" data-action="close" aria-label="Schließen">×</button>
+          </div>
           <p class="assign-sheet__lead">${escapeHtml(dayChipDateLine(activeDay))} · nach Standort der Fotos</p>
           ${
             notes.length
@@ -184,7 +187,17 @@ export function openPhotoAssignSheet({
     }
 
     let activeClose = null;
+    function closeWithoutUpload() {
+      const close = activeClose;
+      activeClose = null;
+      if (close) closeOverlayHistory(close);
+      else closeDom();
+      finish({ type: "cancel" });
+    }
     function bindActions() {
+      overlay.querySelector('[data-action="close"]')?.addEventListener("click", () => {
+        closeWithoutUpload();
+      });
       overlay.querySelector('[data-action="upload"]')?.addEventListener("click", () => {
         const close = activeClose;
         activeClose = null;
@@ -234,11 +247,7 @@ export function openPhotoAssignSheet({
       });
     }
     activeClose = bindOverlay(overlay, closeDom, () => {
-      const close = activeClose;
-      activeClose = null;
-      if (close) closeOverlayHistory(close);
-      else closeDom();
-      finish({ type: "keep" });
+      closeWithoutUpload();
     });
   });
 }

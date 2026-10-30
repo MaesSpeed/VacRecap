@@ -211,7 +211,9 @@ export async function startGalleryPhotoUpload({
       dayPlaces: (dayIso) => places.filter((p) => !p.soft && (p.day || p.dayDate) === dayIso),
     });
 
-    if (!choice || choice.type === "keep") {
+    if (!choice || choice.type === "cancel") return null;
+
+    if (choice.type === "keep") {
       const target = selectedPlace
         ? { place: selectedPlace, createdOhneOrt: false, needsRefresh: false }
         : await createTarget();
