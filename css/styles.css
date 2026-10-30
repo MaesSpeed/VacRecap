@@ -1554,15 +1554,13 @@ body {
 }
 
 .place-list-fade {
-  position: fixed;
+  position: absolute;
   left: 0;
   right: 0;
-  bottom: var(--footer-body);
-  height: 96px;
+  bottom: 0;
+  height: 24px;
   pointer-events: none;
-  background: linear-gradient(180deg, rgba(238, 243, 247, 0), #eef3f7 38%);
-  max-width: 480px;
-  margin: 0 auto;
+  background: linear-gradient(180deg, rgba(238, 243, 247, 0), #eef3f7);
   z-index: 2;
 }
 
@@ -3637,6 +3635,7 @@ body:has(.screen--trip-swipe) {
   max-height: 100dvh;
   min-height: 0;
   overflow: hidden;
+  padding-bottom: 0;
 }
 
 .screen--trip.screen--trip-swipe {
@@ -3683,7 +3682,7 @@ body:has(.screen--trip-swipe) {
   touch-action: pan-y;
   overscroll-behavior-y: contain;
   box-sizing: border-box;
-  padding-bottom: 16px;
+  padding-bottom: 28px;
 }
 
 .day-swipe__page[data-page="prev"],

@@ -316,6 +316,92 @@ async function loginAndCreateTrip(page) {
   return page.locator(".screen--trip").getAttribute("data-vacation-id");
 }
 
+const FOOT_VIEWPORTS = [
+  { width: 375, height: 667 },
+  { width: 360, height: 740 },
+  { width: 390, height: 844 },
+];
+
+async function setSafeBottom(page, px) {
+  await page.evaluate((value) => {
+    let el = document.getElementById("test-safe-bottom");
+    if (!el) {
+      el = document.createElement("style");
+      el.id = "test-safe-bottom";
+      document.head.appendChild(el);
+    }
+    el.textContent = `:root { --safe-bottom: ${value}px !important; }`;
+  }, px);
+}
+
+async function assertDayListFoot(page, label, { short }) {
+  for (const safeBottom of [0, 34]) {
+    await setSafeBottom(page, safeBottom);
+    for (const vp of FOOT_VIEWPORTS) {
+      await page.setViewportSize(vp);
+      await page.waitForTimeout(40);
+      const box = await page.evaluate(() => {
+        const pageEl = document.querySelector("[data-page='current']");
+        const footer = document.querySelector(".trip-footer");
+        const fade = document.querySelector(".place-list-fade");
+        const host = document.getElementById("app");
+        if (!pageEl || !footer || !fade || !host) {
+          return { missing: { page: !pageEl, footer: !footer, fade: !fade, host: !host } };
+        }
+        pageEl.scrollTop = pageEl.scrollHeight;
+        const cards = [...pageEl.querySelectorAll(".oc")];
+        const last = cards[cards.length - 1];
+        const pr = pageEl.getBoundingClientRect();
+        const fr = footer.getBoundingClientRect();
+        const fadeR = fade.getBoundingClientRect();
+        const lr = last.getBoundingClientRect();
+        const fadeCs = getComputedStyle(fade);
+        const x = lr.left + Math.min(24, lr.width / 2);
+        const y = Math.min(lr.bottom - 3, fr.top - 3);
+        const hit = document.elementFromPoint(x, y);
+        return {
+          cards: cards.length,
+          pageBottom: pr.bottom,
+          footerTop: fr.top,
+          fadeBottom: fadeR.bottom,
+          fadeTop: fadeR.top,
+          fadeH: fadeR.height,
+          fadePos: fadeCs.position,
+          fadeBg: fadeCs.backgroundImage,
+          lastBottom: lr.bottom,
+          lastTop: lr.top,
+          gap: fr.top - lr.bottom,
+          pad: parseFloat(getComputedStyle(pageEl).paddingBottom),
+          hostPad: parseFloat(getComputedStyle(host).paddingBottom),
+          hostClass: host.className,
+          overflows: pageEl.scrollHeight > pageEl.clientHeight + 2,
+          hitCard: Boolean(hit && (last.contains(hit) || hit === last)),
+        };
+      });
+      const where = `${label} ${vp.width}x${vp.height} safe ${safeBottom}`;
+      assert(!box.missing, `${where}: Layout fehlt ${JSON.stringify(box.missing)}`);
+      assert(box.hostPad === 0 || box.hostClass.includes("screen--trip-swipe"), `${where}: Host ${box.hostClass} Abstand ${box.hostPad}`);
+      assert(Math.abs(box.pageBottom - box.footerTop) <= 2, `${where}: Liste endet bei ${box.pageBottom}, Footer bei ${box.footerTop}`);
+      assert(Math.abs(box.fadeBottom - box.footerTop) <= 2, `${where}: Verlauf endet bei ${box.fadeBottom}, Footer bei ${box.footerTop}`);
+      assert(Math.abs(box.fadeH - 24) <= 1, `${where}: Verlaufhöhe ${box.fadeH}`);
+      assert(box.fadePos === "absolute", `${where}: Verlauf ist ${box.fadePos}`);
+      assert(box.fadeBg.includes("gradient") && !box.fadeBg.includes("38%"), `${where}: Verlauf ${box.fadeBg}`);
+      assert(Math.abs(box.pad - 28) <= 0.5, `${where}: Seitenabstand ${box.pad}`);
+      assert(box.lastTop < box.footerTop - 8, `${where}: Karte nicht sichtbar (${box.lastTop})`);
+      assert(box.lastBottom <= box.footerTop + 1, `${where}: Karte ragt in den Footer (Abstand ${box.gap.toFixed(1)})`);
+      assert(box.lastBottom <= box.fadeTop + 1, `${where}: Karte liegt unter dem Verlauf`);
+      assert(box.hitCard, `${where}: letzte Karte nicht antippbar`);
+      if (short) {
+        assert(!box.overflows || box.gap >= 28, `${where}: kurze Liste Abstand ${box.gap.toFixed(1)}`);
+      } else if (box.overflows) {
+        assert(box.gap >= 22 && box.gap <= 36, `${where}: Luft ${box.gap.toFixed(1)} px, erwartet 28`);
+      }
+    }
+  }
+  await setSafeBottom(page, 0);
+  await page.setViewportSize({ width: 375, height: 667 });
+}
+
 async function tapDay(page, state, day, { name, thumbs, requireCached, label }) {
   state.signBatches.length = 0;
   const sync = await page.evaluate((iso) => {
@@ -420,6 +506,7 @@ async function runSuite(browserType, baseUrl, label) {
     { timeout: 30_000 }
   );
   await waitQuiet(state);
+  await assertDayListFoot(page, `${label} lang`, { short: false });
 
   await tapDay(page, state, NEIGHBOR, {
     name: "Burg Limone",
@@ -434,6 +521,7 @@ async function runSuite(browserType, baseUrl, label) {
     requireCached: false,
     label: `${label} entfernt`,
   });
+  await assertDayListFoot(page, `${label} kurz`, { short: true });
 
   assert(!pageErrors.length, `${label}: Seitenfehler ${pageErrors.join(" | ")}`);
   await browser.close();
