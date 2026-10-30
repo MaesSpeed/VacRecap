@@ -107,6 +107,7 @@ function createMockSupabaseState() {
   const signBatches = [];
   let inflight = 0;
   let lastDone = 0;
+  let failNotes = false;
 
   function represent(row, headers) {
     const accept = headers.accept || "";
@@ -140,6 +141,12 @@ function createMockSupabaseState() {
     },
     set lastDone(n) {
       lastDone = n;
+    },
+    get failNotes() {
+      return failNotes;
+    },
+    set failNotes(value) {
+      failNotes = Boolean(value);
     },
     handleAuth(url, method, body) {
       const pathName = url.pathname;
@@ -203,7 +210,10 @@ function createMockSupabaseState() {
         if (method === "GET") return { status: 200, json: applyFilters(trips, url) };
       }
       if (table === "waypoints" && method === "GET") return { status: 200, json: applyFilters(waypoints, url) };
-      if (table === "notes" && method === "GET") return { status: 200, json: applyFilters(notes, url) };
+      if (table === "notes" && method === "GET") {
+        if (failNotes) return { status: 500, json: { message: "network" } };
+        return { status: 200, json: applyFilters(notes, url) };
+      }
       if (table === "media" && method === "GET") return { status: 200, json: applyFilters(media, url) };
       if (table === "trip_members" && method === "GET") return { status: 200, json: [{ role: "owner", trip_id: url.searchParams.get("trip_id")?.replace(/^eq\./, "") || "", user_id: USER }] };
       return { status: 404, json: { message: "not found" } };
@@ -606,25 +616,13 @@ async function runSuite(browserType, baseUrl, label) {
     { timeout: 30_000 }
   );
   await waitQuiet(state);
+  assert(
+    state.signBatches.some((n) => n >= 4),
+    `${label}: Nachbar-Thumbnails nicht gebündelt (${state.signBatches.join(",") || "—"})`
+  );
   await assertDayListFoot(page, `${label} lang`, { short: false });
 
   await installTouch(page);
-  await tapDay(page, state, NEIGHBOR, {
-    name: "Burg Limone",
-    thumbs: 4,
-    requireCached: true,
-    label: `${label} Nachbar`,
-  });
-  await waitQuiet(state);
-  await page.evaluate(() => window.__touchSwipe(-170));
-  await page.waitForFunction(
-    (day) => document.querySelector("[data-testid='trip-content']")?.dataset.activeDay === day,
-    TODAY
-  );
-  await assertScrollStays(page, state, 61, `${label} Wisch`);
-  await waitQuiet(state);
-
-  state.signBatches.length = 0;
   await page.evaluate((iso) => document.querySelector(`[data-day="${iso}"]`).click(), FAR);
   const held = await page.evaluate(() => window.__holdSwipe(-12));
   assert(String(held).includes("calc("), `${label}: Wisch startet nicht (${held})`);
@@ -643,12 +641,31 @@ async function runSuite(browserType, baseUrl, label) {
     "Strand Riva",
     { timeout: 20_000 }
   );
-  assert(
-    state.signBatches.some((n) => n >= 2),
-    `${label}: entfernte Thumbnails nicht gebündelt (${state.signBatches.join(",")})`
-  );
-
   await assertDayListFoot(page, `${label} kurz`, { short: true });
+
+  state.failNotes = true;
+  await page.evaluate(() => document.querySelector('[data-day="2026-10-28"]').click());
+  await page.waitForSelector("[data-page='current'] [data-testid='day-load-error']");
+  assert((await page.locator("[data-testid='day-skeleton']").count()) === 0, `${label}: Skeleton bleibt nach Netzfehler`);
+  state.failNotes = false;
+  await page.click("[data-action='retry-day-load']");
+  await page.waitForSelector("[data-page='current'] [data-testid='trip-empty']");
+  await waitQuiet(state);
+
+  await tapDay(page, state, NEIGHBOR, {
+    name: "Burg Limone",
+    thumbs: 4,
+    requireCached: true,
+    label: `${label} Nachbar`,
+  });
+  await waitQuiet(state);
+  await page.evaluate(() => window.__touchSwipe(-170));
+  await page.waitForFunction(
+    (day) => document.querySelector("[data-testid='trip-content']")?.dataset.activeDay === day,
+    TODAY
+  );
+  await assertScrollStays(page, state, 61, `${label} Wisch`);
+  await waitQuiet(state);
 
   assert(!pageErrors.length, `${label}: Seitenfehler ${pageErrors.join(" | ")}`);
   await browser.close();

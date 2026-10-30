@@ -320,6 +320,13 @@ export async function renderUrlaubDetail(appEl, id) {
           <p class="trip-empty__hint">Ort merken, Foto machen oder Notiz schreiben.</p>
         </div>`;
 
+  const dayErrorHtml = `
+        <div class="trip-empty" data-testid="day-load-error">
+          <p class="trip-empty__title">Der Tag konnte nicht geladen werden.</p>
+          <p class="trip-empty__hint">Bitte erneut versuchen.</p>
+          <button type="button" class="notes-more" data-action="retry-day-load">Erneut laden</button>
+        </div>`;
+
   const daySkeletonHtml = `
         <div class="place-list-wrap" data-testid="day-skeleton" aria-busy="true">
           <ul class="place-list" data-testid="place-list">
@@ -508,27 +515,44 @@ export async function renderUrlaubDetail(appEl, id) {
     if (previousThumbUrls && previousThumbUrls !== state.thumbUrls) revokeThumbUrls(previousThumbUrls);
   }
 
+  function showDayLoadError() {
+    const page = contentEl.querySelector("[data-page='current']");
+    const skeleton = page?.querySelector("[data-testid='day-skeleton']");
+    const loaded = page?.querySelector(
+      "[data-testid='place-list'] .oc:not(.oc--skeleton), [data-testid='trip-empty'], [data-testid='free-notes']"
+    );
+    if (!skeleton && loaded) return;
+    pendingPaint = null;
+    syncDayEdges();
+    setDaySwipePage(contentEl, dayErrorHtml);
+  }
+
   async function refreshDayList({ reuse = false } = {}) {
     const token = ++state.listRefreshToken;
-    await maybeSoftOnOpen();
-    if (token !== state.listRefreshToken) return;
-    if (!reuse) clearWarm();
-    if (!warmPlaces) warmPlaces = await getPlacesForVacation(id);
-    if (token !== state.listRefreshToken) return;
-    let built = reuse ? warmHtml.get(state.activeDay) : null;
-    if (!built) {
-      built = await buildDayHtml(state.activeDay, warmPlaces);
-      if (token !== state.listRefreshToken) {
-        revokeThumbUrls(built?.thumbUrls);
-        return;
+    try {
+      await maybeSoftOnOpen();
+      if (token !== state.listRefreshToken) return;
+      if (!reuse) clearWarm();
+      if (!warmPlaces) warmPlaces = await getPlacesForVacation(id);
+      if (token !== state.listRefreshToken) return;
+      let built = reuse ? warmHtml.get(state.activeDay) : null;
+      if (!built) {
+        built = await buildDayHtml(state.activeDay, warmPlaces);
+        if (token !== state.listRefreshToken) {
+          revokeThumbUrls(built?.thumbUrls);
+          return;
+        }
+        warmHtml.set(state.activeDay, built);
       }
-      warmHtml.set(state.activeDay, built);
+      if (!contentEl.isConnected) return;
+      queuePaint(built, token, { keepScroll: reuse });
+      persistSelection(id, state);
+      if (token !== state.listRefreshToken || !contentEl.isConnected) return;
+      void prefetchNeighbors(token);
+    } catch {
+      if (token !== state.listRefreshToken || !contentEl.isConnected) return;
+      showDayLoadError();
     }
-    if (!contentEl.isConnected) return;
-    queuePaint(built, token, { keepScroll: reuse });
-    persistSelection(id, state);
-    if (token !== state.listRefreshToken || !contentEl.isConnected) return;
-    void prefetchNeighbors(token);
   }
 
   function setActiveDay(dayIso) {
@@ -966,6 +990,13 @@ export async function renderUrlaubDetail(appEl, id) {
     const retryMedia = e.target.closest('[data-action="retry-media-load"]');
     if (retryMedia) {
       await refreshDayList();
+      return;
+    }
+
+    const retryDay = e.target.closest('[data-action="retry-day-load"]');
+    if (retryDay) {
+      paintCachedOrSkeleton(state.activeDay);
+      void refreshDayList({ reuse: true });
       return;
     }
 
