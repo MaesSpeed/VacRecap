@@ -1,23 +1,24 @@
-import { COVER_PRESETS, presetThumbUrl, presetUrl, resolveCoverSrc } from "./covers.js";
-import { ICON_COVER_CUSTOM } from "./icons.js";
-import { deleteBlob, getBlob, getVacation, putBlob, putVacation } from "./db.js";
+import { normalizePresetId, presetUrl } from "./covers.js";
+import { bindCoverImage, coverStatusLabel, resolveVacationCover } from "./cover-sources.js";
+import { deleteBlob, fetchUploadedPhotosForTrip, getPlacesForVacation, getVacation, putVacation } from "./db.js";
 import { navigate } from "./router.js";
 import { clearTripUiState } from "./ui-urlaub-detail.js";
 import { CloudNetworkError, CloudOfflineError } from "./cloud-errors.js";
 import { showToast } from "./toast.js";
+import { canEditTripMedia, getMyTripRole } from "./trip-role.js";
+import { openCoverSheet } from "./ui-cover-sheet.js";
 import { COMPANION_TAGS, createEmptyVacation, normalizeVacation } from "./vacation.js";
 import {
   clampTitle,
-  createId,
   dayCountInclusive,
   escapeHtml,
   formatDateRange,
   formatDateRangeOverlay,
-  resizeImageFile,
 } from "./utils.js";
 import { openDateRangePicker } from "./ui-calendar.js";
 
 export async function renderUrlaubForm(appEl, { mode, id }) {
+  const mountGen = appEl?.dataset?.appRenderGen ?? "";
   let vacation =
     mode === "edit" && id
       ? normalizeVacation(await getVacation(id))
@@ -29,8 +30,21 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
   }
 
   const isEdit = mode === "edit";
-  let coverPreviewUrl = await resolveCoverSrc(vacation, getBlob);
-  let customObjectUrl = null;
+  const [role, photoResult, places] = await Promise.all([
+    isEdit ? getMyTripRole(vacation.id) : Promise.resolve("owner"),
+    isEdit ? fetchUploadedPhotosForTrip(vacation.id) : Promise.resolve({ media: [] }),
+    isEdit ? getPlacesForVacation(vacation.id).catch(() => []) : Promise.resolve([]),
+  ]);
+  const canEditCover = canEditTripMedia(role);
+  const tripPhotos = (photoResult?.media || []).filter((photo) => photo.vacationId === vacation.id);
+  let placeList = places;
+  let coverInfo = await resolveVacationCover(vacation, { variant: "original" });
+  if (coverInfo.invalid && vacation.cover?.type === "media") {
+    vacation.cover = { type: "preset", presetId: normalizePresetId(vacation.cover?.presetId) };
+    coverInfo = await resolveVacationCover(vacation, { variant: "original" });
+  }
+  let coverMedia = coverInfo.media;
+  if (appEl?.dataset?.appRenderGen !== mountGen) return;
 
   appEl.className = "screen screen--form";
   appEl.innerHTML = `
@@ -58,27 +72,26 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
 
       <div class="field">
         <span class="field__label">Titelbild</span>
-        <div class="cover-preview" data-role="cover-preview">
-          <img src="${coverPreviewUrl}" alt="" />
+        <div class="cover-preview${vacation.cover?.type === "media" ? " cover-preview--photo" : ""}" data-role="cover-preview" data-testid="cover-preview">
+          <span class="cover-preview__badge" data-role="cover-badge" data-testid="cover-badge">${escapeHtml(coverStatusLabel(vacation, { media: coverMedia, places }))}</span>
+          <img data-testid="cover-preview-img" alt="" />
           <div class="cover-preview__overlay">
             <strong data-role="cover-title">${escapeHtml(vacation.title || "Titel")}</strong>
             <span data-role="cover-dates">${vacation.startDate && vacation.endDate ? formatDateRangeOverlay(vacation.startDate, vacation.endDate) : ""}</span>
           </div>
         </div>
-        <div class="cover-picker" role="list" data-testid="cover-picker">
-          <button type="button" class="cover-thumb cover-thumb--custom" data-preset="custom" hidden aria-hidden="true">
-            <span class="cover-thumb__img cover-thumb__img--custom">${ICON_COVER_CUSTOM}</span>
-            <span class="cover-thumb__label">Eigenes Foto</span>
-          </button>
-          ${COVER_PRESETS.map(
-            (p) => `
-            <button type="button" class="cover-thumb" data-preset="${p.id}">
-              <img class="cover-thumb__img" src="${presetThumbUrl(p.id)}" alt="" />
-              <span class="cover-thumb__label">${p.label}</span>
-            </button>`
-          ).join("")}
-        </div>
-        <input type="file" accept="image/*" hidden data-role="file-input" />
+        ${
+          canEditCover
+            ? `<button type="button" class="cover-change" data-action="change-cover" data-testid="cover-change">
+          <svg class="cover-change__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" stroke-width="1.8"/><circle cx="8.5" cy="10" r="1.6" fill="currentColor"/><path d="M3 16l5-5 3 3 2-2 8 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Titelbild ändern
+        </button>
+        <button type="button" class="cover-reset" data-action="reset-cover" data-testid="cover-reset" hidden>
+          <span aria-hidden="true">↺</span> Auf automatisches Titelbild zurücksetzen
+        </button>
+        <p class="cover-save-hint" data-testid="cover-save-hint" hidden>Erst «Speichern» übernimmt das Bild, auch für Mitreisende.</p>`
+            : ""
+        }
       </div>
 
       <div class="field">
@@ -108,10 +121,22 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
   const dateSub = appEl.querySelector('[data-role="date-sub"]');
   const coverTitle = appEl.querySelector('[data-role="cover-title"]');
   const coverDates = appEl.querySelector('[data-role="cover-dates"]');
+  const coverPreview = appEl.querySelector('[data-role="cover-preview"]');
+  const coverBadge = appEl.querySelector('[data-role="cover-badge"]');
   const coverImg = appEl.querySelector(".cover-preview img");
-  const fileInput = appEl.querySelector('[data-role="file-input"]');
+  const resetBtn = appEl.querySelector('[data-action="reset-cover"]');
+  const saveHint = appEl.querySelector('[data-testid="cover-save-hint"]');
   const nameInput = appEl.querySelector('[data-role="name-input"]');
   const nameChipsEl = appEl.querySelector('[data-role="name-chips"]');
+
+  function paintCover() {
+    const photo = vacation.cover?.type === "media";
+    coverPreview?.classList.toggle("cover-preview--photo", photo);
+    if (coverBadge) coverBadge.textContent = coverStatusLabel(vacation, { media: coverMedia, places: placeList });
+    if (resetBtn) resetBtn.hidden = !photo;
+    if (saveHint) saveHint.hidden = !photo;
+    if (coverImg) bindCoverImage(coverImg, coverInfo, vacation, { variant: "original" });
+  }
 
   function refreshNames() {
     nameChipsEl.innerHTML = vacation.companions.names
@@ -134,10 +159,9 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
   }
 
   refreshNames();
-  highlightPresetButtons();
+  paintCover();
 
   appEl.querySelector('[data-action="cancel"]').addEventListener("click", () => {
-    if (customObjectUrl) URL.revokeObjectURL(customObjectUrl);
     const raw = sessionStorage.getItem("vacrecap-form-return");
     sessionStorage.removeItem("vacrecap-form-return");
     if (raw) {
@@ -165,31 +189,66 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
 
   titleInput.addEventListener("input", syncMeta);
 
-  appEl.querySelectorAll("[data-preset]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const preset = btn.dataset.preset;
-      if (preset === "custom") {
-        fileInput.click();
-        return;
+  appEl.querySelector('[data-action="change-cover"]')?.addEventListener("click", () => {
+    void (async () => {
+      if (isEdit) {
+        const [freshPhotos, freshPlaces] = await Promise.all([
+          fetchUploadedPhotosForTrip(vacation.id),
+          getPlacesForVacation(vacation.id).catch(() => placeList),
+        ]);
+        tripPhotos.splice(0, tripPhotos.length, ...(freshPhotos?.media || []).filter((photo) => photo.vacationId === vacation.id));
+        placeList = freshPlaces || placeList;
       }
-      vacation.cover = { type: "preset", presetId: preset };
-      coverPreviewUrl = presetUrl(preset);
-      coverImg.src = coverPreviewUrl;
-      highlightPresetButtons();
-    });
+      const next = await openCoverSheet({
+        vacation,
+        photos: tripPhotos,
+        places: placeList,
+        allowDevice: isEdit,
+      });
+      if (!next || !appEl.isConnected) return;
+      if (isEdit) {
+        const [freshPhotos, freshPlaces] = await Promise.all([
+          fetchUploadedPhotosForTrip(vacation.id),
+          getPlacesForVacation(vacation.id).catch(() => placeList),
+        ]);
+        tripPhotos.splice(0, tripPhotos.length, ...(freshPhotos?.media || []).filter((photo) => photo.vacationId === vacation.id));
+        placeList = freshPlaces || placeList;
+      }
+      const presetId = normalizePresetId(next.presetId || vacation.cover?.presetId);
+      if (next.type === "media" && next.mediaId) {
+        vacation.cover = { type: "media", mediaId: next.mediaId, presetId };
+        coverMedia = next.media || tripPhotos.find((photo) => photo.id === next.mediaId) || null;
+        if (coverMedia && !tripPhotos.some((photo) => photo.id === coverMedia.id)) tripPhotos.push(coverMedia);
+      } else {
+        vacation.cover = { type: "preset", presetId };
+        coverMedia = null;
+      }
+      coverInfo = await resolveVacationCover(vacation, { variant: "original" });
+      if (coverInfo.invalid && vacation.cover?.type === "media") {
+        vacation.cover = { type: "preset", presetId };
+        coverMedia = null;
+        coverInfo = await resolveVacationCover(vacation, { variant: "original" });
+      } else if (coverInfo.media) {
+        coverMedia = coverInfo.media;
+      }
+      paintCover();
+    })();
   });
 
-  fileInput.addEventListener("change", async () => {
-    const file = fileInput.files?.[0];
-    if (!file) return;
-    const blob = await resizeImageFile(file);
-    const blobId = vacation.cover.blobId || createId();
-    await putBlob({ id: blobId, data: blob, createdAt: Date.now() });
-    vacation.cover = { type: "custom", blobId };
-    if (customObjectUrl) URL.revokeObjectURL(customObjectUrl);
-    customObjectUrl = URL.createObjectURL(blob);
-    coverImg.src = customObjectUrl;
-    highlightPresetButtons();
+  resetBtn?.addEventListener("click", () => {
+    const presetId = normalizePresetId(vacation.cover?.presetId);
+    vacation.cover = { type: "preset", presetId };
+    coverMedia = null;
+    coverInfo = {
+      src: presetUrl(presetId),
+      kind: "preset",
+      presetId,
+      path: "",
+      bucket: "",
+      media: null,
+      fellBack: false,
+    };
+    paintCover();
   });
 
   appEl.querySelector('[data-role="tag-chips"]').addEventListener("click", (e) => {
@@ -277,7 +336,6 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
       );
       return;
     }
-    if (customObjectUrl) URL.revokeObjectURL(customObjectUrl);
 
     sessionStorage.removeItem("vacrecap-form-return");
     if (isEdit) {
@@ -296,14 +354,4 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
       navigate({ name: "urlaub-detail", id: vacation.id }, { replace: true });
     }
   });
-
-  function highlightPresetButtons() {
-    appEl.querySelectorAll(".cover-thumb").forEach((el) => {
-      el.classList.toggle(
-        "cover-thumb--active",
-        el.dataset.preset ===
-          (vacation.cover.type === "custom" ? "custom" : vacation.cover.presetId)
-      );
-    });
-  }
 }

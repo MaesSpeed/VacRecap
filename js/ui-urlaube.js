@@ -1,4 +1,4 @@
-import { resolveCoverSrc } from "./covers.js";
+import { bindCoverImage, resolveVacationCoverMap } from "./cover-sources.js";
 import { armPointerSuppression } from "./gesture-guard.js";
 import { bindOverlay, closeOverlayHistory, releaseOverlayHistory } from "./overlay-stack.js";
 import { computeVacationStats, formatVacationStatsLine } from "./vacation-stats.js";
@@ -21,6 +21,7 @@ const LONG_PRESS_MS = 550;
 const CHEVRON_SVG = `<svg width="8" height="14" viewBox="0 0 8 14" fill="none" aria-hidden="true"><path d="M1 1l6 6-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 export async function renderUrlaubeScreen(appEl, vacations) {
+  const mountGen = appEl?.dataset?.appRenderGen ?? "";
   for (const v of vacations) {
     v.stats = await computeVacationStats(v.id);
   }
@@ -74,17 +75,15 @@ export async function renderUrlaubeScreen(appEl, vacations) {
     </main>
   `;
 
-  const coverUrls = new Map();
-  for (const v of vacations) {
-    coverUrls.set(v.id, await resolveCoverSrc(v, async () => null));
-  }
+  const coverMap = await resolveVacationCoverMap(vacations, { variant: "thumb" });
+  if (appEl?.dataset?.appRenderGen !== mountGen) return;
 
   appEl.querySelectorAll("[data-vacation-id]").forEach((card) => {
     const id = card.dataset.vacationId;
     const img = card.querySelector("[data-cover-img]");
-    if (img && coverUrls.has(id)) {
-      img.src = coverUrls.get(id);
-    }
+    const info = coverMap.get(id);
+    const vacation = vacations.find((entry) => entry.id === id);
+    if (img && info && vacation) bindCoverImage(img, info, vacation, { variant: "thumb" });
   });
 
   appEl.querySelectorAll('[data-action="new"]').forEach((btn) => {

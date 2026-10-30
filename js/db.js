@@ -677,6 +677,18 @@ export async function fetchUploadedPhotosForTrip(vacationId) {
   }
 }
 
+export async function fetchMediaByIds(ids) {
+  const unique = [...new Set((ids || []).filter(Boolean))];
+  if (!unique.length || !navigator.onLine) return [];
+  try {
+    const { data, error } = await getSupabase().from("media").select("*").in("id", unique);
+    if (error) return [];
+    return (data || []).map(mediaRowToApp).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 export async function getMediaBySourceKey(vacationId, sourceKey) {
   if (!sourceKey) return null;
   const { data, error } = await getSupabase()
