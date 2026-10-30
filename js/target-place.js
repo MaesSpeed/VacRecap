@@ -229,12 +229,26 @@ export async function createCapturePlace({ vacationId, day, lat, lng, accuracy, 
   };
 }
 
-export async function movePlacePhotos(fromId, toPlace) {
-  if (!fromId || !toPlace?.id) return [];
+/**
+ * Verschiebt Fotos auf eine andere Karte.
+ * Mit `mediaIds` nur diese Aufnahme, sonst alle Fotos von `fromId`.
+ */
+export async function movePlacePhotos(fromId, toPlace, mediaIds = null) {
+  if (!toPlace?.id) return [];
+  const day = toPlace.day || toPlace.dayDate;
+  if (Array.isArray(mediaIds)) {
+    const moved = [];
+    for (const id of mediaIds) {
+      if (!id) continue;
+      moved.push(await updateMediaRow(id, { waypoint_id: toPlace.id, day }));
+    }
+    return moved;
+  }
+  if (!fromId) return [];
   const media = await getMediaForPlace(fromId);
   const moved = [];
   for (const item of media) {
-    moved.push(await updateMediaRow(item.id, { waypoint_id: toPlace.id, day: toPlace.day || toPlace.dayDate }));
+    moved.push(await updateMediaRow(item.id, { waypoint_id: toPlace.id, day }));
   }
   return moved;
 }
@@ -426,6 +440,7 @@ export function createPlaceRedirect(place) {
   let chain = Promise.resolve();
   let retirePlaceId = null;
   let pending = 0;
+  const captureMediaIds = [];
   function run(fn) {
     const next = chain.then(() => fn(), () => fn());
     chain = next.then(
@@ -455,6 +470,12 @@ export function createPlaceRedirect(place) {
     },
     release() {
       pending = Math.max(0, pending - 1);
+    },
+    noteMedia(id) {
+      if (id && !captureMediaIds.includes(id)) captureMediaIds.push(id);
+    },
+    captureMediaIds() {
+      return captureMediaIds.slice();
     },
     run,
   };

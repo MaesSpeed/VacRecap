@@ -433,10 +433,11 @@ export async function renderMapScreen(appEl, vacationId) {
         selectedPlaceId,
         mediaKind: kind,
       });
+      let savedMedia = null;
       if (kind === "video") {
         await saveVideoForPlace({ file, place: r.place, vacationId, day: r.day || day });
       } else {
-        await savePhotoForPlace({ file, place: r.place, vacationId, day: r.day || day });
+        savedMedia = await savePhotoForPlace({ file, place: r.place, vacationId, day: r.day || day });
       }
       dismissActiveToast();
       if (r.toast?.variant === "warn") {
@@ -447,7 +448,7 @@ export async function renderMapScreen(appEl, vacationId) {
           onUndo: async () => {
             r.cancelRename?.();
             await r.renamed;
-            await movePlacePhotos(r.place.id, r.previousPlace);
+            if (savedMedia?.id) await movePlacePhotos(r.place.id, r.previousPlace, [savedMedia.id]);
             await deletePlaceIfEmpty(r.place.id);
           },
         });

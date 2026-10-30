@@ -486,7 +486,8 @@ export async function renderUrlaubDetail(appEl, id) {
     await redirect.run(async () => {
       redirect.place = previous;
       redirect.retirePlaceId = r.place.id;
-      await movePlacePhotos(r.place.id, previous);
+      const ids = redirect.captureMediaIds();
+      if (ids.length) await movePlacePhotos(r.place.id, previous, ids);
       if (redirect.pending === 0) await deletePlaceIfEmpty(r.place.id);
     });
     state.freshPlaceIds.delete(r.place.id);
@@ -550,8 +551,9 @@ export async function renderUrlaubDetail(appEl, id) {
     if (!next || next.id === redirect.place?.id) return;
     const fromId = redirect.place?.id;
     await redirect.run(async () => {
+      const ids = redirect.captureMediaIds();
       redirect.place = next;
-      if (fromId && fromId !== next.id) await movePlacePhotos(fromId, next);
+      if (fromId && fromId !== next.id && ids.length) await movePlacePhotos(fromId, next, ids);
     });
     state.selectedByDay[next.day || captureDay] = next.id;
     persistSelection(id, state);

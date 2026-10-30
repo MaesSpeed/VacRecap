@@ -174,8 +174,9 @@ export function openPhotoUploadSheet({
   }
 
   async function alignUploaded(item, usedPlace) {
-    if (!redirect || !item.media) return;
+    if (!redirect || !item.media?.id) return;
     await redirect.run(async () => {
+      redirect.noteMedia(item.media.id);
       redirect.release();
       const live = redirect.place;
       if (live && usedPlace && (live.id !== usedPlace.id || (live.day || live.dayDate) !== (item.day || day))) {
@@ -279,14 +280,17 @@ export function openPhotoUploadSheet({
       await alignUploaded(item, usedPlace);
       held = false;
     } catch (err) {
-      if (held && redirect) {
-        await redirect.run(() => redirect.release());
-        held = false;
-      }
       if (err instanceof CloudUploadFailedError && err.mediaRecord) {
         item.media = err.mediaRecord;
       } else if (err instanceof CloudOfflineError && err.mediaRecord) {
         item.media = err.mediaRecord;
+      }
+      if (redirect && item.media?.id) {
+        await alignUploaded(item, usedPlace);
+        held = false;
+      } else if (held && redirect) {
+        await redirect.run(() => redirect.release());
+        held = false;
       }
       const rootCause =
         err instanceof CloudOfflineError
