@@ -24,6 +24,29 @@ function assertWritable() {
   }
 }
 
+function isMissingCoverPresetColumn(error) {
+  const blob = `${error?.code || ""} ${error?.message || ""} ${error?.details || ""} ${error?.hint || ""}`;
+  return /PGRST204/i.test(blob) || (/cover_preset/i.test(blob) && /schema cache|could not find|column/i.test(blob));
+}
+
+async function writeTripRow(supabase, row, id) {
+  const run = async (payload) => {
+    const body = id ? { ...payload, id } : payload;
+    if (id) {
+      return supabase.from("trips").upsert(body, { onConflict: "id" }).select().single();
+    }
+    return supabase.from("trips").insert(body).select().single();
+  };
+  let { data, error } = await run(row);
+  if (error && isMissingCoverPresetColumn(error) && Object.prototype.hasOwnProperty.call(row, "cover_preset")) {
+    const rest = { ...row };
+    delete rest.cover_preset;
+    ({ data, error } = await run(rest));
+  }
+  if (error) throw mapApiError(error);
+  return data;
+}
+
 async function upsertRow(supabase, table, row, id) {
   const payload = id ? { ...row, id } : row;
   const { data, error } = await supabase
@@ -66,14 +89,7 @@ export async function putVacation(vacation) {
   const v = normalizeVacation(vacation);
   const supabase = getSupabase();
   const row = vacationToTripRow(v);
-  let data;
-  if (v.id) {
-    data = await upsertRow(supabase, "trips", row, v.id);
-  } else {
-    const { data: inserted, error } = await supabase.from("trips").insert(row).select().single();
-    if (error) throw mapApiError(error);
-    data = inserted;
-  }
+  const data = await writeTripRow(supabase, row, v.id || null);
   const mapped = tripRowToVacation(data);
   const prev = readCache()?.trips || [];
   const idx = prev.findIndex((t) => t.id === mapped.id);

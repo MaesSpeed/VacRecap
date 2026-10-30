@@ -13,6 +13,10 @@ export function coverMediaIdForVacation(vacation) {
   return vacation.cover.mediaId;
 }
 
+export function coverPresetForVacation(vacation) {
+  return normalizePresetId(vacation?.cover?.presetId);
+}
+
 export function tripRowToVacation(row) {
   if (!row) return null;
   const companions = Array.isArray(row.companions) ? row.companions : [];
@@ -38,6 +42,7 @@ export function vacationToTripRow(vacation) {
     end_date: vacation.endDate || null,
     companions: names,
     cover_media_id: coverMediaIdForVacation(vacation),
+    cover_preset: coverPresetForVacation(vacation),
   };
   if (vacation.id) row.id = vacation.id;
   return row;
