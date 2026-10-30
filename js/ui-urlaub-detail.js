@@ -28,7 +28,7 @@ import {
 import { consumePendingFooter } from "./pending-footer.js";
 import { loadTripSelection, saveTripSelection } from "./trip-selection-store.js";
 import { prefetchCaptureGps, resetCaptureGpsPrefetch } from "./capture-gps-prefetch.js";
-import { blockTripFooter, isTripFooterBlocked, SHEET_INPUT_BLOCK_MS } from "./overlay-stack.js";
+import { blockTripFooter, hasActiveOverlay, isTripFooterBlocked, requestOverlayDismiss, SHEET_INPUT_BLOCK_MS } from "./overlay-stack.js";
 import { CloudNetworkError, CloudOfflineError, photoKeptMessage } from "./cloud-errors.js";
 import { dismissActiveToast, showToast, showTwoLineToast, showWarnToast } from "./toast.js";
 import { openNoteSheet } from "./ui-note-sheet.js";
@@ -163,10 +163,74 @@ export async function renderUrlaubDetail(appEl, id) {
     <div data-role="footer-mount"></div>
   `;
 
+  let ignoreSelectPop = false;
+  let exitSelectAfterOverlayPop = false;
+  let leaveAfterSelectPop = false;
+
   appEl.querySelector('[data-action="back"]').addEventListener("click", () => {
+    if (history.state?.vacrecapPhotoSelect) {
+      leaveAfterSelectPop = true;
+      clearPhotoSelect();
+      history.back();
+      return;
+    }
     clearTripUiState(id);
     leaveTripToOverview();
   });
+
+  const onTripPop = () => {
+    if (ignoreSelectPop) {
+      ignoreSelectPop = false;
+      return;
+    }
+    if (exitSelectAfterOverlayPop) {
+      exitSelectAfterOverlayPop = false;
+      clearPhotoSelect();
+      if (history.state?.vacrecapPhotoSelect) {
+        ignoreSelectPop = true;
+        history.back();
+      }
+      void paintCachedDays([state.activeDay]);
+      return;
+    }
+    if (leaveAfterSelectPop) {
+      leaveAfterSelectPop = false;
+      clearTripUiState(id);
+      leaveTripToOverview();
+      return;
+    }
+    if (!state.photoSelecting) return;
+    if (history.state?.vacrecapPhotoSelect || history.state?.vacrecapOverlay) return;
+    if (hasActiveOverlay()) return;
+    void exitPhotoSelect({ fromPop: true });
+  };
+
+  const onTripKey = (event) => {
+    if (event.key !== "Escape") return;
+    const moveOpen = Boolean(document.querySelector('[data-testid="photo-move-sheet"]'));
+    if (!moveOpen && !state.photoSelecting) return;
+    event.preventDefault();
+    if (moveOpen) {
+      exitSelectAfterOverlayPop = Boolean(state.photoSelecting);
+      const closed = requestOverlayDismiss();
+      if (!closed || (exitSelectAfterOverlayPop && !history.state?.vacrecapOverlay)) {
+        exitSelectAfterOverlayPop = false;
+        if (state.photoSelecting) void exitPhotoSelect();
+      }
+      return;
+    }
+    void exitPhotoSelect();
+  };
+
+  if (appEl?.dataset?.appRenderGen === mountGen) {
+    window.addEventListener("popstate", onTripPop);
+    window.addEventListener("keydown", onTripKey);
+    appEl._screenCleanup = () => {
+      window.removeEventListener("popstate", onTripPop);
+      window.removeEventListener("keydown", onTripKey);
+    };
+  }
+
   appEl.querySelector('[data-action="map"]').addEventListener("click", () => {
     navigate({ name: "urlaub-map", id }, { fromTrip: true });
   });
@@ -507,7 +571,13 @@ export async function renderUrlaubDetail(appEl, id) {
   function clearPhotoSelect() {
     state.photoSelecting = false;
     state.photoSelected = new Set();
-    contentEl.dataset.photoSelecting = "0";
+    if (contentEl?.isConnected) contentEl.dataset.photoSelecting = "0";
+  }
+
+  function dropPhotoSelectEntry() {
+    if (!history.state?.vacrecapPhotoSelect) return;
+    ignoreSelectPop = true;
+    history.back();
   }
 
   async function ensureDayBundle(day) {
@@ -704,7 +774,9 @@ export async function renderUrlaubDetail(appEl, id) {
 
   function setActiveDay(dayIso) {
     if (!days.includes(dayIso) || dayIso === state.activeDay) return;
+    const selecting = state.photoSelecting;
     clearPhotoSelect();
+    if (selecting) dropPhotoSelectEntry();
     state.activeDay = dayIso;
     persistSelection(id, state);
     renderChips();
@@ -715,7 +787,9 @@ export async function renderUrlaubDetail(appEl, id) {
   function shiftDay(direction) {
     const next = adjacentDay(vacation, state.activeDay, direction);
     if (next === state.activeDay) return;
+    const selecting = state.photoSelecting;
     clearPhotoSelect();
+    if (selecting) dropPhotoSelectEntry();
     state.activeDay = next;
     persistSelection(id, state);
     renderChips();
@@ -1103,11 +1177,15 @@ export async function renderUrlaubDetail(appEl, id) {
     if (!state.photoSelected) state.photoSelected = new Set();
     if (mediaId) state.photoSelected.add(mediaId);
     contentEl.dataset.photoSelecting = "1";
+    if (!history.state?.vacrecapPhotoSelect) {
+      history.pushState({ vacrecapPhotoSelect: true }, "");
+    }
     await paintCachedDays([state.activeDay]);
   }
 
-  async function exitPhotoSelect() {
+  async function exitPhotoSelect({ fromPop = false } = {}) {
     clearPhotoSelect();
+    if (!fromPop) dropPhotoSelectEntry();
     await paintCachedDays([state.activeDay]);
   }
 
@@ -1118,26 +1196,27 @@ export async function renderUrlaubDetail(appEl, id) {
       showWarnToast("Wähle mindestens ein eigenes Foto.");
       return;
     }
-    if (!warmPlaces) warmPlaces = await getPlacesForVacation(id);
-    const blockedPlaceId = chosen.every((media) => media.placeId === chosen[0].placeId) ? chosen[0].placeId : null;
-    const place = await openPhotoMoveSheet({
-      vacation,
-      places: warmPlaces.filter((entry) => !entry.soft),
-      initialDay: state.activeDay,
-      blockedPlaceId,
-    });
-    if (!place || !contentEl.isConnected) return;
-    const targetDay = place.day || place.dayDate;
-    if (!targetDay || chosen.every((media) => media.placeId === place.id)) return;
-    const previous = chosen.map((media) => ({ id: media.id, placeId: media.placeId, day: media.day }));
-    const sourceDays = [...new Set(previous.map((snap) => snap.day).filter(Boolean))];
     state.moveBusy = true;
     try {
+      if (!warmPlaces) warmPlaces = await getPlacesForVacation(id);
+      const blockedPlaceId = chosen.every((media) => media.placeId === chosen[0].placeId) ? chosen[0].placeId : null;
+      const place = await openPhotoMoveSheet({
+        vacation,
+        places: warmPlaces.filter((entry) => !entry.soft),
+        initialDay: state.activeDay,
+        blockedPlaceId,
+      });
+      if (!place || !contentEl.isConnected) return;
+      const targetDay = place.day || place.dayDate;
+      if (!targetDay || chosen.every((media) => media.placeId === place.id)) return;
+      const previous = chosen.map((media) => ({ id: media.id, placeId: media.placeId, day: media.day }));
+      const sourceDays = [...new Set(previous.map((snap) => snap.day).filter(Boolean))];
       await movePhotosToPlace(chosen, place);
       cacheEpoch += 1;
       await ensureDayBundle(targetDay);
       applyPlacement(chosen, place.id, targetDay);
       clearPhotoSelect();
+      dropPhotoSelectEntry();
       await paintCachedDays([...sourceDays, targetDay, state.activeDay]);
       const count = chosen.length;
       showToast(count === 1 ? "1 Foto verschoben" : `${count} Fotos verschoben`, {
@@ -1160,6 +1239,7 @@ export async function renderUrlaubDetail(appEl, id) {
   async function undoPhotoMove(chosen, previous) {
     if (state.moveBusy) return;
     state.moveBusy = true;
+    const destinationDays = [...new Set(chosen.map((media) => media.day).filter(Boolean))];
     try {
       await restorePhotoPlacement(previous);
       cacheEpoch += 1;
@@ -1174,7 +1254,9 @@ export async function renderUrlaubDetail(appEl, id) {
         await ensureDayBundle(group.day);
         applyPlacement(group.media, group.placeId, group.day);
       }
-      await paintCachedDays([...groups.values()].map((group) => group.day).concat(state.activeDay));
+      await paintCachedDays(
+        [...groups.values()].map((group) => group.day).concat(destinationDays, state.activeDay)
+      );
       showToast("Wieder am bisherigen Ort.");
     } catch {
       cacheEpoch += 1;

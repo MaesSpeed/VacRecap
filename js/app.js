@@ -81,6 +81,10 @@ async function renderNow() {
     appEl._libraryCleanup();
     delete appEl._libraryCleanup;
   }
+  if (typeof appEl?._screenCleanup === "function") {
+    appEl._screenCleanup();
+    delete appEl._screenCleanup;
+  }
 
   updateOnlineBanner();
 
