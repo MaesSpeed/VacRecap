@@ -174,6 +174,7 @@ export async function renderUrlaubDetail(appEl, id) {
     },
     onCommit: (dir) => previewChipShift(dir),
   });
+  syncDayEdges();
   const footerMount = appEl.querySelector('[data-role="footer-mount"]');
   const capturePhotoInput = appEl.querySelector('[data-role="capture-photo-input"]');
   const captureVideoInput = appEl.querySelector('[data-role="capture-video-input"]');
