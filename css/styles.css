@@ -1226,6 +1226,9 @@ body {
   width: 100%;
   overflow-x: auto;
   padding: 4px 0;
+  position: relative;
+  z-index: 1;
+  background: transparent;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
 }
@@ -1261,16 +1264,58 @@ body {
 }
 
 .day-chip__date {
+  position: relative;
+  z-index: 2;
   font-size: 13.5px;
   font-weight: 900;
   color: #0b2a4a;
 }
 
 .day-chip__role {
+  position: relative;
+  z-index: 2;
   font-size: 9.5px;
   font-weight: 700;
   color: var(--chip-muted);
   letter-spacing: 0.1px;
+}
+
+.day-chip-mark {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  box-sizing: border-box;
+  border-radius: 11px;
+  border: 1.5px solid #f4f7fb;
+  background: linear-gradient(180deg, #2a62b8, #163a78);
+  box-shadow: 0 3px 9px rgba(22, 58, 120, 0.3);
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0;
+}
+
+.day-chips-wrap--follow .day-chip-mark {
+  opacity: 1;
+}
+
+.day-chips--follow .day-chip,
+.day-chips--follow .day-chip--active {
+  background: #fff;
+  border-color: var(--chip-border);
+  box-shadow: none;
+  color: var(--navy);
+}
+
+.day-chips--follow .day-chip__date,
+.day-chips--follow .day-chip--active .day-chip__date {
+  color: #0b2a4a;
+}
+
+.day-chips--follow .day-chip__role,
+.day-chips--follow .day-chip--active .day-chip__role {
+  color: var(--chip-muted);
 }
 
 .day-chip--active {

@@ -32,7 +32,14 @@ import { blockTripFooter, hasActiveOverlay, isTripFooterBlocked, requestOverlayD
 import { CloudNetworkError, CloudOfflineError, photoKeptMessage } from "./cloud-errors.js";
 import { dismissActiveToast, showToast, showTwoLineToast, showWarnToast } from "./toast.js";
 import { openNoteSheet } from "./ui-note-sheet.js";
-import { DAY_SWIPE_MS, daySwipeEase, installDaySwipe, setDaySwipeNeighbor, setDaySwipePage } from "./day-swipe.js";
+import {
+  cancelDaySwipeSettle,
+  DAY_SWIPE_MS,
+  daySwipeEase,
+  installDaySwipe,
+  setDaySwipeNeighbor,
+  setDaySwipePage,
+} from "./day-swipe.js";
 import {
   filterViewableMedia,
   loadDayPlacesEnriched,
@@ -167,6 +174,7 @@ export async function renderUrlaubDetail(appEl, id) {
     ${tripCompanionsMarkup(vacation)}
     <div class="day-nav">
       <div class="day-chips-wrap">
+        <div class="day-chip-mark" data-testid="day-chip-mark" aria-hidden="true"></div>
         <div class="day-chips" data-role="chips" role="tablist"></div>
       </div>
     </div>
@@ -257,11 +265,21 @@ export async function renderUrlaubDetail(appEl, id) {
   const neighborHold = { prev: "", next: "" };
   let chipFollowDay = null;
   let chipScrollToken = 0;
+  let chipPhase = "idle";
+  let chipOriginScroll = 0;
+  let chipMarkBox = null;
   installDaySwipe(contentEl, (dir) => shiftDay(dir), {
     onLock: () => {
+      chipOriginScroll = chipsEl.scrollLeft;
+      if (chipPhase === "anim") {
+        chipScrollToken += 1;
+        chipFollowDay = null;
+      }
       setDaySwipeNeighbor(contentEl, "prev", neighborHold.prev);
       setDaySwipeNeighbor(contentEl, "next", neighborHold.next);
     },
+    onDrag: (info) => onChipDrag(info),
+    onCancel: () => onChipCancel(),
     onRest: () => {
       setDaySwipeNeighbor(contentEl, "prev", "");
       setDaySwipeNeighbor(contentEl, "next", "");
@@ -280,6 +298,11 @@ export async function renderUrlaubDetail(appEl, id) {
 
   const CHIP_CENTER_EPS = 2;
 
+  const CHIP_DATE = [11, 42, 74];
+  const CHIP_DATE_ON = [255, 255, 255];
+  const CHIP_ROLE = [91, 107, 122];
+  const CHIP_ROLE_ON = [214, 228, 247];
+
   function chipsHtml() {
     const total = days.length;
     return days
@@ -294,6 +317,101 @@ export async function renderUrlaubDetail(appEl, id) {
         </button>`;
       })
       .join("");
+  }
+
+  function mixRgb(from, to, t) {
+    const m = Math.max(0, Math.min(1, t));
+    const c = from.map((v, i) => Math.round(v + (to[i] - v) * m));
+    return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+  }
+
+  function markEl() {
+    return chipsEl.parentElement?.querySelector("[data-testid='day-chip-mark']") || null;
+  }
+
+  function chipBox(iso) {
+    const chip = chipsEl.querySelector(`[data-day="${iso}"]`);
+    if (!chip) return null;
+    return {
+      left: chip.offsetLeft,
+      top: chip.offsetTop,
+      width: chip.offsetWidth,
+      height: chip.offsetHeight,
+    };
+  }
+
+  function lerpBox(a, b, t) {
+    return {
+      left: a.left + (b.left - a.left) * t,
+      top: a.top + (b.top - a.top) * t,
+      width: a.width + (b.width - a.width) * t,
+      height: a.height + (b.height - a.height) * t,
+    };
+  }
+
+  function placeMark(box) {
+    const el = markEl();
+    if (!el || !box) return;
+    chipMarkBox = box;
+    const host = el.parentElement.getBoundingClientRect();
+    const scroller = chipsEl.getBoundingClientRect();
+    const x = scroller.left - host.left + box.left - chipsEl.scrollLeft;
+    const y = scroller.top - host.top + box.top - chipsEl.scrollTop;
+    el.style.width = `${box.width}px`;
+    el.style.height = `${box.height}px`;
+    el.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+  }
+
+  function clearChipTint() {
+    for (const btn of chipsEl.querySelectorAll(".day-chip")) {
+      btn.style.background = "";
+      btn.style.borderColor = "";
+      btn.style.boxShadow = "";
+      const date = btn.querySelector(".day-chip__date");
+      const role = btn.querySelector(".day-chip__role");
+      if (date) date.style.color = "";
+      if (role) role.style.color = "";
+    }
+  }
+
+  function applyMarkTint(box) {
+    if (!box) return;
+    const markCenter = box.left + box.width / 2;
+    for (const btn of chipsEl.querySelectorAll(".day-chip")) {
+      const center = btn.offsetLeft + btn.offsetWidth / 2;
+      const span = (btn.offsetWidth + box.width) / 2 || 1;
+      const m = Math.max(0, Math.min(1, 1 - Math.abs(markCenter - center) / span));
+      const date = btn.querySelector(".day-chip__date");
+      const role = btn.querySelector(".day-chip__role");
+      if (m < 0.04) {
+        btn.style.background = "";
+        btn.style.borderColor = "";
+        btn.style.boxShadow = "";
+        if (date) date.style.color = "";
+        if (role) role.style.color = "";
+        continue;
+      }
+      btn.style.background = `rgba(255,255,255,${(1 - m).toFixed(3)})`;
+      btn.style.borderColor = `rgba(213,222,231,${(1 - m).toFixed(3)})`;
+      btn.style.boxShadow = "none";
+      if (date) date.style.color = mixRgb(CHIP_DATE, CHIP_DATE_ON, m);
+      if (role) role.style.color = mixRgb(CHIP_ROLE, CHIP_ROLE_ON, m);
+    }
+  }
+
+  function setChipFollow(on) {
+    chipsEl.classList.toggle("day-chips--follow", on);
+    chipsEl.parentElement?.classList.toggle("day-chips-wrap--follow", on);
+  }
+
+  function endFollowVisual() {
+    chipPhase = "idle";
+    setChipFollow(false);
+    clearChipTint();
+  }
+
+  function prefersReducedMotion() {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   }
 
   function chipsMatchDays() {
@@ -329,23 +447,118 @@ export async function renderUrlaubDetail(appEl, id) {
     const token = ++chipScrollToken;
     const target = chipScrollTarget(chipsEl, chip);
     const start = chipsEl.scrollLeft;
+    const startBox = chipMarkBox || chipBox(dayIso);
+    const endBox = chipBox(dayIso);
+    const markNeedsMove = Boolean(
+      startBox && endBox && (Math.abs(startBox.left - endBox.left) > 0.5 || Math.abs(startBox.width - endBox.width) > 0.5)
+    );
     const clearFollow = () => {
       if (token === chipScrollToken && chipFollowDay === dayIso) chipFollowDay = null;
     };
-    if (duration <= 0 || Math.abs(target - start) <= CHIP_CENTER_EPS) {
+    const finishVisual = () => {
+      if (endBox) placeMark(endBox);
+      if (chipPhase !== "idle") endFollowVisual();
+    };
+    if (duration <= 0 || (Math.abs(target - start) <= CHIP_CENTER_EPS && !markNeedsMove)) {
       chipsEl.scrollLeft = target;
       clearFollow();
+      finishVisual();
       return;
     }
+    chipPhase = "anim";
+    setChipFollow(true);
     const t0 = performance.now();
     const step = (now) => {
       if (token !== chipScrollToken) return;
       const p = Math.min(1, (now - t0) / duration);
-      chipsEl.scrollLeft = p >= 1 ? target : start + (target - start) * daySwipeEase(p);
+      const e = p >= 1 ? 1 : daySwipeEase(p);
+      chipsEl.scrollLeft = p >= 1 ? target : start + (target - start) * e;
+      if (startBox && endBox) {
+        const box = lerpBox(startBox, endBox, e);
+        placeMark(box);
+        applyMarkTint(box);
+      }
       if (p < 1) requestAnimationFrame(step);
-      else clearFollow();
+      else {
+        clearFollow();
+        finishVisual();
+      }
     };
     requestAnimationFrame(step);
+  }
+
+  function animateChipReturn() {
+    const token = ++chipScrollToken;
+    chipFollowDay = null;
+    const startScroll = chipsEl.scrollLeft;
+    const endScroll = chipOriginScroll;
+    const startBox = chipMarkBox || chipBox(state.activeDay);
+    const endBox = chipBox(state.activeDay);
+    const duration = prefersReducedMotion() ? 0 : 280;
+    if (!endBox || duration <= 0) {
+      chipsEl.scrollLeft = endScroll;
+      if (endBox) placeMark(endBox);
+      endFollowVisual();
+      return;
+    }
+    chipPhase = "anim";
+    setChipFollow(true);
+    const t0 = performance.now();
+    const step = (now) => {
+      if (token !== chipScrollToken) return;
+      const p = Math.min(1, (now - t0) / duration);
+      const e = p >= 1 ? 1 : 1 - (1 - p) ** 3;
+      chipsEl.scrollLeft = p >= 1 ? endScroll : startScroll + (endScroll - startScroll) * e;
+      const box = lerpBox(startBox, endBox, e);
+      placeMark(box);
+      applyMarkTint(box);
+      if (p < 1) requestAnimationFrame(step);
+      else endFollowVisual();
+    };
+    requestAnimationFrame(step);
+  }
+
+  function onChipDrag({ ratio }) {
+    if (!Number.isFinite(ratio)) return;
+    if (chipPhase === "anim") {
+      chipScrollToken += 1;
+      chipFollowDay = null;
+    }
+    if (chipPhase !== "drag") {
+      chipPhase = "drag";
+      setChipFollow(true);
+    }
+    const from = chipBox(state.activeDay);
+    if (!from) return;
+    const dir = ratio < 0 ? 1 : ratio > 0 ? -1 : 0;
+    if (!dir) {
+      if (chipsEl.scrollLeft !== chipOriginScroll) chipsEl.scrollLeft = chipOriginScroll;
+      placeMark(from);
+      applyMarkTint(from);
+      return;
+    }
+    const nextIso = adjacentDay(vacation, state.activeDay, dir);
+    const to = nextIso !== state.activeDay ? chipBox(nextIso) : null;
+    if (!to) {
+      if (chipsEl.scrollLeft !== chipOriginScroll) chipsEl.scrollLeft = chipOriginScroll;
+      const cap = from.width * 0.28;
+      const shift = Math.max(-cap, Math.min(cap, -ratio * (from.width + 8)));
+      const box = { ...from, left: from.left + shift };
+      placeMark(box);
+      applyMarkTint(box);
+      return;
+    }
+    const t = Math.max(0, Math.min(1, Math.abs(ratio)));
+    const box = lerpBox(from, to, t);
+    const dest = chipScrollTarget(chipsEl, chipsEl.querySelector(`[data-day="${nextIso}"]`));
+    chipsEl.scrollLeft = chipOriginScroll + (dest - chipOriginScroll) * t;
+    placeMark(box);
+    applyMarkTint(box);
+  }
+
+  function onChipCancel() {
+    if (chipPhase !== "drag") return;
+    animateChipReturn();
   }
 
   function previewChipShift(dir) {
@@ -353,8 +566,7 @@ export async function renderUrlaubDetail(appEl, id) {
     if (next === state.activeDay) return;
     if (!chipsEl.querySelector(`[data-day="${next}"]`)) return;
     applyChipActive(next);
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    scrollChipWithPage(next, reduce ? 0 : DAY_SWIPE_MS);
+    scrollChipWithPage(next, prefersReducedMotion() ? 0 : DAY_SWIPE_MS);
   }
 
   function renderChips() {
@@ -366,12 +578,14 @@ export async function renderUrlaubDetail(appEl, id) {
       if (chipsEl.scrollLeft !== keep) chipsEl.scrollLeft = keep;
       chipScrollToken += 1;
       chipFollowDay = null;
+      if (chipPhase !== "idle") endFollowVisual();
     } else {
       applyChipActive(state.activeDay);
     }
     if (chipFollowDay && chipFollowDay !== state.activeDay) {
       chipScrollToken += 1;
       chipFollowDay = null;
+      if (chipPhase !== "idle") endFollowVisual();
     }
     const chip = chipsEl.querySelector(`[data-day="${state.activeDay}"]`);
     if (!chip || chipFollowDay === state.activeDay) return;
@@ -1703,8 +1917,24 @@ export async function renderUrlaubDetail(appEl, id) {
   });
 
   chipsEl.addEventListener("click", (e) => {
-    const chip = e.target.closest("[data-day]");
-    if (chip) setActiveDay(chip.dataset.day);
+    const chip = e.target.closest(".day-chip");
+    if (!chip?.dataset.day) return;
+    const dayIso = chip.dataset.day;
+    const settling = contentEl.dataset.swipeLock === "1";
+    if (settling) cancelDaySwipeSettle(contentEl);
+    const moving = chipPhase !== "idle";
+    if (moving) {
+      chipScrollToken += 1;
+      chipFollowDay = null;
+      endFollowVisual();
+    }
+    if (settling && dayIso === state.activeDay) {
+      applyChipActive(state.activeDay);
+      const live = chipsEl.querySelector(`[data-day="${state.activeDay}"]`);
+      if (live) chipsEl.scrollLeft = chipScrollTarget(chipsEl, live);
+      return;
+    }
+    setActiveDay(dayIso);
   });
 
 
