@@ -1,5 +1,6 @@
 import { normalizePresetId } from "./covers.js";
 import { clampTitle } from "./utils.js";
+import { normalizeCompanionTags } from "./vacation.js";
 
 export function coverFromTripRow(row) {
   const presetId = normalizePresetId(row?.cover_preset);
@@ -29,7 +30,8 @@ export function tripRowToVacation(row) {
     startDate: row.start_date || "",
     endDate: row.end_date || "",
     cover: coverFromTripRow(row),
-    companions: { tags: [], names: companions },
+    // Fehlende Spalte: companion_tags ist undefined, Tags bleiben leer.
+    companions: { tags: normalizeCompanionTags(row.companion_tags), names: companions },
     stats: { places: 0, photos: 0, notes: 0 },
   };
 }
@@ -41,6 +43,7 @@ export function vacationToTripRow(vacation) {
     start_date: vacation.startDate || null,
     end_date: vacation.endDate || null,
     companions: names,
+    companion_tags: normalizeCompanionTags(vacation.companions?.tags),
     cover_media_id: coverMediaIdForVacation(vacation),
     cover_preset: coverPresetForVacation(vacation),
   };

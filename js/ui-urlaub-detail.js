@@ -57,6 +57,7 @@ import { openPhotoCaptionSheet } from "./ui-photo-caption-sheet.js";
 import { openEditPlaceSheet, openSoftPointSheet } from "./ui-place-sheets.js";
 import { mountTripFooter } from "./ui-trip-footer.js";
 import { escapeHtml, todayIso } from "./utils.js";
+import { tripCompanionsMarkup } from "./vacation.js";
 
 const tripUiState = new Map();
 
@@ -153,6 +154,7 @@ export async function renderUrlaubDetail(appEl, id) {
         <button type="button" class="icon-btn icon-btn--gear-draft" data-action="settings" aria-label="Einstellungen">${ICON_GEAR}</button>
       </div>
     </header>
+    ${tripCompanionsMarkup(vacation)}
     <div class="day-nav">
       <div class="day-chips-wrap">
         <div class="day-chips" data-role="chips" role="tablist"></div>

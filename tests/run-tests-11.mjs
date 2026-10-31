@@ -621,7 +621,7 @@ async function runSuite(browserType, baseUrl, label, viewport) {
   const where = `${label} ${viewport.width}x${viewport.height}`;
   await page.goto(baseUrl);
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 56, `${where}: Build ${build}`);
+  assert(Number(build) === 57, `${where}: Build ${build}`);
   await runFlows(page, state, where);
   const unexpected = pageErrors.filter((err) => !err.includes("access control checks"));
   assert(!unexpected.length, `${where}: Seitenfehler ${unexpected.join(" | ")}`);

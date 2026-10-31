@@ -285,6 +285,20 @@ async function runSuite(browserType, baseUrl, label) {
   await installSupabaseMocks(page, state);
   const errors = [];
   page.on("pageerror", (err) => errors.push(String(err)));
+  await page.addInitScript(() => {
+    const RealDate = Date;
+    const fixed = new RealDate(2026, 9, 30, 12, 0, 0, 0).getTime();
+    function TestDate(...args) {
+      if (!new.target) return new RealDate(fixed).toString();
+      if (args.length === 0) return new RealDate(fixed);
+      return new RealDate(...args);
+    }
+    TestDate.prototype = RealDate.prototype;
+    TestDate.now = () => fixed;
+    TestDate.parse = RealDate.parse.bind(RealDate);
+    TestDate.UTC = RealDate.UTC.bind(RealDate);
+    window.Date = TestDate;
+  });
 
   await page.goto(baseUrl);
   await page.waitForSelector('[data-testid="login-screen"]');
@@ -302,7 +316,7 @@ async function runSuite(browserType, baseUrl, label) {
     throw new Error(`${label}: noteToRow setzt waypoint_id nicht auf null`);
   }
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  if (Number(build) !== 56) throw new Error(`${label}: Build ${build}, erwartet 56`);
+  if (Number(build) !== 57) throw new Error(`${label}: Build ${build}, erwartet 57`);
 
   await page.fill('input[name="email"]', LONG_EMAIL);
   const emailOverflow = await page.evaluate(() => {
@@ -833,7 +847,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 8a tests OK (Build 56)");
+  console.log("Playwright 8a tests OK (Build 57)");
 }
 
 main().catch((err) => {

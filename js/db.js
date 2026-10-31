@@ -31,9 +31,20 @@ function assertWritable() {
   }
 }
 
+function errorBlob(error) {
+  return `${error?.code || ""} ${error?.message || ""} ${error?.details || ""} ${error?.hint || ""}`;
+}
+
 function isMissingCoverPresetColumn(error) {
-  const blob = `${error?.code || ""} ${error?.message || ""} ${error?.details || ""} ${error?.hint || ""}`;
+  const blob = errorBlob(error);
+  if (/companion_tags/i.test(blob)) return false;
   return /PGRST204/i.test(blob) || (/cover_preset/i.test(blob) && /schema cache|could not find|column/i.test(blob));
+}
+
+function isMissingCompanionTagsColumn(error) {
+  const blob = errorBlob(error);
+  if (!/companion_tags/i.test(blob)) return false;
+  return /PGRST204|42703/i.test(blob);
 }
 
 function isMissingCaptionColumn(error) {
@@ -64,6 +75,12 @@ async function runMediaRead(run) {
   return first;
 }
 
+/**
+ * Schreibt eine Reise.
+ * Fehlt nur companion_tags (PGRST204/42703), wird genau diese Spalte
+ * weggelassen und der Rest gespeichert. Lesen bleibt select("*"): ohne
+ * Spalte fehlt das Feld im JSON, ohne gemeinsames Flag wie bei caption.
+ */
 async function writeTripRow(supabase, row, id) {
   const run = async (payload) => {
     const body = id ? { ...payload, id } : payload;
@@ -72,14 +89,30 @@ async function writeTripRow(supabase, row, id) {
     }
     return supabase.from("trips").insert(body).select().single();
   };
-  let { data, error } = await run(row);
-  if (error && isMissingCoverPresetColumn(error) && Object.prototype.hasOwnProperty.call(row, "cover_preset")) {
-    const rest = { ...row };
-    delete rest.cover_preset;
-    ({ data, error } = await run(rest));
+  let payload = row;
+  let companionsUnavailable = false;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const { data, error } = await run(payload);
+    if (!error) return { data, companionsUnavailable };
+    if (
+      isMissingCompanionTagsColumn(error) &&
+      Object.prototype.hasOwnProperty.call(payload, "companion_tags")
+    ) {
+      const rest = { ...payload };
+      delete rest.companion_tags;
+      payload = rest;
+      companionsUnavailable = true;
+      continue;
+    }
+    if (isMissingCoverPresetColumn(error) && Object.prototype.hasOwnProperty.call(payload, "cover_preset")) {
+      const rest = { ...payload };
+      delete rest.cover_preset;
+      payload = rest;
+      continue;
+    }
+    throw mapApiError(error);
   }
-  if (error) throw mapApiError(error);
-  return data;
+  throw mapApiError({ message: "Speichern fehlgeschlagen." });
 }
 
 async function upsertRow(supabase, table, row, id) {
@@ -124,13 +157,14 @@ export async function putVacation(vacation) {
   const v = normalizeVacation(vacation);
   const supabase = getSupabase();
   const row = vacationToTripRow(v);
-  const data = await writeTripRow(supabase, row, v.id || null);
+  const { data, companionsUnavailable } = await writeTripRow(supabase, row, v.id || null);
   const mapped = tripRowToVacation(data);
   const prev = readCache()?.trips || [];
   const idx = prev.findIndex((t) => t.id === mapped.id);
   writeCache({ trips: idx >= 0 ? prev.map((t, i) => (i === idx ? mapped : t)) : [...prev, mapped] });
   window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
-  return mapped;
+  if (!companionsUnavailable) return mapped;
+  return { ...mapped, companions: { ...mapped.companions }, companionsUnavailable: true };
 }
 
 export async function getVacation(id) {
