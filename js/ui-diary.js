@@ -212,7 +212,7 @@ function diaryFailure(err, fallback) {
   return err?.message || fallback;
 }
 
-export async function renderDiary(appEl, tripId) {
+export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
   const mountGen = appEl?.dataset?.appRenderGen ?? "";
   const token = `${mountGen}:${Date.now()}:${Math.random()}`;
   appEl.dataset.diaryToken = token;
@@ -266,12 +266,36 @@ export async function renderDiary(appEl, tripId) {
   }
   if (!alive()) return;
 
+  const focusFinal = recapId === "final";
+  const focused = !focusFinal && recapId ? rows.find((row) => row.id === recapId) || null : null;
+
   if (!canEdit) {
     if (!finalRow) {
       paintUnavailable("Noch kein Reisetagebuch.");
       return;
     }
     await paintDraft(finalRow, { readonly: true, offerNew: false });
+    return;
+  }
+  if (focusFinal || focused?.status === "final") {
+    const row = focusFinal ? finalRow : focused;
+    if (row) {
+      await paintDraft(row, { readonly: true, offerNew: true });
+      return;
+    }
+    paintUnavailable("Noch kein Reisetagebuch.");
+    return;
+  }
+  if (focused?.status === "draft") {
+    await paintDraft(focused, { readonly: false });
+    return;
+  }
+  if (recapId) {
+    if (finalRow) {
+      await paintDraft(finalRow, { readonly: true, offerNew: true });
+      return;
+    }
+    paintUnavailable("Dieser Entwurf ist nicht mehr da.");
     return;
   }
   if (draft) {
