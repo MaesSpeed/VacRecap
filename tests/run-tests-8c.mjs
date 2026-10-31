@@ -301,7 +301,7 @@ async function runSuite(browserType, baseUrl, label) {
   await page.goto(baseUrl);
   await page.waitForSelector('[data-testid="login-screen"]');
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  if (Number(build) !== 58) throw new Error(`${label}: Build ${build}, erwartet 58`);
+  if (Number(build) !== 59) throw new Error(`${label}: Build ${build}, erwartet 59`);
 
   await page.fill('input[name="email"]', "test@example.com");
   await page.click('form[data-step="email"] button[type="submit"]');
@@ -508,7 +508,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 8c tests OK (Build 58)");
+  console.log("Playwright 8c tests OK (Build 59)");
 }
 
 main().catch((err) => {

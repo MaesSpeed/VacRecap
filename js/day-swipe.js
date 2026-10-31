@@ -39,6 +39,13 @@ function trackOf(root) {
   return root.querySelector("[data-role='day-track']");
 }
 
+const settleControls = new WeakMap();
+
+/** Bricht die Einrast-Animation ab, ohne den Tag zu wechseln. */
+export function cancelDaySwipeSettle(root) {
+  settleControls.get(root)?.cancel();
+}
+
 function ensureStructure(root) {
   if (root.dataset.daySwipe === "1" && trackOf(root)) return;
   root.dataset.daySwipe = "1";
@@ -95,6 +102,23 @@ export function installDaySwipe(root, onShift, hooks = {}) {
   let vel = 0;
   let width = 1;
   let docMove = null;
+  const settle = { gen: 0, timer: 0, onEnd: null };
+
+  const cancelSettle = () => {
+    settle.gen += 1;
+    if (settle.timer) clearTimeout(settle.timer);
+    settle.timer = 0;
+    const track = trackOf(root);
+    if (settle.onEnd && track) track.removeEventListener("transitionend", settle.onEnd);
+    settle.onEnd = null;
+    if (track) {
+      track.style.transition = "none";
+      track.style.transform = REST;
+    }
+    root.dataset.swipeLock = "0";
+    root.dataset.gesture = "0";
+  };
+  settleControls.set(root, { cancel: cancelSettle });
 
   const canPrev = () => root.dataset.canPrev === "1";
   const canNext = () => root.dataset.canNext === "1";
@@ -104,6 +128,8 @@ export function installDaySwipe(root, onShift, hooks = {}) {
     if (dx < 0 && !canNext()) return dx * 0.32;
     return dx;
   };
+
+  const dragRatio = (dx) => (width ? resisted(dx) / width : 0);
 
   const apply = (dx) => {
     const track = trackOf(root);
@@ -158,7 +184,13 @@ export function installDaySwipe(root, onShift, hooks = {}) {
       if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
       mode = Math.abs(dx) > Math.abs(dy) * 1.2 ? "h" : "v";
       if (mode === "h") {
-        if (event?.pointerId != null) root.setPointerCapture?.(event.pointerId);
+        if (event?.pointerId != null) {
+          try {
+            root.setPointerCapture?.(event.pointerId);
+          } catch {
+            /* synthetischer Pointer oder bereits gelöst */
+          }
+        }
         hooks.onLock?.();
         armDocBlock();
       }
@@ -172,7 +204,9 @@ export function installDaySwipe(root, onShift, hooks = {}) {
       lastX = x;
       lastT = now;
     }
-    apply(resisted(dx));
+    const moved = resisted(dx);
+    apply(moved);
+    hooks.onDrag?.({ ratio: dragRatio(dx), dx, width });
   };
 
   const finish = (x) => {
@@ -192,6 +226,7 @@ export function installDaySwipe(root, onShift, hooks = {}) {
     }
     const track = trackOf(root);
     if (!track) return;
+    hooks.onDrag?.({ ratio: dragRatio(dx), dx, width });
     const threshold = Math.min(96, Math.max(48, width * 0.22));
     const fling = Math.abs(vel) > 0.55 && Math.abs(dx) > 16;
     let dir = 0;
@@ -200,6 +235,7 @@ export function installDaySwipe(root, onShift, hooks = {}) {
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (!dir) {
       rest();
+      hooks.onCancel?.();
       hooks.onRest?.();
       return;
     }
@@ -214,11 +250,15 @@ export function installDaySwipe(root, onShift, hooks = {}) {
     const target = dir > 0 ? "translate3d(-66.666666%, 0, 0)" : "translate3d(0px, 0, 0)";
     track.style.transition = daySwipeTransition();
     track.style.transform = target;
+    const gen = ++settle.gen;
     let settled = false;
     const done = () => {
-      if (settled) return;
+      if (settled || gen !== settle.gen) return;
       settled = true;
-      track.removeEventListener("transitionend", onEnd);
+      if (settle.timer) clearTimeout(settle.timer);
+      settle.timer = 0;
+      if (settle.onEnd) track.removeEventListener("transitionend", settle.onEnd);
+      settle.onEnd = null;
       const incoming = root.querySelector(`[data-page="${dir > 0 ? "next" : "prev"}"]`);
       const current = root.querySelector("[data-page='current']");
       if (incoming && current && incoming.innerHTML.trim()) current.innerHTML = incoming.innerHTML;
@@ -234,8 +274,9 @@ export function installDaySwipe(root, onShift, hooks = {}) {
       if (ev.propertyName !== "transform") return;
       done();
     };
+    settle.onEnd = onEnd;
     track.addEventListener("transitionend", onEnd);
-    setTimeout(done, 420);
+    settle.timer = setTimeout(done, 420);
   };
 
   root.addEventListener(
@@ -260,13 +301,19 @@ export function installDaySwipe(root, onShift, hooks = {}) {
     finish(e.changedTouches[0].clientX);
   });
 
-  root.addEventListener("touchcancel", () => {
+  const abortGesture = () => {
     if (!tracking) return;
+    const wasH = mode === "h";
     tracking = false;
     mode = null;
     root.dataset.gesture = "0";
     detachDoc();
     rest();
+    if (wasH) hooks.onCancel?.();
+  };
+
+  root.addEventListener("touchcancel", () => {
+    abortGesture();
   });
 
   root.addEventListener("pointerdown", (e) => {
@@ -283,12 +330,7 @@ export function installDaySwipe(root, onShift, hooks = {}) {
   });
   root.addEventListener("pointercancel", (e) => {
     if (e.pointerType === "touch") return;
-    if (!tracking) return;
-    tracking = false;
-    mode = null;
-    root.dataset.gesture = "0";
-    detachDoc();
-    rest();
+    abortGesture();
   });
 
   root.addEventListener(

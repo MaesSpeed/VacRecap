@@ -139,7 +139,7 @@ async function assertLoginCopy(page, label) {
       text: screen?.innerText || "",
     };
   });
-  if (Number(ui.build) !== 58) throw new Error(`${label}: Build ${ui.build}, erwartet 58`);
+  if (Number(ui.build) !== 59) throw new Error(`${label}: Build ${ui.build}, erwartet 59`);
   if (!ui.lead.includes("Du erhältst einen Code per E-Mail.")) {
     throw new Error(`${label}: Lead falsch (${ui.lead})`);
   }
@@ -267,7 +267,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 8b tests OK (Build 58)");
+  console.log("Playwright 8b tests OK (Build 59)");
 }
 
 main().catch((err) => {
