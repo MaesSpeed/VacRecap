@@ -51,6 +51,7 @@ import {
   wrapPlaceList,
 } from "./ui-place-list.js";
 import { canEditTripMedia, getMyTripRole } from "./trip-role.js";
+import { loadRecapEntry, recapEntryCardHtml } from "./ui-recap-video.js";
 import { deleteMedia } from "./db.js";
 import { openConfirmDialog } from "./ui-confirm.js";
 import { startGalleryPhotoUpload } from "./gallery-upload.js";
@@ -150,7 +151,7 @@ export async function renderUrlaubDetail(appEl, id) {
   }
 
   const days = vacationDays(vacation);
-  const state = await getState(id, vacation);
+  const [state, recapEntry] = await Promise.all([getState(id, vacation), loadRecapEntry(id)]);
   if (!state.userId) {
     try {
       state.userId = await getUserId();
@@ -754,11 +755,16 @@ export async function renderUrlaubDetail(appEl, id) {
       });
       placeHtml = wrapPlaceList(listHtml, mediaErrorHtml, selectBarHtml || "");
     }
+    const lastDay = days[days.length - 1];
+    const showRecapEntry = dayIso === lastDay && todayIso() >= (vacation.endDate || "");
+    const entryHtml = showRecapEntry ? recapEntryCardHtml(recapEntry) : "";
     return {
-      html: withFreeNotesHtml(placeHtml, bundle.freeNotes, {
-        expanded: active && state.freeNotesExpanded,
-        replaceEmpty: bundle.items.length === 0,
-      }),
+      html:
+        entryHtml +
+        withFreeNotesHtml(placeHtml, bundle.freeNotes, {
+          expanded: active && state.freeNotesExpanded,
+          replaceEmpty: bundle.items.length === 0,
+        }),
       thumbUrls,
       stale,
     };
@@ -1540,6 +1546,11 @@ export async function renderUrlaubDetail(appEl, id) {
       suppressTileClick = false;
       e.preventDefault();
       e.stopPropagation();
+      return;
+    }
+    if (e.target.closest("[data-action='open-recap-video']")) {
+      e.preventDefault();
+      navigate({ name: "urlaub-recap", id });
       return;
     }
 

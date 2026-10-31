@@ -2,6 +2,11 @@ import { getUserId } from "./auth-service.js";
 import { getSupabase } from "./supabase-client.js";
 
 const roleCache = new Map();
+const roleLoadFailed = new Set();
+
+export function tripRoleLoadFailed(tripId) {
+  return Boolean(tripId) && roleLoadFailed.has(tripId);
+}
 
 export async function getMyTripRole(tripId) {
   if (!tripId) return "owner";
@@ -16,13 +21,16 @@ export async function getMyTripRole(tripId) {
       .eq("user_id", uid)
       .maybeSingle();
     if (error) {
+      roleLoadFailed.add(tripId);
       roleCache.set(tripId, "owner");
       return "owner";
     }
+    roleLoadFailed.delete(tripId);
     const role = data?.role || "owner";
     roleCache.set(tripId, role);
     return role;
   } catch {
+    roleLoadFailed.add(tripId);
     roleCache.set(tripId, "owner");
     return "owner";
   }
@@ -33,6 +41,11 @@ export function canEditTripMedia(role) {
 }
 
 export function clearTripRoleCache(tripId) {
-  if (tripId) roleCache.delete(tripId);
-  else roleCache.clear();
+  if (tripId) {
+    roleCache.delete(tripId);
+    roleLoadFailed.delete(tripId);
+  } else {
+    roleCache.clear();
+    roleLoadFailed.clear();
+  }
 }
