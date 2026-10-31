@@ -469,6 +469,7 @@ body {
 
 .field input[type="text"],
 .field input[type="email"],
+.field input[type="time"],
 .name-chip-input input {
   width: 100%;
   border: 1px solid var(--border);
@@ -481,6 +482,7 @@ body {
 
 .field input[type="text"]:focus,
 .field input[type="email"]:focus,
+.field input[type="time"]:focus,
 .name-chip-input input:focus {
   outline: none;
   border-color: var(--emaille);
@@ -4596,4 +4598,197 @@ body:has(.screen--trip-swipe) {
 
 .cover-motifs__title {
   margin-top: 18px;
+}
+
+.map-tap-hint {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  max-width: calc(100% - 28px);
+  padding: 6px 12px;
+  background: #fff;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--emaille);
+  text-align: center;
+  box-shadow: 0 2px 8px rgba(22, 58, 120, 0.12);
+  z-index: 500;
+  pointer-events: none;
+}
+
+.map-stage:has(.map-offline-hint:not([hidden])) .map-tap-hint {
+  top: 46px;
+}
+
+.leaflet-div-icon:has(.map-drop-pin) {
+  background: transparent;
+  border: none;
+}
+
+.map-drop-pin {
+  display: block;
+  width: 22px;
+  height: 22px;
+  margin: 2px 0 0 3px;
+  background: #d4523e;
+  border: 2px solid #fff;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  box-shadow: 0 2px 6px rgba(22, 58, 120, 0.28);
+}
+
+.sheet--add-place {
+  padding-bottom: calc(16px + var(--safe-bottom));
+}
+
+.add-place-day {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: fit-content;
+  margin: 0 auto 14px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #e7f1fb;
+  color: var(--emaille);
+  font-size: 0.92rem;
+  font-weight: 800;
+}
+
+.add-place-day::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--emaille);
+}
+
+.add-place-suggestion,
+.add-place-lead,
+.add-place-count,
+.pick-empty {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+.add-place-lead,
+.add-place-count {
+  text-align: center;
+  font-weight: 700;
+}
+
+.add-place-time-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.add-place-time-row input[type="time"] {
+  width: auto;
+  min-width: 118px;
+  min-height: 44px;
+}
+
+.add-place-time-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.pick-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.pick-group {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px;
+}
+
+.pick-group__head h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--navy);
+}
+
+.pick-group__head p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.pick-note {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 8px;
+  padding: 8px 36px 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--navy);
+  text-align: left;
+  cursor: pointer;
+}
+
+.pick-note--on {
+  border-color: var(--emaille);
+  box-shadow: inset 0 0 0 1px var(--emaille);
+}
+
+.pick-note__icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: #f4f1e4;
+  color: #8a7340;
+  flex: 0 0 auto;
+}
+
+.pick-note__text {
+  min-width: 0;
+}
+
+.pick-note .tile__mark {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.pick-note--on .tile__mark {
+  background: #0066b3;
+  border-color: #0066b3;
+}
+
+.pick-note--on .tile__mark::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.pick-note:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
