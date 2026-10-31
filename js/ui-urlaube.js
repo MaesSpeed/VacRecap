@@ -1,6 +1,7 @@
 import { bindCoverImage, resolveVacationCoverMap } from "./cover-sources.js";
 import { armPointerSuppression } from "./gesture-guard.js";
 import { bindOverlay, closeOverlayHistory, releaseOverlayHistory } from "./overlay-stack.js";
+import { paintCardSymbols } from "./ui-card-symbols.js";
 import { computeVacationStats, formatVacationStatsLine } from "./vacation-stats.js";
 import { navigate } from "./router.js";
 import { clearTripUiState } from "./ui-urlaub-detail.js";
@@ -37,6 +38,7 @@ export async function renderUrlaubeScreen(appEl, vacations) {
 
   appEl.className = "screen screen--urlaube";
   delete appEl.dataset.vacationId;
+  delete appEl.dataset.cardSymbols;
   appEl.innerHTML = `
     <header class="top-bar">
       <h1 class="top-bar__title">Reisen</h1>
@@ -74,6 +76,15 @@ export async function renderUrlaubeScreen(appEl, vacations) {
       }
     </main>
   `;
+
+  fitCompanionLines(appEl);
+  if (document.fonts?.ready) {
+    document.fonts.ready.then(() => {
+      if (appEl?.dataset?.appRenderGen !== mountGen) return;
+      fitCompanionLines(appEl);
+    });
+  }
+  paintCardSymbols(appEl, vacations, mountGen);
 
   const coverMap = await resolveVacationCoverMap(vacations, { variant: "thumb" });
   if (appEl?.dataset?.appRenderGen !== mountGen) return;
@@ -130,7 +141,10 @@ function cardCurrent(v) {
         <img data-cover-img alt="" />
         <span class="badge badge--day">${dayLabel}</span>
         <div class="card--hero__overlay">
-          <h3 class="card--hero__title">${escapeHtml(v.title)}</h3>
+          <div class="card-compact__titlerow">
+            <h3 class="card--hero__title">${escapeHtml(v.title)}</h3>
+            <div class="card-syms" data-card-syms></div>
+          </div>
           <p class="card--hero__dates">${formatDateRangeOverlay(v.startDate, v.endDate)}</p>
         </div>
       </div>
@@ -138,6 +152,7 @@ function cardCurrent(v) {
         <span>${formatVacationStatsLine(v.stats)}</span>
         <div class="avatars">${avatars}</div>
         ${companionTagsMarkup(v)}
+        <p class="card-symbol-hint" data-testid="card-symbol-hint" hidden></p>
       </div>
     </article>
   `;
@@ -155,7 +170,10 @@ function cardCompact(v, kind) {
         <img data-cover-img alt="" />
       </div>
       <div class="card-compact__body">
-        <h3 class="card-compact__title">${escapeHtml(v.title)}</h3>
+        <div class="card-compact__titlerow">
+          <h3 class="card-compact__title">${escapeHtml(v.title)}</h3>
+          <div class="card-syms" data-card-syms></div>
+        </div>
         <p class="card-compact__dates">${formatDateRangeCard(v.startDate, v.endDate)}</p>
         ${companionTagsMarkup(v)}
         <div class="card-compact__meta">
@@ -164,8 +182,39 @@ function cardCompact(v, kind) {
         </div>
       </div>
       <span class="card-compact__chevron" aria-hidden="true">${CHEVRON_SVG}</span>
+      ${
+        kind === "past"
+          ? `<div class="card-recap-actions" data-card-actions hidden></div>`
+          : ""
+      }
+      <p class="card-symbol-hint" data-testid="card-symbol-hint" hidden></p>
     </article>
   `;
+}
+
+function fitCompanionLines(root) {
+  root?.querySelectorAll(".card--compact .companion-line").forEach((line) => {
+    if (!line.isConnected || line.clientWidth === 0) return;
+    const pills = [...line.querySelectorAll(".companion-pill:not(.companion-pill--more)")];
+    pills.forEach((pill) => {
+      pill.hidden = false;
+    });
+    line.querySelector(".companion-pill--more")?.remove();
+    if (pills.length < 2) return;
+    if (line.scrollWidth <= line.clientWidth + 1) return;
+    const more = document.createElement("span");
+    more.className = "companion-pill companion-pill--more";
+    more.dataset.testid = "companion-more";
+    line.append(more);
+    const hidden = [];
+    for (let i = pills.length - 1; i >= 1; i -= 1) {
+      pills[i].hidden = true;
+      hidden.unshift(pills[i].textContent || "");
+      more.textContent = `+${hidden.length}`;
+      more.setAttribute("aria-label", hidden.filter(Boolean).join(", "));
+      if (line.scrollWidth <= line.clientWidth + 1) break;
+    }
+  });
 }
 
 function renderAvatars(v) {
@@ -196,7 +245,8 @@ function bindCardInteractions(card, vacations) {
 
   card.addEventListener("contextmenu", (e) => e.preventDefault());
 
-  card.addEventListener("pointerdown", () => {
+  card.addEventListener("pointerdown", (event) => {
+    if (event.target.closest("[data-testid='card-symbol'], [data-testid='card-recap-btn']")) return;
     longPressed = false;
     pressTimer = setTimeout(() => {
       longPressed = true;
@@ -210,6 +260,7 @@ function bindCardInteractions(card, vacations) {
   );
 
   card.addEventListener("click", (e) => {
+    if (e.target.closest("[data-testid='card-symbol'], [data-testid='card-recap-btn']")) return;
     if (Date.now() < blockClickUntil) {
       e.preventDefault();
       e.stopPropagation();

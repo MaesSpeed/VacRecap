@@ -39,10 +39,10 @@ export function getRoute() {
     return { name: "urlaub-map", id: parts[1] };
   }
   if (parts[0] === "urlaub" && parts[2] === "recap") {
-    return { name: "urlaub-recap", id: parts[1] };
+    return { name: "urlaub-recap", id: parts[1], recapId: parts[3] ? decodeURIComponent(parts[3]) : "" };
   }
   if (parts[0] === "urlaub" && parts[2] === "tagebuch") {
-    return { name: "urlaub-tagebuch", id: parts[1] };
+    return { name: "urlaub-tagebuch", id: parts[1], recapId: parts[3] ? decodeURIComponent(parts[3]) : "" };
   }
   if (parts[0] === "urlaub" && parts[1]) {
     return { name: "urlaub-detail", id: parts[1] };
@@ -81,9 +81,11 @@ export function navigate(route, { replace = false, fromTrip = false } = {}) {
       break;
     case "urlaub-recap":
       hash = `#/urlaub/${route.id}/recap`;
+      if (route.recapId) hash += `/${encodeURIComponent(route.recapId)}`;
       break;
     case "urlaub-tagebuch":
       hash = `#/urlaub/${route.id}/tagebuch`;
+      if (route.recapId) hash += `/${encodeURIComponent(route.recapId)}`;
       break;
     default:
       break;
