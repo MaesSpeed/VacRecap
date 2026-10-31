@@ -15,7 +15,7 @@ import {
 } from "./recap-service.js";
 import { buildVideoRecap } from "./recap-storyboard.js";
 import { navigate } from "./router.js";
-import { canEditTripMedia, getMyTripRole } from "./trip-role.js";
+import { canEditTripMedia, getMyTripRole, tripRoleLoadFailed } from "./trip-role.js";
 import { openConfirmDialog } from "./ui-confirm.js";
 import { resolveThumbUrlMap } from "./ui-place-list.js";
 import { showToast, showWarnToast } from "./toast.js";
@@ -75,10 +75,15 @@ function pickStatus(rows, status) {
   );
 }
 
+async function canEditRecap(tripId) {
+  const role = await getMyTripRole(tripId);
+  if (tripRoleLoadFailed(tripId)) return false;
+  return canEditTripMedia(role);
+}
+
 export async function loadRecapEntry(tripId) {
   try {
-    const role = await getMyTripRole(tripId);
-    const canEdit = canEditTripMedia(role);
+    const canEdit = await canEditRecap(tripId);
     if (canEdit) return { canEdit: true, hasFinal: false };
     const rows = await listVideoRecaps(tripId);
     return { canEdit: false, hasFinal: rows.some((row) => row.status === "final") };
@@ -166,7 +171,7 @@ function sceneSub(scene, vacation) {
   return sceneMeta(scene);
 }
 
-export async function renderRecapVideo(appEl, tripId, { create = true } = {}) {
+export async function renderRecapVideo(appEl, tripId) {
   const mountGen = appEl?.dataset?.appRenderGen ?? "";
   const token = `${mountGen}:${Date.now()}:${Math.random()}`;
   appEl.dataset.recapToken = token;
@@ -198,8 +203,7 @@ export async function renderRecapVideo(appEl, tripId, { create = true } = {}) {
     return;
   }
 
-  const role = await getMyTripRole(tripId);
-  const canEdit = canEditTripMedia(role);
+  const canEdit = await canEditRecap(tripId);
   paintShell(vacation, { busy: true });
   if (!alive()) return;
 
@@ -235,12 +239,12 @@ export async function renderRecapVideo(appEl, tripId, { create = true } = {}) {
   }
   if (!alive()) return;
 
-  if (!canEdit) {
+    if (!canEdit) {
     if (!finalRow) {
       paintUnavailable(vacation, "Noch kein Recap-Video.");
       return;
     }
-    await paintStory(vacation, finalRow, material, { readonly: true });
+    await paintStory(vacation, finalRow, material, { readonly: true, offerNewDraft: false });
     return;
   }
 
@@ -249,23 +253,20 @@ export async function renderRecapVideo(appEl, tripId, { create = true } = {}) {
     return;
   }
 
+  if (finalRow) {
+    await paintStory(vacation, finalRow, material, { readonly: true, offerNewDraft: true });
+    return;
+  }
+
   const built = buildVideoRecap(material);
   if (!built.ok) {
     paintEmpty(vacation, built.counts);
     return;
   }
-  if (!create) {
-    if (finalRow) {
-      await paintStory(vacation, finalRow, material, { readonly: true });
-      return;
-    }
-    paintUnavailable(vacation, "Noch kein Recap-Video.");
-    return;
-  }
 
   paintShell(vacation, { busy: true });
   try {
-    const created = await createVideoDraft(tripId);
+    const created = await createVideoDraft(tripId, { version: 1 });
     if (!alive()) return;
     if (!created.row) {
       paintEmpty(vacation, created.built?.counts || built.counts);
@@ -362,11 +363,11 @@ export async function renderRecapVideo(appEl, tripId, { create = true } = {}) {
     });
   }
 
-  async function paintStory(current, row, source, { readonly }) {
+  async function paintStory(current, row, source, { readonly, offerNewDraft = false }) {
     const view = viewModel(row.content, source.places);
     const thumbIds = new Set();
     for (const scene of view.scenes) {
-      if (scene.mediaIds?.[0]) thumbIds.add(scene.mediaIds[0]);
+      for (const mediaId of scene.mediaIds || []) thumbIds.add(mediaId);
     }
     let thumbs = {};
     try {
@@ -381,7 +382,7 @@ export async function renderRecapVideo(appEl, tripId, { create = true } = {}) {
     const sceneCount = view.scenes.length;
     const sceneWord = sceneCount === 1 ? "Szene" : "Szenen";
     const kicker = readonly
-      ? `Freigegeben · Storyboard · ${sceneCount} ${sceneWord}`
+      ? "Final"
       : `Entwurf ${row.version || 1} · Storyboard · ${sceneCount} ${sceneWord}`;
     const photosUsed = view.scenes.reduce((sum, scene) => sum + (scene.mediaIds?.length || 0), 0);
     const perPhoto = view.formula.perPhotoS ?? P.perPhotoS;
@@ -417,7 +418,9 @@ export async function renderRecapVideo(appEl, tripId, { create = true } = {}) {
       })
       .join("");
     const actions = readonly
-      ? ""
+      ? offerNewDraft
+        ? `<button type="button" class="btn btn-emaille btn-emaille--block" data-testid="recap-new-draft">Neuer Entwurf</button>`
+        : ""
       : `
         <form class="recap-feedback" data-testid="recap-feedback-form">
           <label class="field">
@@ -452,7 +455,12 @@ export async function renderRecapVideo(appEl, tripId, { create = true } = {}) {
     appEl.querySelector('[data-action="preview"]')?.addEventListener("click", () => {
       openPreview(current, view, thumbs);
     });
-    if (readonly) return;
+    if (readonly) {
+      main.querySelector('[data-testid="recap-new-draft"]')?.addEventListener("click", () => {
+        void startNewDraft(row);
+      });
+      return;
+    }
     const form = main.querySelector('[data-testid="recap-feedback-form"]');
     form?.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -499,7 +507,7 @@ export async function renderRecapVideo(appEl, tripId, { create = true } = {}) {
         await adoptVideoDraft(row);
         showToast("Storyboard übernommen");
         if (!alive()) return;
-        await renderRecapVideo(appEl, tripId, { create: false });
+        await renderRecapVideo(appEl, tripId);
       } catch (err) {
         button.disabled = false;
         const message = err instanceof RecapUnavailableError ? err.message : err?.message || "Das Storyboard konnte nicht übernommen werden.";
@@ -508,14 +516,34 @@ export async function renderRecapVideo(appEl, tripId, { create = true } = {}) {
     });
   }
 
+  async function startNewDraft(sourceRow) {
+    paintShell(vacation, { busy: true });
+    try {
+      const version = (Number(sourceRow?.version) || 1) + 1;
+      const created = await createVideoDraft(tripId, { version, basedOn: sourceRow?.id || null });
+      if (!alive()) return;
+      if (!created.row) {
+        paintEmpty(vacation, created.built?.counts || { photos: 0, places: 0, notes: 0 });
+        return;
+      }
+      await paintStory(vacation, created.row, material, { readonly: false });
+    } catch (err) {
+      if (!alive()) return;
+      const message = err instanceof RecapUnavailableError ? err.message : err?.message || "Der Entwurf konnte nicht gespeichert werden.";
+      showWarnToast(message);
+      paintUnavailable(vacation, message);
+    }
+  }
+
   function openPreview(current, view, thumbs) {
     stopPreview();
     const overlay = document.getElementById("overlay-root");
     if (!overlay) return;
     const frames = framesFor(current, view, thumbs);
+    const loadedPhotos = frames.filter((frame) => frame.src && frame.mediaId).map((frame) => frame.mediaId);
     overlay.hidden = false;
     overlay.innerHTML = `
-      <div class="sheet" data-testid="recap-slideshow" role="dialog" aria-modal="true" aria-label="Vorschau">
+      <div class="sheet" data-testid="recap-slideshow" data-loaded-photos="${escapeHtml(loadedPhotos.join(" "))}" role="dialog" aria-modal="true" aria-label="Vorschau">
         <header class="sheet__header"><h2>Vorschau</h2></header>
         <div class="recap-stage" data-testid="recap-slide"></div>
         <button type="button" class="btn btn-emaille btn-emaille--block" data-testid="recap-slideshow-close">Schließen</button>
@@ -582,6 +610,7 @@ function framesFor(vacation, view, thumbs) {
         ms: perPhoto + extra,
         title: scene.name || "Ort",
         src: thumbs[id] || "",
+        mediaId: id,
       });
     });
   }

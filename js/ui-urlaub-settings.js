@@ -1,6 +1,6 @@
 import { deleteVacation, deleteVacationData, getVacation } from "./db.js";
 import { listVideoRecaps } from "./recap-service.js";
-import { canEditTripMedia, getMyTripRole } from "./trip-role.js";
+import { canEditTripMedia, getMyTripRole, tripRoleLoadFailed } from "./trip-role.js";
 import { ICON_BACK_CHEVRON } from "./icons.js";
 import { navigate } from "./router.js";
 import {
@@ -247,7 +247,7 @@ export async function renderUrlaubSettings(appEl, id) {
 async function recapSettingsAction(tripId) {
   try {
     const role = await getMyTripRole(tripId);
-    if (canEditTripMedia(role)) return "Recap-Video erstellen";
+    if (canEditTripMedia(role) && !tripRoleLoadFailed(tripId)) return "Recap-Video erstellen";
     const rows = await listVideoRecaps(tripId);
     if (rows.some((row) => row.status === "final" && !row.deletedAt)) return "Recap-Video ansehen";
     return "";

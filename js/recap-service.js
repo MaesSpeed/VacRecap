@@ -66,7 +66,7 @@ export async function loadRecapMaterial(tripId) {
   return { places, photos: photoResult.media || [], notes: notes || [] };
 }
 
-export async function createVideoDraft(tripId) {
+export async function createVideoDraft(tripId, { version = 1, basedOn = null } = {}) {
   const material = await loadRecapMaterial(tripId);
   const built = buildVideoRecap(material);
   if (!built.ok) return { built, row: null };
@@ -75,11 +75,12 @@ export async function createVideoDraft(tripId) {
     trip_id: tripId,
     kind: "video",
     status: "draft",
-    version: 1,
+    version: Math.max(1, Number(version) || 1),
     content: built.content,
     feedback: [],
     source_text: null,
   };
+  if (basedOn) payload.based_on = basedOn;
   if (userId) payload.created_by = userId;
   const data = await unwrap(getSupabase().from("trip_recaps").insert(payload).select("*").single());
   return { built, row: mapRow(data) };
@@ -110,17 +111,12 @@ export async function discardVideoDraft(recapId) {
   await unwrap(getSupabase().from("trip_recaps").delete().eq("id", recapId));
 }
 
-/** Alte finale Fassung löschen, dann diesen Entwurf freigeben. Zwei Aufrufe, wie im Pilot. */
+/**
+ * Erst freigeben, danach andere finale Zeilen löschen.
+ * Schlägt der erste Schritt fehl, bleibt die bisherige finale Fassung stehen.
+ */
 export async function adoptVideoDraft(recap) {
   if (!recap?.id || !recap.tripId) throw new Error("Entwurf fehlt.");
-  await unwrap(
-    getSupabase()
-      .from("trip_recaps")
-      .delete()
-      .eq("trip_id", recap.tripId)
-      .eq("kind", "video")
-      .eq("status", "final")
-  );
   const data = await unwrap(
     getSupabase()
       .from("trip_recaps")
@@ -128,6 +124,15 @@ export async function adoptVideoDraft(recap) {
       .eq("id", recap.id)
       .select("*")
       .single()
+  );
+  await unwrap(
+    getSupabase()
+      .from("trip_recaps")
+      .delete()
+      .eq("trip_id", recap.tripId)
+      .eq("kind", "video")
+      .eq("status", "final")
+      .neq("id", recap.id)
   );
   return mapRow(data);
 }
