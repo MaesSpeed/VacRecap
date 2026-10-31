@@ -1,4 +1,5 @@
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
+import { bindSheetPull } from "./sheet-pull.js";
 import { createNote, moveNoteToPlace, removeNote, updateNoteText } from "./note-service.js";
 import { dayRoleLabel, vacationDays } from "./days.js";
 import { openConfirmDialog } from "./ui-confirm.js";
@@ -65,7 +66,7 @@ export function openNoteSheet({
 
   overlay.innerHTML = `
     <div class="sheet sheet--note-bottom" data-testid="note-sheet">
-      <div class="sheet-handle" aria-hidden="true"></div>
+      <div class="sheet-handle" data-role="pick-handle" aria-hidden="true"></div>
       <header class="note-sheet__bar">
         <button type="button" class="note-sheet__cancel" data-action="cancel">Abbrechen</button>
         <h2 class="note-sheet__title">${isEdit ? "Notiz bearbeiten" : "Neue Notiz"}</h2>
@@ -140,12 +141,21 @@ export function openNoteSheet({
         danger: false,
         testId: "confirm-discard-note",
       });
-      if (!ok) return;
+      if (!ok) {
+        sheetEl?._pullRearm?.();
+        return;
+      }
     }
     closeOverlayHistory(activeClose);
   }
 
   const activeClose = bindOverlay(overlay, domClose, () => dismissNoteSheet());
+  bindSheetPull(sheetEl, {
+    onClose: () => {
+      void dismissNoteSheet();
+    },
+    scrollEl: sheetEl,
+  });
 
   overlay.querySelector('[data-action="cancel"]').addEventListener("click", () => void dismissNoteSheet());
 
@@ -195,7 +205,7 @@ export function openNoteSheet({
       if (pickLayer.isConnected) pickLayer.remove();
     };
     pickLayer.querySelector('[data-action="pick-cancel"]').addEventListener("click", closePick);
-    bindSubSheetPull(pickLayer.querySelector(".sheet--note-places"), {
+    bindSheetPull(pickLayer.querySelector(".sheet--note-places"), {
       onClose: closePick,
       scrollEl: pickLayer.querySelector("[data-role='pick-scroll']"),
     });

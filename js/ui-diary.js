@@ -24,6 +24,7 @@ import {
   discardRecapDraft,
   listDiaryRecaps,
   loadRecapMaterial,
+  saveDiaryNotes,
   updateRecapContent,
 } from "./recap-service.js";
 import { navigate } from "./router.js";
@@ -38,6 +39,41 @@ const WEEKDAYS_SHORT = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
 const PLACEHOLDER = "Montag\nFrüh los, am Nachmittag am See ...\n\nDienstag\nMit dem Rad nach Malcesine ...\n\nMittwoch\n...\n\nSonntag\n...";
 const NO_WEEKDAYS = "Keine Wochentage gefunden. Schreib jeden Tag in eine eigene Zeile.";
 const UNAVAILABLE = "Reisetagebuch ist noch nicht verfügbar.";
+const DIARY_SAVE_MS = 800;
+const DIARY_LOCAL_PREFIX = "vr-diary-source:";
+
+function readDiaryLocal(tripId) {
+  try {
+    const raw = localStorage.getItem(DIARY_LOCAL_PREFIX + tripId);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.text !== "string") return null;
+    return { text: parsed.text, pending: Boolean(parsed.pending) };
+  } catch {
+    return null;
+  }
+}
+
+function writeDiaryLocal(tripId, text, pending) {
+  const key = DIARY_LOCAL_PREFIX + tripId;
+  try {
+    if (!pending && !String(text || "").trim()) {
+      localStorage.removeItem(key);
+      return;
+    }
+    localStorage.setItem(key, JSON.stringify({ text: text || "", pending: Boolean(pending) }));
+  } catch {
+    /* Speicher voll: der Text bleibt im Feld. */
+  }
+}
+
+function seededDiaryText(tripId, serverText) {
+  const local = readDiaryLocal(tripId);
+  const server = serverText || "";
+  if (local?.pending) return local.text || "";
+  if (server) return server;
+  return local?.text || "";
+}
 
 const ICON_PEN = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>`;
 
@@ -347,6 +383,7 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
         <p class="diary-steps" data-testid="diary-steps"><span class="diary-steps__on">1 Bericht einfügen</span><span aria-hidden="true"> — </span><span>2 Entwurf ansehen</span></p>
         <p class="diary-help" data-testid="diary-help">Schreib jeden Wochentag in eine eigene Zeile, darunter den Text. So erkennt die App, was zu welchem Tag gehört.</p>
         <textarea class="diary-source" data-testid="diary-source" maxlength="${DIARY_TEXT_MAX}" placeholder="${escapeHtml(PLACEHOLDER)}"></textarea>
+        <p class="diary-save-hint" data-testid="diary-save-hint" hidden>Auf diesem Gerät gemerkt.</p>
         <div class="diary-tools">
           <button type="button" class="btn btn-emaille btn-emaille--ghost diary-chip" data-testid="diary-paste">Einfügen</button>
           <button type="button" class="btn btn-emaille btn-emaille--ghost diary-chip" data-testid="diary-clear" hidden>Leeren</button>
@@ -357,7 +394,61 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
       </div>`;
     const textarea = main.querySelector('[data-testid="diary-source"]');
     const action = main.querySelector('[data-testid="diary-action"]');
-    textarea.value = clampDiaryText(initial || "");
+    textarea.value = clampDiaryText(seededDiaryText(tripId, initial || ""));
+    let lastSaved = textarea.value;
+    let saveTimer = 0;
+
+    const hintEl = main.querySelector('[data-testid="diary-save-hint"]');
+    const showSavedLocally = (on) => {
+      if (hintEl) hintEl.hidden = !on;
+    };
+
+    const flushDiary = () => {
+      if (!textarea.isConnected) return Promise.resolve();
+      const text = clampDiaryText(textarea.value);
+      if (text === lastSaved) return Promise.resolve();
+      const pendingBefore = text;
+      writeDiaryLocal(tripId, text, true);
+      return saveDiaryNotes(tripId, text)
+        .then(() => {
+          if (textarea.value !== pendingBefore && clampDiaryText(textarea.value) !== text) return;
+          lastSaved = text;
+          writeDiaryLocal(tripId, text, false);
+          showSavedLocally(false);
+        })
+        .catch(() => {
+          showSavedLocally(true);
+        });
+    };
+
+    const scheduleDiarySave = () => {
+      window.clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(() => {
+        void flushDiary();
+      }, DIARY_SAVE_MS);
+    };
+    if (readDiaryLocal(tripId)?.pending) {
+      showSavedLocally(true);
+      lastSaved = `\0${textarea.value}`;
+      scheduleDiarySave();
+    }
+
+    const onDiaryHide = () => {
+      if (document.visibilityState === "hidden") void flushDiary();
+    };
+    const onDiaryPageHide = () => {
+      void flushDiary();
+    };
+    document.addEventListener("visibilitychange", onDiaryHide);
+    window.addEventListener("pagehide", onDiaryPageHide);
+    const prevCleanup = appEl._screenCleanup;
+    appEl._screenCleanup = () => {
+      window.clearTimeout(saveTimer);
+      document.removeEventListener("visibilitychange", onDiaryHide);
+      window.removeEventListener("pagehide", onDiaryPageHide);
+      void flushDiary();
+      prevCleanup?.();
+    };
 
     const syncChrome = () => {
       const count = main.querySelector('[data-testid="diary-count"]');
@@ -390,6 +481,7 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
       textarea.value = clampDiaryText(textarea.value);
       if (model) model = null;
       renderPreview();
+      scheduleDiarySave();
     });
 
     main.querySelector('[data-testid="diary-paste"]')?.addEventListener("click", async () => {

@@ -1,6 +1,7 @@
 import { CaptionUnavailableError, CloudNetworkError, CloudOfflineError } from "./cloud-errors.js";
 import { updateMediaCaption } from "./db.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
+import { bindSheetPull } from "./sheet-pull.js";
 import { showToast, showWarnToast } from "./toast.js";
 
 const PENCIL = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>`;
@@ -33,7 +34,7 @@ export function openPhotoCaptionSheet({ media, onSaved }) {
     layer.dataset.testid = "photo-caption-layer";
     layer.innerHTML = `
       <div class="sheet sheet--note-bottom" data-testid="photo-caption-sheet" role="dialog" aria-modal="true" aria-labelledby="photo-caption-title">
-        <div class="sheet-handle" aria-hidden="true"></div>
+        <div class="sheet-handle" data-role="pick-handle" aria-hidden="true"></div>
         <header class="note-sheet__bar">
           <button type="button" class="note-sheet__cancel" data-action="cancel" data-testid="photo-caption-cancel">Abbrechen</button>
           <h2 class="note-sheet__title" id="photo-caption-title">Notiz zum Foto</h2>
@@ -71,6 +72,11 @@ export function openPhotoCaptionSheet({ media, onSaved }) {
       finish();
     };
     const activeClose = bindOverlay(overlay, domClose);
+    const captionSheet = layer.querySelector('[data-testid="photo-caption-sheet"]');
+    bindSheetPull(captionSheet, {
+      onClose: () => closeOverlayHistory(activeClose),
+      scrollEl: captionSheet,
+    });
 
     const onKey = (event) => {
       if (event.key !== "Escape") return;

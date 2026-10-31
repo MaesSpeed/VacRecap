@@ -1,6 +1,7 @@
 import { dayChipDateLine } from "./days.js";
 import { formatTimeFromTs } from "./geo.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
+import { bindSheetPull } from "./sheet-pull.js";
 import {
   fotoCountLabel,
   groupSubtitle,
@@ -145,7 +146,7 @@ export function openPhotoAssignSheet({
       const notes = otherDaySummary(current, activeDay);
       overlay.innerHTML = `
         <div class="sheet sheet--assign" data-testid="photo-assign-sheet" role="dialog" aria-modal="true">
-          <div class="sheet-handle" aria-hidden="true"></div>
+          <div class="sheet-handle" data-role="pick-handle" aria-hidden="true"></div>
           <div class="sheet__header sheet__header--photo-upload">
             <h2 class="sheet__title">${escapeHtml(fotoCountLabel(count))} zuordnen</h2>
             <button type="button" class="sheet__close" data-action="close" aria-label="Schließen">×</button>
@@ -211,6 +212,11 @@ export function openPhotoAssignSheet({
         if (close) closeOverlayHistory(close);
         else closeDom();
         finish({ type: "keep" });
+      });
+      const assignSheet = overlay.querySelector('[data-testid="photo-assign-sheet"]');
+      bindSheetPull(assignSheet, {
+        onClose: () => closeWithoutUpload(),
+        scrollEl: assignSheet?.querySelector(".assign-sheet__list") || assignSheet,
       });
       overlay.querySelectorAll('[data-action="change"]').forEach((btn) => {
         btn.addEventListener("click", async () => {

@@ -180,10 +180,19 @@ export async function updateRecapContent(recap, content) {
   return mapRow(data);
 }
 
-export async function saveDiaryNotes(tripId, sourceText) {
+const diaryNotesQueue = new Map();
+
+async function saveDiaryNotesNow(tripId, sourceText) {
   const text = clampDiaryText(sourceText);
   const rows = await listDiaryRecaps(tripId);
   const notes = rows.find((row) => row.status === "notes" && !row.deletedAt) || null;
+  if (!String(text || "").trim()) {
+    if (!notes) return null;
+    const data = await unwrap(
+      getSupabase().from("trip_recaps").update({ source_text: "" }).eq("id", notes.id).select("*").single()
+    );
+    return mapRow(data);
+  }
   if (notes) {
     const data = await unwrap(
       getSupabase().from("trip_recaps").update({ source_text: text }).eq("id", notes.id).select("*").single()
@@ -203,6 +212,21 @@ export async function saveDiaryNotes(tripId, sourceText) {
   if (userId) payload.created_by = userId;
   const data = await unwrap(getSupabase().from("trip_recaps").insert(payload).select("*").single());
   return mapRow(data);
+}
+
+export function saveDiaryNotes(tripId, sourceText) {
+  const prev = diaryNotesQueue.get(tripId) || Promise.resolve();
+  const run = prev.then(
+    () => saveDiaryNotesNow(tripId, sourceText),
+    () => saveDiaryNotesNow(tripId, sourceText)
+  );
+  const tracked = run
+    .finally(() => {
+      if (diaryNotesQueue.get(tripId) === tracked) diaryNotesQueue.delete(tripId);
+    })
+    .catch(() => {});
+  diaryNotesQueue.set(tripId, tracked);
+  return run;
 }
 
 export async function createDiaryDraft(tripId, { version = 1, basedOn = null, content, sourceText } = {}) {

@@ -171,7 +171,7 @@ async function recognize(page, text) {
 
 async function runFlows(page, state, label) {
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 63, `${label}: Build ${build}`);
+  assert(Number(build) === 64, `${label}: Build ${build}`);
 
   await openTrip(page);
   await page.click('[data-action="settings"]');
@@ -522,7 +522,7 @@ async function runSuite(browserType, baseUrl, label, viewport) {
     await runFlows(page, state, where);
     const errors = realErrors(pageErrors);
     assert(errors.length === 0, `${where}: ${errors.join(" | ")}`);
-    console.log(`Playwright 12a tests OK (${where}, Build 63)`);
+    console.log(`Playwright 12a tests OK (${where}, Build 64)`);
   } finally {
     await browser.close();
   }
@@ -539,4 +539,4 @@ try {
 } finally {
   await new Promise((resolve) => server.close(resolve));
 }
-console.log("Playwright 12a tagebuch tests OK (Build 63)");
+console.log("Playwright 12a tagebuch tests OK (Build 64)");

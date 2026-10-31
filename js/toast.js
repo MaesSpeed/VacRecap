@@ -13,16 +13,61 @@ let hideTimer = null;
 let activeToast = null;
 let dismissHook = null;
 
-function syncToastRootPosition() {
+function visibleSheetTop(overlay) {
+  if (!overlay || overlay.hidden) return null;
+  let top = null;
+  for (const el of overlay.querySelectorAll(".sheet, .sheet--calendar")) {
+    const rect = el.getBoundingClientRect();
+    if (rect.height < 8 || rect.bottom <= 0) continue;
+    if (top == null || rect.top < top) top = rect.top;
+  }
+  return top;
+}
+
+export function syncToastRootPosition() {
   const root = document.getElementById("toast-root");
   const overlay = document.getElementById("overlay-root");
   if (!root) return;
-  const sheetOpen =
-    overlay && !overlay.hidden && overlay.querySelector(".sheet, .sheet--calendar");
+  const sheetTop = visibleSheetTop(overlay);
   const viewerOpen =
     overlay && !overlay.hidden && overlay.querySelector('[data-testid="media-viewer"]');
-  root.classList.toggle("toast-root--above-sheet", Boolean(sheetOpen));
+  root.classList.toggle("toast-root--above-sheet", sheetTop != null);
   root.classList.toggle("toast-root--over-viewer", Boolean(viewerOpen));
+  if (sheetTop == null) {
+    root.style.top = "";
+    root.style.bottom = "";
+    root.dataset.toastAnchor = "footer";
+    return;
+  }
+  const room = sheetTop;
+  if (room >= 88) {
+    root.style.top = "auto";
+    root.style.bottom = `${Math.max(8, window.innerHeight - sheetTop + 8)}px`;
+    root.dataset.toastAnchor = "above-sheet";
+    return;
+  }
+  root.style.bottom = "auto";
+  root.style.top = "calc(env(safe-area-inset-top, 0px) + 12px)";
+  root.dataset.toastAnchor = "top";
+}
+
+let toastAnchorInstalled = false;
+
+export function installToastPositionSync() {
+  if (toastAnchorInstalled) return;
+  const overlay = document.getElementById("overlay-root");
+  if (!overlay) return;
+  toastAnchorInstalled = true;
+  const observer = new MutationObserver(() => syncToastRootPosition());
+  observer.observe(overlay, {
+    attributes: true,
+    attributeFilter: ["hidden", "class"],
+    childList: true,
+    subtree: true,
+  });
+  window.addEventListener("resize", syncToastRootPosition);
+  window.visualViewport?.addEventListener("resize", syncToastRootPosition);
+  syncToastRootPosition();
 }
 
 function dismissToast({ immediate = false, skipHook = false } = {}) {
