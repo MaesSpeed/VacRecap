@@ -729,14 +729,14 @@ async function runSuite(browserType, baseUrl, label, viewport) {
   const where = `${label} ${viewport.width}x${viewport.height}`;
   await page.goto(baseUrl);
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 59, `${where}: Build ${build}`);
+  assert(Number(build) === 60, `${where}: Build ${build}`);
   const tripId = await loginAndOpen(page);
   seedTrip(state, tripId);
   await runFlows(page, state, where);
   const unexpected = pageErrors.filter((err) => !err.includes("access control checks") && !err.includes("Load failed") && !err.includes("Failed to fetch"));
   assert(!unexpected.length, `${where}: Seitenfehler ${unexpected.join(" | ")}`);
   await browser.close();
-  console.log(`Playwright 3 Ort nachtragen OK (${where}, Build 59)`);
+  console.log(`Playwright 3 Ort nachtragen OK (${where}, Build 60)`);
 }
 
 const { server, baseUrl } = await startServer();
