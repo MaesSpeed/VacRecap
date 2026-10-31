@@ -486,7 +486,7 @@ async function runSuite(browserType, baseUrl, label) {
 
   await page.goto(baseUrl);
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 60, `${label}: Build ${build}`);
+  assert(Number(build) === 61, `${label}: Build ${build}`);
 
   const heicBytes = [...heicWithExif({ lat: 45.5, lng: 10.25, date: "2026:10:28 15:12:00" })];
   const heic = await page.evaluate(async (bytes) => {
@@ -809,7 +809,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 9a tests OK (Build 60)");
+  console.log("Playwright 9a tests OK (Build 61)");
 }
 
 main().catch((err) => {

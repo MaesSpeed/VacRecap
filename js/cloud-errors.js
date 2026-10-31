@@ -21,6 +21,13 @@ export class CaptionUnavailableError extends Error {
   }
 }
 
+export class RecapUnavailableError extends Error {
+  constructor(message = "Recap-Video ist noch nicht verfügbar.") {
+    super(message);
+    this.name = "RecapUnavailableError";
+  }
+}
+
 export function isFetchNetworkFailure(err) {
   const msg = (err?.message || String(err || "")).toLowerCase();
   return (

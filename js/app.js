@@ -8,6 +8,7 @@ import { renderLoginScreen } from "./ui-login.js";
 import { renderUrlaubDetail } from "./ui-urlaub-detail.js";
 import { renderMapScreen } from "./ui-map.js";
 import { renderTripLibrary } from "./ui-trip-library.js";
+import { renderRecapVideo } from "./ui-recap-video.js";
 import { renderUrlaubSettings } from "./ui-urlaub-settings.js";
 import { renderUrlaubForm } from "./ui-urlaub-form.js";
 import { renderUrlaubeScreen } from "./ui-urlaube.js";
@@ -97,6 +98,9 @@ async function renderNow() {
       break;
     case "urlaub-settings":
       await renderUrlaubSettings(appEl, route.id);
+      break;
+    case "urlaub-recap":
+      await renderRecapVideo(appEl, route.id);
       break;
     case "urlaub-map":
       await renderMapScreen(appEl, route.id);

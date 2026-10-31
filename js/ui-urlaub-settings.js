@@ -1,4 +1,6 @@
 import { deleteVacation, deleteVacationData, getVacation } from "./db.js";
+import { listVideoRecaps } from "./recap-service.js";
+import { canEditTripMedia, getMyTripRole } from "./trip-role.js";
 import { ICON_BACK_CHEVRON } from "./icons.js";
 import { navigate } from "./router.js";
 import {
@@ -37,11 +39,12 @@ export async function renderUrlaubSettings(appEl, id) {
     return;
   }
 
-  const [remember, radiusM, captureLoc, mapRoutes] = await Promise.all([
+  const [remember, radiusM, captureLoc, mapRoutes, recapAction] = await Promise.all([
     getRememberLocationOnOpen(),
     getSamePlaceRadiusM(),
     getRememberCaptureLocation(),
     getMapRoutesEnabled(),
+    recapSettingsAction(id),
   ]);
   const radiusOptions = samePlaceRadiusOptions();
 
@@ -119,6 +122,11 @@ export async function renderUrlaubSettings(appEl, id) {
       <section class="settings-block">
         <h2 class="settings-block__label">Reise</h2>
         <div class="settings-card settings-card--links">
+          ${
+            recapAction
+              ? `<button type="button" class="settings-link-row" data-action="recap-video" data-testid="settings-recap-video">${escapeHtml(recapAction)}</button>`
+              : ""
+          }
           <button type="button" class="settings-link-row" data-action="edit">Reise bearbeiten</button>
           <button type="button" class="settings-link-row settings-link-row--danger" data-action="delete">Reise löschen</button>
         </div>
@@ -219,6 +227,10 @@ export async function renderUrlaubSettings(appEl, id) {
     openCoverCreditsSheet();
   });
 
+  appEl.querySelector('[data-action="recap-video"]')?.addEventListener("click", () => {
+    navigate({ name: "urlaub-recap", id });
+  });
+
   appEl.querySelector('[data-action="edit"]').addEventListener("click", () => {
     sessionStorage.setItem(
       "vacrecap-form-return",
@@ -230,6 +242,18 @@ export async function renderUrlaubSettings(appEl, id) {
   appEl.querySelector('[data-action="delete"]').addEventListener("click", () => {
     confirmDeleteVacation(vacation);
   });
+}
+
+async function recapSettingsAction(tripId) {
+  try {
+    const role = await getMyTripRole(tripId);
+    if (canEditTripMedia(role)) return "Recap-Video erstellen";
+    const rows = await listVideoRecaps(tripId);
+    if (rows.some((row) => row.status === "final" && !row.deletedAt)) return "Recap-Video ansehen";
+    return "";
+  } catch {
+    return "";
+  }
 }
 
 function confirmDeleteVacation(vacation) {
