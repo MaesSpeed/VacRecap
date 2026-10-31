@@ -182,6 +182,11 @@ function cardCompact(v, kind) {
         </div>
       </div>
       <span class="card-compact__chevron" aria-hidden="true">${CHEVRON_SVG}</span>
+      ${
+        kind === "past"
+          ? `<div class="card-recap-actions" data-card-actions hidden></div>`
+          : ""
+      }
       <p class="card-symbol-hint" data-testid="card-symbol-hint" hidden></p>
     </article>
   `;
@@ -241,7 +246,7 @@ function bindCardInteractions(card, vacations) {
   card.addEventListener("contextmenu", (e) => e.preventDefault());
 
   card.addEventListener("pointerdown", (event) => {
-    if (event.target.closest("[data-testid='card-symbol']")) return;
+    if (event.target.closest("[data-testid='card-symbol'], [data-testid='card-recap-btn']")) return;
     longPressed = false;
     pressTimer = setTimeout(() => {
       longPressed = true;
@@ -255,7 +260,7 @@ function bindCardInteractions(card, vacations) {
   );
 
   card.addEventListener("click", (e) => {
-    if (e.target.closest("[data-testid='card-symbol']")) return;
+    if (e.target.closest("[data-testid='card-symbol'], [data-testid='card-recap-btn']")) return;
     if (Date.now() < blockClickUntil) {
       e.preventDefault();
       e.stopPropagation();

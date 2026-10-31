@@ -377,8 +377,51 @@ body {
   border-bottom: 3.5px solid transparent;
 }
 
+.card--compact > .card-recap-actions:not([hidden]) {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  margin-top: -4px;
+}
+
+.card-recap-btn {
+  flex: 1 1 0;
+  max-width: calc(50% - 4px);
+  min-width: 0;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 8px;
+  border: none;
+  border-radius: 12px;
+  background: #e7f3fb;
+  color: var(--emaille);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.1;
+  cursor: pointer;
+}
+
+.card-recap-btn span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-recap-btn--done {
+  background: #e5f5ea;
+  color: #1f7a44;
+}
+
 .card--compact > .card-symbol-hint {
   grid-column: 1 / -1;
+}
+
+.card--compact > .card-symbol-hint:not([hidden]) {
+  margin-top: -4px;
 }
 
 .card--hero__footer .card-symbol-hint {

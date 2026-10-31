@@ -16,7 +16,9 @@ const BOTH = "trip-both";
 const LONG = "trip-long";
 const TAGS = "trip-tags";
 const PLUS = "trip-plus";
-const TRIPS = [PARIS, DRAFTS, MIX, BOTH, LONG, TAGS, PLUS];
+const LEER = "trip-leer";
+const NOW = "trip-now";
+const TRIPS = [PARIS, DRAFTS, MIX, BOTH, LONG, TAGS, PLUS, LEER, NOW];
 const LONG_TITLE = "Sonnige Rundreise entlang der Küste mit einem ausgesprochen langen Namen";
 
 const MIME = {
@@ -149,6 +151,7 @@ function createMockSupabaseState() {
     recapMissing: false,
     holdCardQuery: null,
     recapGets: [],
+    memberGets: [],
     trips: [
       tripRow(PARIS, "Paris", "2026-12-12", "2026-12-15", [], ["Dana"]),
       tripRow(DRAFTS, "Gardasee 2025", "2025-06-16", "2025-06-20", [], ["Dana Reis", "Sami Reis"]),
@@ -157,6 +160,8 @@ function createMockSupabaseState() {
       tripRow(LONG, LONG_TITLE, "2025-09-01", "2025-09-03"),
       tripRow(TAGS, "Drei Tags", "2025-05-01", "2025-05-04", ["partner", "familie", "freunde"]),
       tripRow(PLUS, "Tagebuch plus", "2025-04-01", "2025-04-04"),
+      tripRow(LEER, "Leer", "2024-03-01", "2024-03-03"),
+      tripRow(NOW, "Unterwegs", "2026-10-30", "2026-11-02"),
     ],
     recaps: [
       recap({
@@ -330,7 +335,18 @@ function createMockSupabaseState() {
   state.handleRest = async (url, method, body, headers) => {
     const table = url.pathname.split("/").filter(Boolean).pop();
     if (table === "trip_members" && method === "GET") {
-      return sendRows([{ role: state.role, trip_id: url.searchParams.get("trip_id")?.slice(3) || BOTH, user_id: USER }], headers);
+      state.memberGets.push(url.searchParams.toString());
+      const filter = url.searchParams.get("trip_id") || "";
+      let ids = [BOTH];
+      if (filter.startsWith("eq.")) ids = [filter.slice(3)];
+      else if (filter.startsWith("in.(") && filter.endsWith(")")) {
+        ids = filter
+          .slice(4, -1)
+          .split(",")
+          .map((part) => part.replace(/^"|"$/g, ""))
+          .filter(Boolean);
+      }
+      return sendRows(ids.map((id) => ({ role: state.role, trip_id: id, user_id: USER })), headers);
     }
     if (table === "trips" && method === "GET") return sendRows(applyFilters(state.trips, url), headers);
     if (table === "waypoints" && method === "GET") return sendRows([], headers);
@@ -466,6 +482,10 @@ function symbol(page, tripId, kind) {
   return page.locator(`[data-vacation-id="${tripId}"] [data-testid="card-symbol"][data-kind="${kind}"]`);
 }
 
+function recapBtn(page, tripId, kind) {
+  return page.locator(`[data-vacation-id="${tripId}"] [data-testid="card-recap-btn"][data-kind="${kind}"]`);
+}
+
 async function waitFor(fn, message, ms = 8000) {
   const start = Date.now();
   while (Date.now() - start < ms) {
@@ -494,6 +514,12 @@ async function runFlows(page, state, label) {
 
   await page.waitForSelector("[data-card-symbols='done']");
   assert(cardQueries(state).length === 1, `${label}: weitere Kartenabfrage ${cardQueries(state).length}`);
+  assert(state.recapGets.length === 1, `${label}: zusätzliche trip_recaps-Abfrage ${state.recapGets.length}`);
+  assert(state.memberGets.length === 1, `${label}: Rollenabfragen ${state.memberGets.length}`);
+  const memberFilter = new URLSearchParams(state.memberGets[0]).get("trip_id") || "";
+  assert(memberFilter.startsWith("in.("), `${label}: Rolle pro Karte «${memberFilter}»`);
+  assert(memberFilter.includes(DRAFTS) && memberFilter.includes(LEER), `${label}: vergangene Reisen fehlen in der Rolle`);
+  assert(!memberFilter.includes(PARIS) && !memberFilter.includes(NOW), `${label}: laufende oder künftige Reise in der Rolle`);
 
   assert((await symbol(page, PARIS, "video").count()) === 0, `${label}: Paris Video`);
   assert((await symbol(page, PARIS, "diary").count()) === 0, `${label}: Paris Tagebuch`);
@@ -594,6 +620,39 @@ async function runFlows(page, state, label) {
 
   assert((await page.locator('.screen--urlaube [data-testid="recap-create"]').count()) === 0, `${label}: Button auf der Übersicht`);
 
+  const leerSection = await page.locator(`[data-vacation-id="${LEER}"]`).evaluate((el) => el.closest("section")?.querySelector("h2")?.textContent || "");
+  const nowSection = await page.locator(`[data-vacation-id="${NOW}"]`).evaluate((el) => el.closest("section")?.querySelector("h2")?.textContent || "");
+  assert(leerSection === "Vergangen", `${label}: Leer steht in «${leerSection}»`);
+  assert(nowSection === "Läuft jetzt", `${label}: Unterwegs steht in «${nowSection}»`);
+  assert((await recapBtn(page, PARIS, "video").count()) === 0, `${label}: Button auf künftiger Reise`);
+  assert((await recapBtn(page, NOW, "video").count()) === 0 && (await recapBtn(page, NOW, "diary").count()) === 0, `${label}: Button auf laufender Reise`);
+  assert((await symbol(page, LEER, "video").count()) === 0 && (await symbol(page, LEER, "diary").count()) === 0, `${label}: C1 Symbole`);
+  assert((await recapBtn(page, LEER, "video").getAttribute("data-state")) === "open", `${label}: C1 Video`);
+  assert((await recapBtn(page, LEER, "diary").getAttribute("data-state")) === "open", `${label}: C1 Tagebuch`);
+  assert((await recapBtn(page, LEER, "video").locator("svg").count()) === 1, `${label}: C1 ohne Film-Symbol`);
+  const leerHint = page.locator(`[data-vacation-id="${LEER}"] [data-testid="card-symbol-hint"]`);
+  assert((await leerHint.count()) === 0 || (await leerHint.isHidden()), `${label}: C1 Hinweis`);
+  assert((await recapBtn(page, DRAFTS, "video").getAttribute("data-state")) === "open", `${label}: C2 Video`);
+  assert((await recapBtn(page, DRAFTS, "diary").getAttribute("data-state")) === "open", `${label}: C2 Tagebuch grün`);
+  assert((await recapBtn(page, DRAFTS, "diary").getAttribute("data-drafts")) === "2", `${label}: C2 Entwurfszahl`);
+  assert((await recapBtn(page, MIX, "video").getAttribute("data-state")) === "open", `${label}: C3 Video`);
+  assert((await recapBtn(page, MIX, "video").getAttribute("data-drafts")) === "1", `${label}: C3 Video-Entwürfe`);
+  assert((await recapBtn(page, MIX, "diary").getAttribute("data-state")) === "final", `${label}: C3 Tagebuch`);
+  assert(await recapBtn(page, MIX, "diary").evaluate((el) => el.classList.contains("card-recap-btn--done")), `${label}: C3 ohne Haken`);
+  assert((await recapBtn(page, BOTH, "video").getAttribute("data-state")) === "final", `${label}: C4 Video`);
+  assert((await recapBtn(page, BOTH, "diary").getAttribute("data-state")) === "final", `${label}: C4 Tagebuch`);
+  const doneBg = await recapBtn(page, BOTH, "diary").evaluate((el) => getComputedStyle(el).backgroundColor);
+  const openBg = await recapBtn(page, LEER, "video").evaluate((el) => getComputedStyle(el).backgroundColor);
+  assert(doneBg === "rgb(229, 245, 234)", `${label}: Grün ${doneBg}`);
+  assert(openBg === "rgb(231, 243, 251)", `${label}: Blau ${openBg}`);
+  const buttonOrder = await page.locator(`[data-vacation-id="${DRAFTS}"]`).evaluate((card) => {
+    const meta = card.querySelector(".card-compact__meta").getBoundingClientRect();
+    const button = card.querySelector("[data-testid='card-recap-btn']").getBoundingClientRect();
+    const hint = card.querySelector("[data-testid='card-symbol-hint']").getBoundingClientRect();
+    return meta.bottom <= button.top + 1 && button.bottom <= hint.top + 1;
+  });
+  assert(buttonOrder, `${label}: Buttons sitzen nicht unter den Metadaten`);
+
   await draftsDiary.click();
   await page.waitForSelector("[data-testid='card-draft-item']");
   const sheetText = await page.locator("[data-testid='card-drafts-sheet']").innerText();
@@ -647,6 +706,33 @@ async function runFlows(page, state, label) {
   assert((await page.locator("[data-testid='diary-day-text']").innerText()).includes("PLUS-FINAL"), `${label}: Plus-Text`);
   await backToOverview(page);
 
+  const queriesBeforeButton = cardQueries(state).length;
+  await recapBtn(page, DRAFTS, "diary").click();
+  await page.waitForSelector("[data-testid='diary-kicker']");
+  assert((await page.locator("[data-testid='card-drafts-sheet']").count()) === 0, `${label}: Tagebuch-Button öffnet das Sheet`);
+  const buttonKicker = await page.locator("[data-testid='diary-kicker']").innerText();
+  const buttonText = await page.locator("[data-testid='diary-day-text']").innerText();
+  assert(buttonKicker.includes("Entwurf 2"), `${label}: Button öffnet nicht den neuesten Entwurf «${buttonKicker}»`);
+  assert(buttonText.includes("TEXT-ZWEI"), `${label}: Button-Text «${buttonText}»`);
+  assert(cardQueries(state).length === queriesBeforeButton, `${label}: Button löst eine Kartenabfrage aus`);
+  await backToOverview(page);
+
+  await recapBtn(page, MIX, "video").click();
+  await page.waitForSelector("[data-testid='recap-kicker']");
+  assert((await page.locator("[data-testid='card-drafts-sheet']").count()) === 0, `${label}: Video-Button öffnet das Sheet`);
+  assert((await page.locator("[data-testid='recap-kicker']").innerText()).includes("Entwurf 1"), `${label}: Video-Button`);
+  await backToOverview(page);
+
+  await recapBtn(page, BOTH, "video").click();
+  await page.waitForSelector("[data-testid='recap-kicker']");
+  assert((await page.locator("[data-testid='recap-kicker']").innerText()).trim() === "Final", `${label}: C4 Button`);
+  await backToOverview(page);
+
+  await recapBtn(page, LEER, "video").click();
+  await page.waitForSelector("[data-testid='recap-empty'], [data-testid='recap-storyboard']");
+  assert((await page.locator("[data-testid='recap-empty']").count()) === 1, `${label}: C1 erzeugt kein leeres Video`);
+  await backToOverview(page);
+
   await page.locator(`[data-vacation-id="${BOTH}"] .card-compact__title`).click();
   await page.waitForSelector("[data-testid='trip-content']");
   await page.locator('[data-day="2025-08-04"]').click();
@@ -689,6 +775,9 @@ async function runFlows(page, state, label) {
   await reloadHome(page);
   assert((await symbol(page, DRAFTS, "diary").getAttribute("data-drafts")) === "2", `${label}: Mitbearbeiter ohne Entwürfe`);
   assert((await symbol(page, BOTH, "video").getAttribute("data-state")) === "final", `${label}: Mitbearbeiter ohne Final`);
+  assert((await recapBtn(page, LEER, "video").getAttribute("data-state")) === "open", `${label}: Mitbearbeiter ohne C1`);
+  assert((await recapBtn(page, DRAFTS, "diary").getAttribute("data-drafts")) === "2", `${label}: Mitbearbeiter-Button`);
+  assert((await recapBtn(page, NOW, "video").count()) === 0, `${label}: Mitbearbeiter auf laufender Reise`);
 
   for (const role of ["viewer", "contributor"]) {
     state.role = role;
@@ -703,19 +792,50 @@ async function runFlows(page, state, label) {
     assert((await symbol(page, PLUS, "diary").locator(".card-sym__count").count()) === 0, `${label}: ${role} Zahl-Plakette`);
     assert((await symbol(page, BOTH, "video").getAttribute("data-state")) === "final", `${label}: ${role} Video-Final`);
     assert((await symbol(page, BOTH, "diary").getAttribute("data-state")) === "final", `${label}: ${role} Tagebuch-Final`);
+    assert((await recapBtn(page, LEER, "video").count()) === 0, `${label}: ${role} sieht C1`);
+    assert((await recapBtn(page, DRAFTS, "diary").count()) === 0, `${label}: ${role} sieht Entwurfs-Button`);
+    assert((await recapBtn(page, MIX, "video").count()) === 0, `${label}: ${role} Video-Button`);
+    assert((await recapBtn(page, MIX, "diary").getAttribute("data-state")) === "final", `${label}: ${role} Tagebuch-Button`);
+    assert((await recapBtn(page, BOTH, "video").getAttribute("data-state")) === "final", `${label}: ${role} C4 Video`);
+    assert((await recapBtn(page, BOTH, "diary").getAttribute("data-state")) === "final", `${label}: ${role} C4 Tagebuch`);
     assert((await page.locator("[data-testid='card-symbol-hint']:visible").count()) === 0, `${label}: ${role} Hinweis zurück`);
   }
 
-  state.role = "owner";
+  state.role = "editor";
   state.recapMissing = true;
+  await reloadHome(page);
+  assert((await page.locator("[data-testid='card-symbol']").count()) === 0, `${label}: Symbole trotz fehlender Tabelle`);
+  assert((await recapBtn(page, LEER, "video").count()) === 1 && (await recapBtn(page, LEER, "diary").count()) === 1, `${label}: Mitbearbeiter ohne Buttons`);
+  assert((await page.locator("[data-testid='app-toast']").count()) === 0, `${label}: Fehlerdialog`);
+
+  state.role = "viewer";
+  await reloadHome(page);
+  assert((await recapBtn(page, LEER, "video").count()) === 0, `${label}: Gast-Button ohne Tabelle`);
+  assert((await recapBtn(page, BOTH, "diary").count()) === 0, `${label}: Gast-Final ohne Tabelle`);
+
+  state.role = "owner";
   const beforeMissing = state.recapGets.length;
   await reloadHome(page);
   assert(state.recapGets.length > beforeMissing, `${label}: fehlende Tabelle ohne Abfrage`);
-  assert((await page.locator("[data-testid='card-symbol']").count()) === 0, `${label}: Symbole trotz fehlender Tabelle`);
+  assert(cardQueries(state).length === state.recapGets.filter((search) => new URLSearchParams(search).get("select") === "trip_id,kind,status,version,deleted_at").length, `${label}: fehlende Tabelle vervielfacht die Abfrage`);
+  assert((await page.locator("[data-testid='card-symbol']").count()) === 0, `${label}: Besitzer-Symbole ohne Tabelle`);
+  assert((await recapBtn(page, LEER, "video").getAttribute("data-state")) === "open", `${label}: Besitzer ohne Video-Button`);
+  assert((await recapBtn(page, BOTH, "diary").getAttribute("data-state")) === "open", `${label}: Besitzer-Button bleibt grün`);
   assert((await page.locator(`[data-vacation-id="${BOTH}"] .card-compact__title`).innerText()) === "Beides", `${label}: Übersicht weg`);
-  assert((await page.locator("[data-testid='app-toast']").count()) === 0, `${label}: Fehlerdialog`);
+  assert((await page.locator("[data-testid='app-toast']").count()) === 0, `${label}: Fehlerdialog beim Laden`);
   assert((await page.locator("[data-testid='cloud-load-error']").count()) === 0, `${label}: Cloud-Fehler`);
   assert((await page.locator("[role='alertdialog']").count()) === 0, `${label}: Dialog`);
+  const getsBeforeTap = state.recapGets.length;
+  await recapBtn(page, LEER, "video").click();
+  await page.waitForSelector("[data-testid='recap-unavailable']");
+  const missingVideo = await page.locator("[data-testid='recap-unavailable']").innerText();
+  assert(missingVideo.includes("Recap-Video ist noch nicht verfügbar."), `${label}: «${missingVideo}»`);
+  assert(state.recapGets.length <= getsBeforeTap + 1, `${label}: Tipp fragt pro Karte`);
+  await backToOverview(page);
+  await recapBtn(page, LEER, "diary").click();
+  await page.waitForSelector("[data-testid='diary-unavailable']");
+  const missingDiary = await page.locator("[data-testid='diary-unavailable']").innerText();
+  assert(missingDiary.includes("Reisetagebuch ist noch nicht verfügbar."), `${label}: «${missingDiary}»`);
 }
 
 async function runSuite(browserType, baseUrl, label, viewport) {

@@ -1,13 +1,15 @@
 import { bindOverlay, releaseOverlayHistory } from "./overlay-stack.js";
 import { cardSymbolSummary, listRecapCardRows, listRecaps } from "./recap-service.js";
 import { navigate } from "./router.js";
-import { escapeHtml, formatDateShort } from "./utils.js";
+import { canEditTripMedia, listMyTripRoles } from "./trip-role.js";
+import { escapeHtml, formatDateShort, tripStatus } from "./utils.js";
 
 const HINT_KEY = "vacrecap-card-symbol-hint";
 
 const FILM = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/></svg>`;
 const DOC = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>`;
 const HAND = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11M12 10V9a1.5 1.5 0 0 1 3 0v2M15 10.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-1a6 6 0 0 1-5-2.7L3.5 15a1.5 1.5 0 0 1 2.5-1.6L9 16"/></svg>`;
+const CHECK = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
 
 const KIND_LABEL = { video: "Recap-Video", diary: "Reisetagebuch" };
 
@@ -62,6 +64,21 @@ function symbolsHtml(summary) {
   return symbolButton("video", summary.video) + symbolButton("diary", summary.diary);
 }
 
+function actionButton(kind, bucket, canEdit) {
+  const final = Boolean(bucket?.final);
+  if (!canEdit && !final) return "";
+  const drafts = bucket?.drafts || 0;
+  const label = KIND_LABEL[kind];
+  const state = final ? "final" : "open";
+  const icon = final ? CHECK : kind === "video" ? FILM : DOC;
+  const countLabel = !final && drafts ? `, ${drafts} ${draftNoun(drafts)}` : "";
+  return `<button type="button" class="card-recap-btn${final ? " card-recap-btn--done" : ""}" data-testid="card-recap-btn" data-kind="${kind}" data-state="${state}" data-drafts="${drafts}" aria-label="${escapeHtml(label + countLabel)}">${icon}<span>${label}</span></button>`;
+}
+
+function actionsHtml(summary, canEdit) {
+  return actionButton("video", summary?.video, canEdit) + actionButton("diary", summary?.diary, canEdit);
+}
+
 function feedbackLabel(n) {
   const count = Number(n) || 0;
   return count === 1 ? "1 Feedback-Eintrag" : `${count} Feedback-Einträge`;
@@ -109,29 +126,53 @@ function applyCard(card, summary, showHint, title) {
   });
 }
 
+function applyActions(card, summary, canEdit) {
+  const slot = card.querySelector("[data-card-actions]");
+  if (!slot) return;
+  const html = actionsHtml(summary, canEdit);
+  slot.innerHTML = html;
+  slot.hidden = !html;
+  slot.querySelectorAll("[data-testid='card-recap-btn']").forEach((button) => {
+    button.addEventListener("pointerdown", (event) => event.stopPropagation());
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      markCardSymbolHintSeen();
+      const kind = button.dataset.kind === "diary" ? "diary" : "video";
+      navigate({
+        name: kind === "diary" ? "urlaub-tagebuch" : "urlaub-recap",
+        id: card.dataset.vacationId,
+      });
+    });
+  });
+}
+
 /**
  * Symbole nach den Karten. Die Übersicht wartet nicht auf diese Abfrage.
  * Fehler und fehlende Tabelle bleiben still.
  */
 export function paintCardSymbols(appEl, vacations, mountGen) {
-  const ids = (vacations || []).map((v) => v.id).filter(Boolean);
-  const titles = new Map((vacations || []).map((v) => [v.id, v.title || ""]));
+  const list = vacations || [];
+  const ids = list.map((v) => v.id).filter(Boolean);
+  const pastIds = list.filter((v) => tripStatus(v.startDate, v.endDate) === "past").map((v) => v.id);
+  const titles = new Map(list.map((v) => [v.id, v.title || ""]));
   if (!ids.length) {
     if (appEl?.dataset?.appRenderGen === mountGen) appEl.dataset.cardSymbols = "done";
     return;
   }
-  listRecapCardRows(ids)
-    .then((rows) => {
+  Promise.allSettled([listRecapCardRows(ids), listMyTripRoles(pastIds)])
+    .then(([recapResult, roleResult]) => {
       if (appEl?.dataset?.appRenderGen !== mountGen) return;
       if (!appEl.classList.contains("screen--urlaube")) return;
-      const summary = cardSymbolSummary(rows);
+      const summary = recapResult.status === "fulfilled" ? cardSymbolSummary(recapResult.value) : null;
+      const roles = roleResult.status === "fulfilled" ? roleResult.value : new Map();
       const showHint = !hintSeen();
       appEl.querySelectorAll("[data-vacation-id]").forEach((card) => {
-        applyCard(card, summary.get(card.dataset.vacationId), showHint, titles.get(card.dataset.vacationId) || "");
+        const id = card.dataset.vacationId;
+        const entry = summary ? summary.get(id) : undefined;
+        applyCard(card, entry, showHint, titles.get(id) || "");
+        applyActions(card, entry, canEditTripMedia(roles.get(id) || "owner"));
       });
-    })
-    .catch(() => {
-      /* keine Symbole, kein Fehlerdialog */
     })
     .finally(() => {
       if (appEl?.dataset?.appRenderGen === mountGen) appEl.dataset.cardSymbols = "done";

@@ -40,6 +40,42 @@ export function canEditTripMedia(role) {
   return role === "owner" || role === "editor";
 }
 
+/** Eine Abfrage für die Rollen der sichtbaren Reisen. Fehlt eine Zeile, gilt Besitzer. */
+export async function listMyTripRoles(tripIds) {
+  const ids = [...new Set((tripIds || []).filter(Boolean))];
+  const roles = new Map();
+  if (!ids.length) return roles;
+  const remember = (id, role) => {
+    roles.set(id, role);
+    roleCache.set(id, role);
+    roleLoadFailed.delete(id);
+  };
+  try {
+    const uid = await getUserId();
+    if (!uid) {
+      ids.forEach((id) => remember(id, "owner"));
+      return roles;
+    }
+    const { data, error } = await getSupabase()
+      .from("trip_members")
+      .select("trip_id, role")
+      .eq("user_id", uid)
+      .in("trip_id", ids);
+    if (error) throw error;
+    for (const row of data || []) {
+      if (!row?.trip_id) continue;
+      remember(row.trip_id, row.role || "owner");
+    }
+    for (const id of ids) {
+      if (!roles.has(id)) remember(id, "owner");
+    }
+    return roles;
+  } catch {
+    ids.forEach((id) => roles.set(id, "owner"));
+    return roles;
+  }
+}
+
 export function clearTripRoleCache(tripId) {
   if (tripId) {
     roleCache.delete(tripId);
