@@ -101,10 +101,10 @@ async function renderNow() {
       await renderUrlaubSettings(appEl, route.id);
       break;
     case "urlaub-recap":
-      await renderRecapVideo(appEl, route.id);
+      await renderRecapVideo(appEl, route.id, { recapId: route.recapId || "" });
       break;
     case "urlaub-tagebuch":
-      await renderDiary(appEl, route.id);
+      await renderDiary(appEl, route.id, { recapId: route.recapId || "" });
       break;
     case "urlaub-map":
       await renderMapScreen(appEl, route.id);

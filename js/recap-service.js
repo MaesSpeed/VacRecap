@@ -67,6 +67,53 @@ export function listDiaryRecaps(tripId) {
   return listRecaps(tripId, "diary");
 }
 
+/**
+ * Eine Abfrage für die Symbole aller sichtbaren Reisen.
+ * Nur die Spalten, die die Karte braucht. deleted_at filtert der Server,
+ * status «notes» fällt in cardSymbolSummary weg. Schlägt die Tabelle
+ * oder die Abfrage fehl, liefert der Aufrufer einfach keine Symbole.
+ */
+export async function listRecapCardRows(tripIds) {
+  const ids = [...new Set((tripIds || []).filter(Boolean))];
+  if (!ids.length) return [];
+  const data = await unwrap(
+    getSupabase()
+      .from("trip_recaps")
+      .select("trip_id,kind,status,version,deleted_at")
+      .in("trip_id", ids)
+      .is("deleted_at", null)
+  );
+  return (data || []).map((row) => ({
+    tripId: row.trip_id,
+    kind: row.kind,
+    status: row.status,
+    version: Number(row.version) || 1,
+    deletedAt: row.deleted_at || null,
+  }));
+}
+
+/** Finale und Entwürfe je Reise. Notizen und Papierkorb zählen nicht. */
+export function cardSymbolSummary(rows) {
+  const byTrip = new Map();
+  for (const row of rows || []) {
+    if (!row?.tripId || row.deletedAt) continue;
+    if (row.kind !== "video" && row.kind !== "diary") continue;
+    if (row.status !== "draft" && row.status !== "final") continue;
+    let item = byTrip.get(row.tripId);
+    if (!item) {
+      item = {
+        video: { final: false, drafts: 0 },
+        diary: { final: false, drafts: 0 },
+      };
+      byTrip.set(row.tripId, item);
+    }
+    const bucket = item[row.kind];
+    if (row.status === "final") bucket.final = true;
+    else bucket.drafts += 1;
+  }
+  return byTrip;
+}
+
 export async function loadRecapMaterial(tripId) {
   const [places, photoResult, notes] = await Promise.all([
     getPlacesForVacation(tripId),

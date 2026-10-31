@@ -638,7 +638,7 @@ async function main() {
   for (const vp of VIEWPORTS) {
     await page.setViewportSize({ width: vp.width, height: vp.height });
     const v = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-    if (Number(v) !== 62) throw new Error(`Version ${v} in ${vp.name}`);
+    if (Number(v) !== 63) throw new Error(`Version ${v} in ${vp.name}`);
   }
 
   for (const vp of [
@@ -761,7 +761,7 @@ async function main() {
 
   await ctx.close();
   server.close();
-  console.log("Playwright 6e tests OK (Build 62)");
+  console.log("Playwright 6e tests OK (Build 63)");
 }
 
 main().catch((err) => {

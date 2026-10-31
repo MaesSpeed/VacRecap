@@ -28,7 +28,7 @@ import {
 } from "./recap-service.js";
 import { navigate } from "./router.js";
 import { showToast, showWarnToast } from "./toast.js";
-import { canEditTripMedia, getMyTripRole, tripRoleLoadFailed } from "./trip-role.js";
+import { resolveTripEditing, ROLE_UNKNOWN_MESSAGE, tripRoleLoadFailed } from "./trip-role.js";
 import { openConfirmDialog } from "./ui-confirm.js";
 import { resolveThumbUrlMap } from "./ui-place-list.js";
 import { escapeHtml, formatDateRangeCard, parseIsoDate, todayIso } from "./utils.js";
@@ -201,10 +201,12 @@ function previewMarkup(model, vacation) {
   </section>`;
 }
 
-async function canEditDiary(tripId) {
-  const role = await getMyTripRole(tripId);
-  if (tripRoleLoadFailed(tripId)) return false;
-  return canEditTripMedia(role);
+function canEditDiary(tripId) {
+  return resolveTripEditing(tripId);
+}
+
+function unavailableCopy(tripId, emptyCopy) {
+  return tripRoleLoadFailed(tripId) ? ROLE_UNKNOWN_MESSAGE : emptyCopy;
 }
 
 function diaryFailure(err, fallback) {
@@ -212,7 +214,7 @@ function diaryFailure(err, fallback) {
   return err?.message || fallback;
 }
 
-export async function renderDiary(appEl, tripId) {
+export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
   const mountGen = appEl?.dataset?.appRenderGen ?? "";
   const token = `${mountGen}:${Date.now()}:${Math.random()}`;
   appEl.dataset.diaryToken = token;
@@ -266,12 +268,36 @@ export async function renderDiary(appEl, tripId) {
   }
   if (!alive()) return;
 
+  const focusFinal = recapId === "final";
+  const focused = !focusFinal && recapId ? rows.find((row) => row.id === recapId) || null : null;
+
   if (!canEdit) {
     if (!finalRow) {
-      paintUnavailable("Noch kein Reisetagebuch.");
+      paintUnavailable(unavailableCopy(tripId, "Noch kein Reisetagebuch."));
       return;
     }
     await paintDraft(finalRow, { readonly: true, offerNew: false });
+    return;
+  }
+  if (focusFinal || focused?.status === "final") {
+    const row = focusFinal ? finalRow : focused;
+    if (row) {
+      await paintDraft(row, { readonly: true, offerNew: true });
+      return;
+    }
+    paintUnavailable("Noch kein Reisetagebuch.");
+    return;
+  }
+  if (focused?.status === "draft") {
+    await paintDraft(focused, { readonly: false });
+    return;
+  }
+  if (recapId) {
+    if (finalRow) {
+      await paintDraft(finalRow, { readonly: true, offerNew: true });
+      return;
+    }
+    paintUnavailable("Dieser Entwurf ist nicht mehr da.");
     return;
   }
   if (draft) {
