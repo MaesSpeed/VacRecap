@@ -158,6 +158,7 @@ export function mediaRowToApp(row) {
     author: row.created_by ?? null,
     deletedAt: row.deleted_at || null,
     caption: normalizeMediaCaption(row.caption),
+    hasOwnTime: row.taken_at != null && String(row.taken_at) !== "",
   };
 }
 

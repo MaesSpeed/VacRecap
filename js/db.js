@@ -350,6 +350,21 @@ export async function deletePlace(id) {
   window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
 }
 
+/** Hebt das weiche Löschen auf, damit Rückgängig den Ort wieder zeigt. */
+export async function restorePlace(place) {
+  assertWritable();
+  const id = place?.id;
+  if (!id) return null;
+  const { error } = await getSupabase()
+    .from("waypoints")
+    .update({ deleted_at: null, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw mapApiError(error);
+  const fresh = await getPlace(id);
+  if (fresh) mergeWaypointCache(fresh);
+  return fresh;
+}
+
 export async function deletePlacesForVacation() {
   /* Reise-Löschung über trips cascade */
 }
@@ -391,6 +406,36 @@ function cacheNotesForWaypoint(waypointId, notes, tripId) {
 
 export async function getNotesForPlace(placeId) {
   return fetchNotesForWaypoint(placeId);
+}
+
+export async function getNotesForVacation(tripId) {
+  if (!tripId) return [];
+  const { data, error } = await getSupabase()
+    .from("notes")
+    .select("*")
+    .eq("trip_id", tripId)
+    .is("deleted_at", null)
+    .order("updated_at", { ascending: true });
+  if (error) throw mapApiError(error);
+  const notes = (data || []).map(noteRowToApp);
+  writeCache({ notes: { [tripId]: notes } });
+  return notes;
+}
+
+/** Wirft bei Netzwerkfehlern, statt eine leere Liste vorzutäuschen. */
+export async function listPlaceAttachmentIds(placeId) {
+  if (!placeId) return { mediaIds: [], noteIds: [] };
+  const supabase = getSupabase();
+  const [mediaRes, noteRes] = await Promise.all([
+    supabase.from("media").select("id").eq("waypoint_id", placeId).is("deleted_at", null),
+    supabase.from("notes").select("id").eq("waypoint_id", placeId).is("deleted_at", null),
+  ]);
+  if (mediaRes.error) throw mapApiError(mediaRes.error);
+  if (noteRes.error) throw mapApiError(noteRes.error);
+  return {
+    mediaIds: (mediaRes.data || []).map((row) => row.id).filter(Boolean),
+    noteIds: (noteRes.data || []).map((row) => row.id).filter(Boolean),
+  };
 }
 
 function sameNoteDay(noteDay, day) {
@@ -547,16 +592,20 @@ export async function updateMediaCaption(id, caption) {
 
 /**
  * Verschiebt ein Foto auf einen anderen Ort/Tag.
- * Der Patch enthält nur waypoint_id, day und updated_at — nie created_by.
+ * Der Patch enthält waypoint_id, day und updated_at — nie created_by.
+ * taken_at nur, wenn der Aufrufer es ausdrücklich setzt (Foto ohne eigene Zeit).
  * Kein vacrecap:data-changed, damit die Tagesansicht Ort und Zähler aus dem Cache malt.
  */
-export async function updateMediaPlacement(id, { waypointId, day }) {
+export async function updateMediaPlacement(id, { waypointId, day, takenAt } = {}) {
   assertWritable();
   const patch = {
     waypoint_id: waypointId,
     day,
     updated_at: new Date().toISOString(),
   };
+  if (takenAt !== undefined) {
+    patch.taken_at = takenAt == null ? null : new Date(takenAt).toISOString();
+  }
   const { data, error } = await getSupabase()
     .from("media")
     .update(patch)
@@ -817,6 +866,21 @@ export async function getMediaBySourceKey(vacationId, sourceKey) {
   );
   if (error) throw mapApiError(error);
   return data ? mediaRowToApp(data) : null;
+}
+
+/** Fotos der Reise. Wirft, wenn die Liste nicht geladen werden kann. */
+export async function getAssignablePhotos(vacationId) {
+  if (!vacationId) return [];
+  const { data, error } = await runMediaRead((columns) =>
+    getSupabase()
+      .from("media")
+      .select(columns)
+      .eq("trip_id", vacationId)
+      .is("deleted_at", null)
+      .order("taken_at", { ascending: true })
+  );
+  if (error) throw mapApiError(error);
+  return (data || []).map(mediaRowToApp).filter((item) => item && item.type === "photo");
 }
 
 export async function getAllMediaForVacation(vacationId) {

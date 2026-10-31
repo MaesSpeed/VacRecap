@@ -67,6 +67,16 @@ export function clearTripUiState(vacationId) {
   tripUiState.delete(vacationId);
 }
 
+export function noteFreshPlace(vacationId, placeId) {
+  const state = tripUiState.get(vacationId);
+  if (!state?.freshPlaceIds || !placeId) return;
+  state.freshPlaceIds.add(placeId);
+}
+
+export function forgetFreshPlace(vacationId, placeId) {
+  tripUiState.get(vacationId)?.freshPlaceIds?.delete(placeId);
+}
+
 export function setTripSelection(vacationId, day, placeId) {
   const state = tripUiState.get(vacationId);
   if (!state) return;

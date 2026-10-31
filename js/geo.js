@@ -101,7 +101,31 @@ export function fallbackPlaceName(ts) {
   return `Ort ${formatTimeFromTs(ts)}`;
 }
 
-async function fetchGeocodeName(lat, lng, signal) {
+function roadLine(addr) {
+  const road = addr.road || addr.pedestrian || addr.footway;
+  if (!road) return "";
+  return addr.house_number ? `${road} ${addr.house_number}` : road;
+}
+
+function placeNameFromGeocode(data) {
+  const addr = data?.address ?? {};
+  if (data?.name) return String(data.name);
+  const road = roadLine(addr);
+  if (road) return road;
+  if (addr.suburb) return addr.suburb;
+  if (addr.neighbourhood) return addr.neighbourhood;
+  if (addr.city || addr.town || addr.village) return addr.city || addr.town || addr.village;
+  return null;
+}
+
+function addressSuggestion(data) {
+  const addr = data?.address ?? {};
+  const road = roadLine(addr);
+  const locality = addr.city || addr.town || addr.village || addr.municipality || "";
+  return [road, locality].filter(Boolean).join(", ");
+}
+
+async function fetchGeocodeDetails(lat, lng, signal) {
   const url = `${NOMINATIM}?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&accept-language=de&zoom=18`;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), GEOCODE_TIMEOUT_MS);
@@ -117,34 +141,39 @@ async function fetchGeocodeName(lat, lng, signal) {
     });
     if (!res.ok) throw new Error("geocode failed");
     const data = await res.json();
-    const addr = data.address ?? {};
-    if (data.name) return String(data.name);
-    const road = addr.road || addr.pedestrian || addr.footway;
-    if (road) {
-      const num = addr.house_number ? ` ${addr.house_number}` : "";
-      return `${road}${num}`;
-    }
-    if (addr.suburb) return addr.suburb;
-    if (addr.neighbourhood) return addr.neighbourhood;
-    if (addr.city || addr.town || addr.village) return addr.city || addr.town || addr.village;
-    return null;
+    const name = placeNameFromGeocode(data);
+    const suggestion = addressSuggestion(data);
+    return {
+      name,
+      suggestion: suggestion && suggestion !== name ? suggestion : "",
+    };
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
   }
 }
 
-export async function reverseGeocodeName(lat, lng, { signal } = {}) {
+function enqueueGeocode(task, signal) {
   const run = geocodeChain.then(async () => {
     const wait = lastGeocodeAt ? Math.max(0, GEOCODE_GAP_MS - (performance.now() - lastGeocodeAt)) : 0;
     await sleep(wait, signal);
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     lastGeocodeAt = performance.now();
-    return fetchGeocodeName(lat, lng, signal);
+    return task(signal);
   });
   geocodeChain = run.then(
     () => {},
     () => {}
   );
   return run;
+}
+
+export async function reverseGeocodeName(lat, lng, { signal } = {}) {
+  const details = await enqueueGeocode((inner) => fetchGeocodeDetails(lat, lng, inner), signal);
+  return details?.name || null;
+}
+
+/** Name und Adresszeile. Schlägt die Abfrage fehl, wirft die Funktion. */
+export async function reverseGeocodeDetails(lat, lng, { signal } = {}) {
+  return enqueueGeocode((inner) => fetchGeocodeDetails(lat, lng, inner), signal);
 }

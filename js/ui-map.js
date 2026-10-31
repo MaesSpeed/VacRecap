@@ -1,4 +1,7 @@
+import { addPlaceErrorMessage, undoBackfilledPlace } from "./add-place-service.js";
+import { getUserId } from "./auth-service.js";
 import { assetUrl } from "./config.js";
+import { CloudOfflineError } from "./cloud-errors.js";
 import { dayColorFor, dayLegendLabel } from "./day-colors.js";
 import { vacationDays } from "./days.js";
 import { getMediaForPlace, getNotesForPlace, getPlacesForVacation, getVacation } from "./db.js";
@@ -15,7 +18,9 @@ import { queuePendingFooter } from "./pending-footer.js";
 import { navigate } from "./router.js";
 import { deletePlaceIfEmpty, movePlacePhotos, resolveFooterCaptureTarget } from "./target-place.js";
 import { loadTripSelection } from "./trip-selection-store.js";
-import { storeTripSelection, setTripSelection } from "./ui-urlaub-detail.js";
+import { canEditTripMedia, getMyTripRole } from "./trip-role.js";
+import { openAddPlaceFlow } from "./ui-add-place-sheet.js";
+import { forgetFreshPlace, noteFreshPlace, setTripSelection, storeTripSelection } from "./ui-urlaub-detail.js";
 import { mountTripFooter } from "./ui-trip-footer.js";
 import { dismissActiveToast, showToast, showTwoLineToast, showWarnToast } from "./toast.js";
 import { escapeHtml, todayIso } from "./utils.js";
@@ -104,6 +109,10 @@ export async function renderMapScreen(appEl, vacationId) {
 
   const days = vacationDays(vacation);
   let segment = getMapSegment(vacationId);
+  const [role, addUserId] = await Promise.all([getMyTripRole(vacationId), getUserId()]);
+  const canAddPlace = canEditTripMedia(role);
+  let draftOpen = false;
+  let draftPin = null;
 
   appEl.className = "screen screen--map";
   appEl.dataset.testid = "map-screen";
@@ -123,6 +132,7 @@ export async function renderMapScreen(appEl, vacationId) {
     <div class="map-stage">
       <div class="map-canvas" data-role="map"></div>
       <p class="map-offline-hint" data-role="offline-hint" hidden>Kartenbild braucht Internet</p>
+      <p class="map-tap-hint" data-testid="map-tap-hint" hidden>Tippe auf die Stelle für den neuen Ort</p>
       <p class="map-empty-hint" data-role="empty-hint" hidden>Noch keine Orte mit Position</p>
     </div>
     <div class="map-legend" data-role="legend"></div>
@@ -191,13 +201,30 @@ export async function renderMapScreen(appEl, vacationId) {
       .join("");
     segmentsEl.querySelectorAll("[data-segment]").forEach((btn) => {
       btn.addEventListener("click", () => {
+        if (draftOpen) return;
         segment = btn.dataset.segment;
         setMapSegment(vacationId, segment);
         renderSegments();
         renderLegend();
         drawMarkers();
+        syncTapHint();
       });
     });
+  }
+
+  function syncTapHint() {
+    const hint = appEl.querySelector('[data-testid="map-tap-hint"]');
+    if (hint) hint.hidden = !(canAddPlace && segment !== "all") || draftOpen;
+  }
+
+  function removeDraftPin() {
+    if (!draftPin) return;
+    try {
+      draftPin.remove();
+    } catch {
+      /* Karte ist beim Verlassen schon weg. */
+    }
+    draftPin = null;
   }
 
   function renderLegend() {
@@ -288,6 +315,12 @@ export async function renderMapScreen(appEl, vacationId) {
     layerGroup.clearLayers();
     const items = filteredPlaces();
     const hardItems = items.filter((e) => !e.place.soft);
+    const numberById = new Map(
+      hardItems
+        .slice()
+        .sort((a, b) => a.place.ts - b.place.ts)
+        .map((entry, index) => [entry.place.id, index + 1])
+    );
     const byDay = new Map();
     hardItems.forEach((e) => {
       const d = placeDay(e.place);
@@ -327,7 +360,7 @@ export async function renderMapScreen(appEl, vacationId) {
       const color = dayColorFor(vacation, dayIso);
       const latlng = [place.lat, place.lng];
 
-      const num = mapData.numberById.get(place.id);
+      const num = numberById.get(place.id);
       const icon = L.divIcon({
         className: "map-marker-wrap",
         html: `<span class="map-marker map-marker--hard" style="background:${color}"><span>${num}</span></span>`,
@@ -405,6 +438,97 @@ export async function renderMapScreen(appEl, vacationId) {
   renderSegments();
   renderLegend();
   drawMarkers();
+  syncTapHint();
+
+  async function reloadMap() {
+    if (!mapAlive) return;
+    try {
+      mapData = await loadMapPlaces(vacationId);
+      if (!mapAlive) return;
+      drawMarkers();
+    } catch (err) {
+      showWarnToast(addPlaceErrorMessage(err));
+    }
+  }
+
+  function undoErrorMessage(err) {
+    if (!navigator.onLine || err instanceof CloudOfflineError) {
+      return "Du bist offline. Änderungen sind erst wieder online möglich.";
+    }
+    return "Rückgängig ist fehlgeschlagen. Bitte erneut versuchen.";
+  }
+
+  let popupClosedAt = 0;
+  map.on("popupclose", () => {
+    popupClosedAt = performance.now();
+  });
+
+  map.on("click", (event) => {
+    if (!mapAlive || !canAddPlace || segment === "all" || draftOpen) return;
+    if (performance.now() - popupClosedAt < 300) return;
+    const lat = event?.latlng?.lat;
+    const lng = event?.latlng?.lng;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    draftOpen = true;
+    syncTapHint();
+    removeDraftPin();
+    const icon = L.divIcon({
+      className: "map-marker-wrap",
+      html: `<span class="map-drop-pin" data-testid="map-drop-pin"></span>`,
+      iconSize: [28, 28],
+      iconAnchor: [14, 26],
+    });
+    draftPin = L.marker(event.latlng, {
+      icon,
+      interactive: false,
+      keyboard: false,
+      zIndexOffset: 900,
+    }).addTo(map);
+    const placeDay = segment;
+    void (async () => {
+      try {
+        const result = await openAddPlaceFlow({
+          vacation,
+          vacationId,
+          day: placeDay,
+          lat,
+          lng,
+          userId: addUserId,
+        });
+        removeDraftPin();
+        if (result?.status !== "saved" || !result.place) return;
+        const previous = await loadTripSelection(vacationId);
+        const previousPlaceId = previous?.selectedByDay?.[placeDay] ?? null;
+        noteFreshPlace(vacationId, result.place.id);
+        setTripSelection(vacationId, placeDay, result.place.id);
+        await storeTripSelection(vacationId, placeDay, result.place.id);
+        showTwoLineToast("Ort angelegt", result.summaryLine, {
+          undoLabel: "Rückgängig",
+          onUndo: () => {
+            void (async () => {
+              try {
+                await undoBackfilledPlace(result.snapshot);
+                forgetFreshPlace(vacationId, result.place.id);
+                if (previousPlaceId) {
+                  setTripSelection(vacationId, placeDay, previousPlaceId);
+                  await storeTripSelection(vacationId, placeDay, previousPlaceId);
+                }
+                await reloadMap();
+                showToast("Wieder wie zuvor.");
+              } catch (err) {
+                showWarnToast(undoErrorMessage(err));
+                await reloadMap();
+              }
+            })();
+          },
+        });
+      } finally {
+        draftOpen = false;
+        removeDraftPin();
+        syncTapHint();
+      }
+    })();
+  });
 
   const dayForFooter = () => footerDay(vacationId, vacation, segment);
 
@@ -554,6 +678,7 @@ export async function renderMapScreen(appEl, vacationId) {
 
   appEl._mapCleanup = () => {
     mapAlive = false;
+    removeDraftPin();
     try {
       map.stop();
       map.off();
