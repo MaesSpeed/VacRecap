@@ -1,6 +1,7 @@
 import { getUserId } from "./auth-service.js";
 import { RecapUnavailableError, mapApiError } from "./cloud-errors.js";
 import { fetchUploadedPhotosForTrip, getNotesForVacation, getPlacesForVacation } from "./db.js";
+import { clampDiaryText } from "./diary-model.js";
 import { buildVideoRecap } from "./recap-storyboard.js";
 import { getSupabase } from "./supabase-client.js";
 
@@ -30,6 +31,8 @@ function mapRow(row) {
     updatedAt: row.updated_at || null,
     finalizedAt: row.finalized_at || null,
     deletedAt: row.deleted_at || null,
+    sourceText: row.source_text || "",
+    basedOn: row.based_on || null,
   };
 }
 
@@ -43,17 +46,25 @@ async function unwrap(result) {
   return data;
 }
 
-export async function listVideoRecaps(tripId) {
-  if (!tripId) return [];
+export async function listRecaps(tripId, kind) {
+  if (!tripId || !kind) return [];
   const data = await unwrap(
     getSupabase()
       .from("trip_recaps")
       .select("*")
       .eq("trip_id", tripId)
-      .eq("kind", "video")
+      .eq("kind", kind)
       .is("deleted_at", null)
   );
-  return (data || []).map(mapRow).filter((row) => row && !row.deletedAt);
+  return (data || []).map(mapRow).filter((row) => row && !row.deletedAt && row.kind === kind);
+}
+
+export function listVideoRecaps(tripId) {
+  return listRecaps(tripId, "video");
+}
+
+export function listDiaryRecaps(tripId) {
+  return listRecaps(tripId, "diary");
 }
 
 export async function loadRecapMaterial(tripId) {
@@ -86,7 +97,7 @@ export async function createVideoDraft(tripId, { version = 1, basedOn = null } =
   return { built, row: mapRow(data) };
 }
 
-export async function appendVideoFeedback(recap, text) {
+export async function appendRecapFeedback(recap, text) {
   const body = String(text || "").trim();
   if (!recap?.id || !body) return recap;
   const userId = await getUserId();
@@ -106,9 +117,63 @@ export async function appendVideoFeedback(recap, text) {
   return mapRow(data);
 }
 
-export async function discardVideoDraft(recapId) {
+export async function discardRecapDraft(recapId) {
   if (!recapId) return;
   await unwrap(getSupabase().from("trip_recaps").delete().eq("id", recapId));
+}
+
+export const discardVideoDraft = discardRecapDraft;
+export const appendVideoFeedback = appendRecapFeedback;
+
+export async function updateRecapContent(recap, content) {
+  if (!recap?.id) throw new Error("Entwurf fehlt.");
+  const data = await unwrap(
+    getSupabase().from("trip_recaps").update({ content }).eq("id", recap.id).select("*").single()
+  );
+  return mapRow(data);
+}
+
+export async function saveDiaryNotes(tripId, sourceText) {
+  const text = clampDiaryText(sourceText);
+  const rows = await listDiaryRecaps(tripId);
+  const notes = rows.find((row) => row.status === "notes" && !row.deletedAt) || null;
+  if (notes) {
+    const data = await unwrap(
+      getSupabase().from("trip_recaps").update({ source_text: text }).eq("id", notes.id).select("*").single()
+    );
+    return mapRow(data);
+  }
+  const userId = await getUserId();
+  const payload = {
+    trip_id: tripId,
+    kind: "diary",
+    status: "notes",
+    version: 1,
+    source_text: text,
+    content: {},
+    feedback: [],
+  };
+  if (userId) payload.created_by = userId;
+  const data = await unwrap(getSupabase().from("trip_recaps").insert(payload).select("*").single());
+  return mapRow(data);
+}
+
+export async function createDiaryDraft(tripId, { version = 1, basedOn = null, content, sourceText } = {}) {
+  if (sourceText != null) await saveDiaryNotes(tripId, sourceText);
+  const userId = await getUserId();
+  const payload = {
+    trip_id: tripId,
+    kind: "diary",
+    status: "draft",
+    version: Math.max(1, Number(version) || 1),
+    content: content || {},
+    feedback: [],
+    source_text: null,
+  };
+  if (basedOn) payload.based_on = basedOn;
+  if (userId) payload.created_by = userId;
+  const data = await unwrap(getSupabase().from("trip_recaps").insert(payload).select("*").single());
+  return mapRow(data);
 }
 
 /**
@@ -116,11 +181,14 @@ export async function discardVideoDraft(recapId) {
  * trip_recaps_one_final zu verletzen. Die alte Zeile geht zuerst in den
  * Papierkorb (status draft, deleted_at). Schlägt das Freigeben fehl, kommt
  * sie zurück. Das harte Löschen ist danach nur noch Aufräumen.
+ * kind kommt von der Zeile (video oder diary).
  */
-export async function adoptVideoDraft(recap) {
+export async function adoptRecapDraft(recap) {
   if (!recap?.id || !recap.tripId) throw new Error("Entwurf fehlt.");
+  const kind = recap.kind || "video";
+  const noun = kind === "diary" ? "Das Tagebuch" : "Das Storyboard";
   const supabase = getSupabase();
-  const existing = await listVideoRecaps(recap.tripId);
+  const existing = await listRecaps(recap.tripId, kind);
   const previous =
     existing
       .filter((row) => row.status === "final" && row.id !== recap.id && !row.deletedAt)
@@ -165,7 +233,7 @@ export async function adoptVideoDraft(recap) {
       );
     } catch {
       throw new Error(
-        "Das Storyboard konnte nicht übernommen werden. Die bisherige finale Fassung ließ sich nicht zurückholen."
+        `${noun} konnte nicht übernommen werden. Die bisherige finale Fassung ließ sich nicht zurückholen.`
       );
     }
     throw err;
@@ -179,4 +247,8 @@ export async function adoptVideoDraft(recap) {
     }
   }
   return promoted;
+}
+
+export function adoptVideoDraft(recap) {
+  return adoptRecapDraft(recap);
 }

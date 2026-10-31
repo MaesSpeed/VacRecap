@@ -9,11 +9,11 @@ import { buildVideoRecap } from "../js/recap-storyboard.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
 const SUPABASE_HOST = "hgboqdovlfeuqfhfeykn.supabase.co";
-const USER = "11111111-1111-1111-1111-111111111111";
-const TRIP = "trip-garda";
-const EMPTY = "trip-leer";
+export const USER = "11111111-1111-1111-1111-111111111111";
+export const TRIP = "trip-garda";
+export const EMPTY = "trip-leer";
 
-const PLACES = [
+export const PLACES = [
   ["p-navene", "Navene", "2025-06-16", 10, 2],
   ["p-hafen", "Hafen Malcesine", "2025-06-17", 12, 1],
   ["p-castello", "Castello Scaligero", "2025-06-17", 11, 1],
@@ -109,7 +109,7 @@ function materialFrom(rows) {
   return { places, photos, notes };
 }
 
-function startServer() {
+export function startServer() {
   return new Promise((resolve) => {
     const server = createServer(async (req, res) => {
       let rel = decodeURIComponent(new URL(req.url, "http://localhost").pathname);
@@ -246,29 +246,30 @@ function patchKind(patch) {
   return "other";
 }
 
-function finalUniqueViolation(rows, candidate) {
-  if (candidate.status !== "final") return false;
+export function recapUniqueViolation(rows, candidate) {
+  if (candidate.status !== "final" && candidate.status !== "notes") return false;
   return rows.some(
     (row) =>
       row.id !== candidate.id &&
       row.trip_id === candidate.trip_id &&
       row.kind === candidate.kind &&
-      row.status === "final"
+      row.status === candidate.status
   );
 }
 
-function finalUniqueError() {
+export function recapUniqueError(status) {
+  const name = status === "notes" ? "trip_recaps_one_notes" : "trip_recaps_one_final";
   return {
     status: 409,
     json: {
       code: "23505",
-      message: 'duplicate key value violates unique constraint "trip_recaps_one_final"',
+      message: `duplicate key value violates unique constraint "${name}"`,
       details: "Key (trip_id, kind) already exists.",
     },
   };
 }
 
-function createMockSupabaseState() {
+export function createMockSupabaseState() {
   const session = {
     access_token: "test-access",
     refresh_token: "test-refresh",
@@ -392,7 +393,7 @@ function createMockSupabaseState() {
           source_text: null,
           ...row,
         };
-        if (finalUniqueViolation(state.recaps, full)) return finalUniqueError();
+        if (recapUniqueViolation(state.recaps, full)) return recapUniqueError(full.status);
         state.recaps.push(full);
         return { status: 201, json: represent(full, headers) };
       }
@@ -407,7 +408,7 @@ function createMockSupabaseState() {
           return { status: 500, json: { message: "Speichern fehlgeschlagen." } };
         }
         const next = { ...rows[0], ...patch };
-        if (finalUniqueViolation(state.recaps, next)) return finalUniqueError();
+        if (recapUniqueViolation(state.recaps, next)) return recapUniqueError(next.status);
         state.recapOps.push(kind);
         Object.assign(rows[0], patch, { updated_at: new Date().toISOString() });
         return { status: 200, json: represent(rows[0], headers) };
@@ -438,7 +439,7 @@ function corsHeaders(req) {
   };
 }
 
-async function installSupabaseMocks(page, state) {
+export async function installSupabaseMocks(page, state) {
   await page.context().route(`**/${SUPABASE_HOST}/**`, async (route) => {
     const req = route.request();
     if (req.method() === "OPTIONS") {
@@ -503,7 +504,7 @@ function realErrors(list) {
 
 async function runFlows(page, state, label) {
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 61, `${label}: Build ${build}`);
+  assert(Number(build) === 62, `${label}: Build ${build}`);
 
   let releaseInsert;
   state.recapInsertGate = new Promise((resolve) => {
@@ -518,9 +519,10 @@ async function runFlows(page, state, label) {
   await page.waitForSelector('[data-testid="trip-content"]');
   await page.locator('[data-day="2025-06-20"]').click();
   await page.waitForSelector('[data-testid="recap-entry"]');
-  assert(await page.locator('[data-testid="recap-diary-soon"]').isDisabled(), `${label}: Tagebuch nicht deaktiviert`);
-  const diaryLabel = await page.locator('[data-testid="recap-diary-soon"]').innerText();
-  assert(diaryLabel.toLowerCase().includes("bald"), `${label}: Tagebuch ohne «bald» (${diaryLabel})`);
+  const diaryBtn = page.locator('[data-testid="recap-diary"]');
+  assert(!(await diaryBtn.isDisabled()), `${label}: Tagebuch deaktiviert`);
+  const diaryLabel = await diaryBtn.innerText();
+  assert(/erstellen/i.test(diaryLabel) && !/bald/i.test(diaryLabel), `${label}: Tagebuch «${diaryLabel}»`);
   await page.locator('[data-testid="recap-create"]').click();
   await page.waitForSelector('[data-testid="recap-working"]');
   const working = await page.locator('[data-testid="recap-working"]').innerText();
@@ -714,7 +716,9 @@ async function runFlows(page, state, label) {
   assert(emptyText.includes("1 von 1"), `${label}: Orte «${emptyText}»`);
   assert(emptyText.includes("0 · optional") || emptyText.includes("0 · optional".replace("·", "·")), `${label}: Notizen «${emptyText}»`);
   assert((await page.locator('[data-testid="recap-diary-hint"]').innerText()).includes("Reisetagebuch geht schon"), `${label}: Hinweis fehlt`);
-  assert(await page.locator('[data-testid="recap-diary-soon"]').isDisabled(), `${label}: Tagebuch im Leerzustand aktiv`);
+  const diaryEmpty = page.locator('[data-testid="recap-diary-empty"]');
+  assert(!(await diaryEmpty.isDisabled()), `${label}: Tagebuch im Leerzustand deaktiviert`);
+  assert(/erstellen/i.test(await diaryEmpty.innerText()), `${label}: Tagebuch-Leerzustand`);
   assert(!state.recaps.some((row) => row.trip_id === EMPTY), `${label}: Leerzustand speichert einen Entwurf`);
   await page.click('[data-testid="recap-open-library"]');
   await page.waitForSelector('[data-testid="trip-library"], [data-testid="library-empty"], [data-testid="library-back"]');
@@ -750,21 +754,23 @@ async function runSuite(browserType, baseUrl, label, viewport) {
     await runFlows(page, state, where);
     const errors = realErrors(pageErrors);
     assert(errors.length === 0, `${where}: ${errors.join(" | ")}`);
-    console.log(`Playwright 12b tests OK (${where}, Build 61)`);
+    console.log(`Playwright 12b tests OK (${where}, Build 62)`);
   } finally {
     await browser.close();
   }
 }
 
-runFormulaUnitTests();
-
-const { server, baseUrl } = await startServer();
-try {
-  for (const viewport of VIEWPORTS) {
-    await runSuite(chromium, baseUrl, "Chromium", viewport);
-    await runSuite(webkit, baseUrl, "WebKit", viewport);
+const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isDirectRun) {
+  runFormulaUnitTests();
+  const { server, baseUrl } = await startServer();
+  try {
+    for (const viewport of VIEWPORTS) {
+      await runSuite(chromium, baseUrl, "Chromium", viewport);
+      await runSuite(webkit, baseUrl, "WebKit", viewport);
+    }
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
   }
-} finally {
-  await new Promise((resolve) => server.close(resolve));
+  console.log("Playwright 12b recap-video tests OK (Build 62)");
 }
-console.log("Playwright 12b recap-video tests OK (Build 61)");

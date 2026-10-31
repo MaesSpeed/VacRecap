@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node run-tests-6a.mjs && node run-tests-7a.mjs && node run-tests-7b.mjs && node run-tests-8a.mjs && node run-tests-8b.mjs && node run-tests-8c.mjs && node run-tests-8d.mjs && node run-tests-9a.mjs && node run-tests-9b.mjs && node run-tests-9b-fotonotiz.mjs && node run-tests-9c.mjs && node run-tests-11.mjs && node run-tests-2-wer-ist-dabei.mjs && node run-tests-3-ort-nachtragen.mjs && node run-tests-4-chip-wisch.mjs && node run-tests-12b-recap-video.mjs"
+    "test": "node run-tests-6a.mjs && node run-tests-7a.mjs && node run-tests-7b.mjs && node run-tests-8a.mjs && node run-tests-8b.mjs && node run-tests-8c.mjs && node run-tests-8d.mjs && node run-tests-9a.mjs && node run-tests-9b.mjs && node run-tests-9b-fotonotiz.mjs && node run-tests-9c.mjs && node run-tests-11.mjs && node run-tests-2-wer-ist-dabei.mjs && node run-tests-3-ort-nachtragen.mjs && node run-tests-4-chip-wisch.mjs && node run-tests-12b-recap-video.mjs && node run-tests-12a-tagebuch.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.0",

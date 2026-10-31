@@ -9,6 +9,7 @@ import { renderUrlaubDetail } from "./ui-urlaub-detail.js";
 import { renderMapScreen } from "./ui-map.js";
 import { renderTripLibrary } from "./ui-trip-library.js";
 import { renderRecapVideo } from "./ui-recap-video.js";
+import { renderDiary } from "./ui-diary.js";
 import { renderUrlaubSettings } from "./ui-urlaub-settings.js";
 import { renderUrlaubForm } from "./ui-urlaub-form.js";
 import { renderUrlaubeScreen } from "./ui-urlaube.js";
@@ -101,6 +102,9 @@ async function renderNow() {
       break;
     case "urlaub-recap":
       await renderRecapVideo(appEl, route.id);
+      break;
+    case "urlaub-tagebuch":
+      await renderDiary(appEl, route.id);
       break;
     case "urlaub-map":
       await renderMapScreen(appEl, route.id);

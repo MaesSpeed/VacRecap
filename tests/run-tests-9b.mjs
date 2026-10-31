@@ -607,7 +607,7 @@ async function runSuite(browserType, baseUrl, label) {
 
   await page.goto(baseUrl);
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 61, `${label}: Build ${build}`);
+  assert(Number(build) === 62, `${label}: Build ${build}`);
 
   const tripId = await loginAndCreateTrip(page);
   seedTrip(state, tripId);
@@ -675,7 +675,7 @@ async function runSuite(browserType, baseUrl, label) {
   const unexpected = pageErrors.filter((err) => !err.includes("access control checks"));
   assert(!unexpected.length, `${label}: Seitenfehler ${unexpected.join(" | ")}`);
   await browser.close();
-  console.log(`Playwright 9b tests OK (${label}, Build 61)`);
+  console.log(`Playwright 9b tests OK (${label}, Build 62)`);
 }
 
 const { server, baseUrl } = await startServer();
