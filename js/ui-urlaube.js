@@ -4,7 +4,7 @@ import { bindOverlay, closeOverlayHistory, releaseOverlayHistory } from "./overl
 import { computeVacationStats, formatVacationStatsLine } from "./vacation-stats.js";
 import { navigate } from "./router.js";
 import { clearTripUiState } from "./ui-urlaub-detail.js";
-import { avatarListForVacation } from "./vacation.js";
+import { avatarListForVacation, companionTagsMarkup } from "./vacation.js";
 import {
   currentDayIndex,
   dayCountInclusive,
@@ -137,6 +137,7 @@ function cardCurrent(v) {
       <div class="card--hero__footer">
         <span>${formatVacationStatsLine(v.stats)}</span>
         <div class="avatars">${avatars}</div>
+        ${companionTagsMarkup(v)}
       </div>
     </article>
   `;
@@ -156,6 +157,7 @@ function cardCompact(v, kind) {
       <div class="card-compact__body">
         <h3 class="card-compact__title">${escapeHtml(v.title)}</h3>
         <p class="card-compact__dates">${formatDateRangeCard(v.startDate, v.endDate)}</p>
+        ${companionTagsMarkup(v)}
         <div class="card-compact__meta">
           ${meta}
           <div class="avatars">${avatars}</div>

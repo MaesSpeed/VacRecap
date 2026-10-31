@@ -4,10 +4,10 @@ import { deleteBlob, fetchUploadedPhotosForTrip, getPlacesForVacation, getVacati
 import { navigate } from "./router.js";
 import { clearTripUiState } from "./ui-urlaub-detail.js";
 import { CloudNetworkError, CloudOfflineError } from "./cloud-errors.js";
-import { showToast } from "./toast.js";
+import { showToast, showWarnToast } from "./toast.js";
 import { canEditTripMedia, getMyTripRole } from "./trip-role.js";
 import { openCoverSheet } from "./ui-cover-sheet.js";
-import { COMPANION_TAGS, createEmptyVacation, normalizeVacation } from "./vacation.js";
+import { COMPANION_TAGS, createEmptyVacation, normalizeCompanionTags, normalizeVacation } from "./vacation.js";
 import {
   clampTitle,
   dayCountInclusive,
@@ -105,7 +105,7 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
           ).join("")}
         </div>
         <div class="name-chip-input">
-          <input type="text" data-role="name-input" placeholder="+ Name" autocomplete="off" />
+          <input type="text" data-role="name-input" placeholder="+ Name" autocomplete="off" enterkeyhint="done" />
         </div>
         <div class="chip-row chip-row--names" data-role="name-chips"></div>
       </div>
@@ -305,15 +305,27 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
     paintCover();
   });
 
+  function paintCompanionTags() {
+    vacation.companions.tags = normalizeCompanionTags(vacation.companions.tags);
+    for (const chip of appEl.querySelectorAll('[data-role="tag-chips"] [data-tag]')) {
+      chip.setAttribute("aria-pressed", String(vacation.companions.tags.includes(chip.dataset.tag)));
+    }
+  }
+
   appEl.querySelector('[data-role="tag-chips"]').addEventListener("click", (e) => {
     const chip = e.target.closest("[data-tag]");
     if (!chip) return;
     const tag = chip.dataset.tag;
-    const set = new Set(vacation.companions.tags);
-    if (set.has(tag)) set.delete(tag);
-    else set.add(tag);
-    vacation.companions.tags = [...set];
-    chip.setAttribute("aria-pressed", String(set.has(tag)));
+    let next = vacation.companions.tags.slice();
+    if (tag === "allein") {
+      next = next.length === 1 && next[0] === "allein" ? [] : ["allein"];
+    } else if (next.includes(tag)) {
+      next = next.filter((id) => id !== tag);
+    } else {
+      next = [...next.filter((id) => id !== "allein"), tag];
+    }
+    vacation.companions.tags = next;
+    paintCompanionTags();
   });
 
   const scrollNameIntoView = () => {
@@ -335,9 +347,7 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
     if (document.activeElement === nameInput) scrollNameIntoView();
   });
 
-  nameInput.addEventListener("keydown", (e) => {
-    if (e.key !== "Enter") return;
-    e.preventDefault();
+  function commitPendingName() {
     const name = nameInput.value.trim();
     if (!name) return;
     if (!vacation.companions.names.includes(name)) {
@@ -345,6 +355,15 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
       refreshNames();
     }
     nameInput.value = "";
+  }
+
+  nameInput.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    commitPendingName();
+  });
+  nameInput.addEventListener("blur", () => {
+    commitPendingName();
   });
 
   nameChipsEl.addEventListener("click", (e) => {
@@ -357,6 +376,7 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
+    commitPendingName();
     const title = clampTitle(titleInput.value);
     if (!title) {
       showToast("Bitte Titel eingeben");
@@ -380,8 +400,9 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
       await deleteBlob(old.cover.blobId);
     }
 
+    let saved;
     try {
-      await putVacation(vacation);
+      saved = await putVacation(vacation);
     } catch (err) {
       showToast(
         err instanceof CloudOfflineError || err instanceof CloudNetworkError
@@ -392,20 +413,14 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
     }
 
     sessionStorage.removeItem("vacrecap-form-return");
-    if (isEdit) {
-      showToast(formatDateRange(vacation.startDate, vacation.endDate), {
-        title: `«${title}» gespeichert`,
-      });
-      window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
-      clearTripUiState(vacation.id);
-      navigate({ name: "urlaub-detail", id: vacation.id }, { replace: true });
+    const headline = isEdit ? `«${title}» gespeichert` : `Reise «${title}» angelegt`;
+    if (saved?.companionsUnavailable) {
+      showWarnToast("Wer ist dabei noch nicht verfügbar", { title: headline });
     } else {
-      showToast(formatDateRange(vacation.startDate, vacation.endDate), {
-        title: `Reise «${title}» angelegt`,
-      });
-      window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
-      clearTripUiState(vacation.id);
-      navigate({ name: "urlaub-detail", id: vacation.id }, { replace: true });
+      showToast(formatDateRange(vacation.startDate, vacation.endDate), { title: headline });
     }
+    window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+    clearTripUiState(vacation.id);
+    navigate({ name: "urlaub-detail", id: vacation.id }, { replace: true });
   });
 }

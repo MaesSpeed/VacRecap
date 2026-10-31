@@ -206,6 +206,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  row-gap: 8px;
   padding: 10px 14px 12px;
   font-size: 12.5px;
   font-weight: 700;
@@ -705,6 +707,66 @@ body {
   background: var(--emaille);
   color: #fff;
   border-color: var(--emaille);
+}
+
+.companion-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.card--hero__footer .companion-line {
+  flex: 1 0 100%;
+}
+
+.card-compact__body .companion-line {
+  margin-top: 6px;
+}
+
+.companion-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px 1px 6px;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--emaille);
+  border: 1px solid rgba(0, 102, 179, 0.35);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.companion-pill::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+
+.trip-companions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  padding: 0 16px 8px;
+}
+
+.companion-names {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.companion-name {
+  color: var(--emaille);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .name-chip-input input {
