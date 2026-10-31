@@ -10,6 +10,7 @@ import {
   appendVideoFeedback,
   createVideoDraft,
   discardVideoDraft,
+  listDiaryRecaps,
   listVideoRecaps,
   loadRecapMaterial,
 } from "./recap-service.js";
@@ -84,22 +85,34 @@ async function canEditRecap(tripId) {
 export async function loadRecapEntry(tripId) {
   try {
     const canEdit = await canEditRecap(tripId);
-    if (canEdit) return { canEdit: true, hasFinal: false };
-    const rows = await listVideoRecaps(tripId);
-    return { canEdit: false, hasFinal: rows.some((row) => row.status === "final") };
+    if (canEdit) return { canEdit: true, hasFinal: false, hasDiaryFinal: false };
+    const [rows, diaryRows] = await Promise.all([
+      listVideoRecaps(tripId),
+      listDiaryRecaps(tripId).catch(() => []),
+    ]);
+    return {
+      canEdit: false,
+      hasFinal: rows.some((row) => row.status === "final" && !row.deletedAt),
+      hasDiaryFinal: diaryRows.some((row) => row.status === "final" && !row.deletedAt),
+    };
   } catch {
-    return { canEdit: false, hasFinal: false };
+    return { canEdit: false, hasFinal: false, hasDiaryFinal: false };
   }
 }
 
-export function recapEntryCardHtml({ canEdit, hasFinal }) {
-  if (!canEdit && !hasFinal) return "";
-  const primary = canEdit
-    ? `<button type="button" class="btn btn-emaille btn-emaille--ghost recap-banner__btn" data-action="open-recap-video" data-testid="recap-create"><span class="recap-banner__btn-title">Recap-Video</span><span class="recap-banner__btn-sub">erstellen</span></button>`
-    : `<button type="button" class="btn btn-emaille btn-emaille--ghost recap-banner__btn" data-action="open-recap-video" data-testid="recap-open-final"><span class="recap-banner__btn-title">Recap-Video</span><span class="recap-banner__btn-sub">ansehen</span></button>`;
+export function recapEntryCardHtml({ canEdit, hasFinal, hasDiaryFinal = false } = {}) {
+  if (!canEdit && !hasFinal && !hasDiaryFinal) return "";
+  const primary =
+    canEdit || hasFinal
+      ? canEdit
+        ? `<button type="button" class="btn btn-emaille btn-emaille--ghost recap-banner__btn" data-action="open-recap-video" data-testid="recap-create"><span class="recap-banner__btn-title">Recap-Video</span><span class="recap-banner__btn-sub">erstellen</span></button>`
+        : `<button type="button" class="btn btn-emaille btn-emaille--ghost recap-banner__btn" data-action="open-recap-video" data-testid="recap-open-final"><span class="recap-banner__btn-title">Recap-Video</span><span class="recap-banner__btn-sub">ansehen</span></button>`
+      : "";
   const diary = canEdit
-    ? `<button type="button" class="btn btn-emaille btn-emaille--ghost recap-banner__btn" data-testid="recap-diary-soon" disabled><span class="recap-banner__btn-title">Reisetagebuch</span><span class="recap-banner__btn-sub">bald</span></button>`
-    : "";
+    ? `<button type="button" class="btn btn-emaille btn-emaille--ghost recap-banner__btn" data-action="open-diary" data-testid="recap-diary"><span class="recap-banner__btn-title">Reisetagebuch</span><span class="recap-banner__btn-sub">erstellen</span></button>`
+    : hasDiaryFinal
+      ? `<button type="button" class="btn btn-emaille btn-emaille--ghost recap-banner__btn" data-action="open-diary" data-testid="recap-diary-final"><span class="recap-banner__btn-title">Reisetagebuch</span><span class="recap-banner__btn-sub">ansehen</span></button>`
+      : "";
   return `
     <section class="recap-banner" data-testid="recap-entry">
       <div class="recap-banner__lead">
@@ -356,10 +369,13 @@ export async function renderRecapVideo(appEl, tripId) {
         </div>
       </section>
       <button type="button" class="btn btn-emaille btn-emaille--block" data-action="mediathek" data-testid="recap-open-library">Fotos aus der Mediathek holen</button>
-      <button type="button" class="btn btn-emaille btn-emaille--ghost btn-emaille--block recap-soon" data-testid="recap-diary-soon" disabled>Reisetagebuch erstellen · bald</button>
+      <button type="button" class="btn btn-emaille btn-emaille--ghost btn-emaille--block recap-soon" data-action="open-diary" data-testid="recap-diary-empty">Reisetagebuch erstellen</button>
     `;
     main.querySelector('[data-action="mediathek"]')?.addEventListener("click", () => {
       navigate({ name: "urlaub-mediathek", id: tripId });
+    });
+    main.querySelector('[data-action="open-diary"]')?.addEventListener("click", () => {
+      navigate({ name: "urlaub-tagebuch", id: tripId });
     });
   }
 

@@ -1,5 +1,5 @@
 import { deleteVacation, deleteVacationData, getVacation } from "./db.js";
-import { listVideoRecaps } from "./recap-service.js";
+import { listDiaryRecaps, listVideoRecaps } from "./recap-service.js";
 import { canEditTripMedia, getMyTripRole, tripRoleLoadFailed } from "./trip-role.js";
 import { ICON_BACK_CHEVRON } from "./icons.js";
 import { navigate } from "./router.js";
@@ -39,12 +39,13 @@ export async function renderUrlaubSettings(appEl, id) {
     return;
   }
 
-  const [remember, radiusM, captureLoc, mapRoutes, recapAction] = await Promise.all([
+  const [remember, radiusM, captureLoc, mapRoutes, recapAction, diaryAction] = await Promise.all([
     getRememberLocationOnOpen(),
     getSamePlaceRadiusM(),
     getRememberCaptureLocation(),
     getMapRoutesEnabled(),
     recapSettingsAction(id),
+    diarySettingsAction(id),
   ]);
   const radiusOptions = samePlaceRadiusOptions();
 
@@ -125,6 +126,11 @@ export async function renderUrlaubSettings(appEl, id) {
           ${
             recapAction
               ? `<button type="button" class="settings-link-row" data-action="recap-video" data-testid="settings-recap-video">${escapeHtml(recapAction)}</button>`
+              : ""
+          }
+          ${
+            diaryAction
+              ? `<button type="button" class="settings-link-row" data-action="diary" data-testid="settings-diary">${escapeHtml(diaryAction)}</button>`
               : ""
           }
           <button type="button" class="settings-link-row" data-action="edit">Reise bearbeiten</button>
@@ -231,6 +237,10 @@ export async function renderUrlaubSettings(appEl, id) {
     navigate({ name: "urlaub-recap", id });
   });
 
+  appEl.querySelector('[data-action="diary"]')?.addEventListener("click", () => {
+    navigate({ name: "urlaub-tagebuch", id });
+  });
+
   appEl.querySelector('[data-action="edit"]').addEventListener("click", () => {
     sessionStorage.setItem(
       "vacrecap-form-return",
@@ -250,6 +260,18 @@ async function recapSettingsAction(tripId) {
     if (canEditTripMedia(role) && !tripRoleLoadFailed(tripId)) return "Recap-Video erstellen";
     const rows = await listVideoRecaps(tripId);
     if (rows.some((row) => row.status === "final" && !row.deletedAt)) return "Recap-Video ansehen";
+    return "";
+  } catch {
+    return "";
+  }
+}
+
+async function diarySettingsAction(tripId) {
+  try {
+    const role = await getMyTripRole(tripId);
+    if (canEditTripMedia(role) && !tripRoleLoadFailed(tripId)) return "Reisetagebuch erstellen";
+    const rows = await listDiaryRecaps(tripId);
+    if (rows.some((row) => row.status === "final" && !row.deletedAt)) return "Reisetagebuch ansehen";
     return "";
   } catch {
     return "";

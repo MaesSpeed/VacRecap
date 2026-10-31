@@ -1553,6 +1553,11 @@ export async function renderUrlaubDetail(appEl, id) {
       navigate({ name: "urlaub-recap", id });
       return;
     }
+    if (e.target.closest("[data-action='open-diary']")) {
+      e.preventDefault();
+      navigate({ name: "urlaub-tagebuch", id });
+      return;
+    }
 
     if (e.target.closest("[data-action='photo-select-exit']")) {
       e.preventDefault();
