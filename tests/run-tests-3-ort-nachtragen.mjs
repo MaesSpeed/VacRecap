@@ -444,6 +444,7 @@ async function chooseTime(page) {
 async function pickMedia(page, label) {
   await page.click('[data-testid="add-place-next"]');
   await page.waitForSelector('[data-testid="add-media-sheet"]');
+  assert(await page.locator('[data-testid="map-tap-hint"]').isHidden(), `${label}: Hinweis-Pille liegt über «Fotos und Notizen»`);
   await page.waitForSelector('[data-testid="add-media-photo"][data-media-id="m-notime"]');
   assert((await page.locator('[data-testid="add-media-photo"][data-media-id="m-notime"]').getAttribute("aria-pressed")) === "true", `${label}: Foto ohne Zeit nicht vorausgewählt`);
   assert((await page.locator('[data-testid="add-media-photo"][data-media-id="m-timed"]').getAttribute("aria-pressed")) === "true", `${label}: Foto mit Zeit nicht vorausgewählt`);
@@ -531,30 +532,98 @@ function assertAssignment(state, label, { undone = false } = {}) {
   assert(foreign.waypoint_id === "p-hotel", `${label}: fremdes Foto mitverschoben`);
 }
 
+async function dismissPopupWithoutNewPlace(page, label) {
+  await page.locator(".map-marker--hard").first().click();
+  await page.waitForSelector(".leaflet-popup");
+  const point = await page.evaluate(() => {
+    const canvas = document.querySelector(".map-canvas");
+    const popup = document.querySelector(".leaflet-popup");
+    const c = canvas.getBoundingClientRect();
+    const p = popup.getBoundingClientRect();
+    const markers = [...document.querySelectorAll(".map-marker--hard")].map((el) => el.getBoundingClientRect());
+    for (let y = c.bottom - 16; y > c.top + 8; y -= 10) {
+      for (let x = c.left + 10; x < c.right - 10; x += 14) {
+        const inPopup = x >= p.left - 2 && x <= p.right + 2 && y >= p.top - 2 && y <= p.bottom + 2;
+        const onMarker = markers.some((m) => x >= m.left - 6 && x <= m.right + 6 && y >= m.top - 6 && y <= m.bottom + 6);
+        if (!inPopup && !onMarker) return { x: Math.round(x - c.left), y: Math.round(y - c.top) };
+      }
+    }
+    return null;
+  });
+  assert(point, `${label}: kein freier Kartenpunkt neben dem Popup`);
+  await page.locator(".map-canvas").click({ position: point });
+  await page.waitForFunction(() => !document.querySelector(".leaflet-popup"));
+  assert((await page.locator('[data-testid="add-place-sheet"]').count()) === 0, `${label}: Popup-Tap öffnet Neuer Ort`);
+  assert((await page.locator('[data-testid="map-drop-pin"]').count()) === 0, `${label}: Popup-Tap setzt einen Pin`);
+  await page.waitForTimeout(320);
+}
+
 async function markerNumber(page, place) {
-  return page.evaluate(({ lat, lng }) => {
-    const map = window.__vacrecapMap;
-    let found = null;
-    map.eachLayer((layer) => {
-      const html = layer?.options?.icon?.options?.html || "";
-      const num = /<span>(\d+)<\/span>/.exec(html);
-      if (!num || typeof layer.getLatLng !== "function") return;
-      const at = layer.getLatLng();
-      if (Math.abs(at.lat - lat) < 0.0002 && Math.abs(at.lng - lng) < 0.0002) found = Number(num[1]);
-    });
-    return found;
-  }, { lat: Number(place.lat), lng: Number(place.lng) });
+  return page.evaluate(
+    ({ lat, lng }) => {
+      const map = window.__vacrecapMap;
+      if (!map) return null;
+      let found = null;
+      map.eachLayer((layer) => {
+        const html = layer?.options?.icon?.options?.html || "";
+        const num = /<span>(\d+)<\/span>/.exec(html);
+        if (!num || typeof layer.getLatLng !== "function") return;
+        const at = layer.getLatLng();
+        if (Math.abs(at.lat - lat) < 0.0002 && Math.abs(at.lng - lng) < 0.0002) found = Number(num[1]);
+      });
+      return found;
+    },
+    { lat: Number(place.lat), lng: Number(place.lng) }
+  );
+}
+
+async function waitForStableMarkerNumber(page, place) {
+  const lat = Number(place.lat);
+  const lng = Number(place.lng);
+  await page.evaluate(() => {
+    window.__markerStable = null;
+  });
+  await page.waitForFunction(
+    ({ lat, lng }) => {
+      const map = window.__vacrecapMap;
+      if (!map) return false;
+      let found = null;
+      map.eachLayer((layer) => {
+        const html = layer?.options?.icon?.options?.html || "";
+        const num = /<span>(\d+)<\/span>/.exec(html);
+        if (!num || typeof layer.getLatLng !== "function") return;
+        const at = layer.getLatLng();
+        if (Math.abs(at.lat - lat) < 0.0002 && Math.abs(at.lng - lng) < 0.0002) found = Number(num[1]);
+      });
+      const now = Date.now();
+      const stable = window.__markerStable;
+      if (found == null || !stable || stable.n !== found) {
+        window.__markerStable = found == null ? null : { n: found, at: now };
+        return false;
+      }
+      return now - stable.at >= 300;
+    },
+    { lat, lng }
+  );
+}
+
+async function assertHintHiddenWhileSheet(page, label, sheetTestId) {
+  await page.waitForSelector(`[data-testid="${sheetTestId}"]`);
+  const hint = page.locator('[data-testid="map-tap-hint"]');
+  assert(await hint.isHidden(), `${label}: Hinweis-Pille liegt über «${sheetTestId}»`);
 }
 
 async function runFlows(page, state, label) {
   await openDayMap(page);
   assert(await page.locator('[data-testid="map-tap-hint"]').isVisible(), `${label}: Hinweis-Pille fehlt`);
   assert((await page.locator('[data-testid="map-tap-hint"]').innerText()).includes("Tippe auf die Stelle"), `${label}: Hinweistext`);
+  await dismissPopupWithoutNewPlace(page, label);
 
   state.geocodeMode = "fail";
   state.geocodeDelay = 0;
   await tapMap(page);
   await waitSheetReady(page);
+  await assertHintHiddenWhileSheet(page, label, "add-place-sheet");
   await page.waitForSelector('[data-testid="map-drop-pin"]');
   assert((await page.locator('[data-testid="add-place-day"]').innerText()).includes("Mo 26."), `${label}: Tag im Sheet`);
   assert((await page.locator('[data-testid="add-place-day"]').innerText()).includes("Anreise"), `${label}: Tagesrolle`);
@@ -567,6 +636,7 @@ async function runFlows(page, state, label) {
   await page.click('[data-testid="add-place-cancel"]');
   await page.waitForSelector('[data-testid="add-place-sheet"]', { state: "detached" });
   assert((await page.locator('[data-testid="map-drop-pin"]').count()) === 0, `${label}: Pin bleibt nach Abbrechen`);
+  assert(await page.locator('[data-testid="map-tap-hint"]').isVisible(), `${label}: Hinweis bleibt nach Abbrechen aus`);
 
   state.geocodeMode = "ok";
   state.geocodeDelay = 1200;
@@ -589,7 +659,7 @@ async function runFlows(page, state, label) {
   await saveOnce(page, state, label);
   const place = placed(state)[0];
   assertAssignment(state, label);
-  await page.waitForFunction(() => document.querySelectorAll(".map-marker--hard").length >= 3);
+  await waitForStableMarkerNumber(page, place);
   assert((await markerNumber(page, place)) === 1, `${label}: neuer Ort ist nicht Nummer 1`);
   const toast = await page.locator('[data-testid="app-toast"]').innerText();
   assert(toast.includes("Ort angelegt") && toast.includes("Spiaggia Paina"), `${label}: Snackbar «${toast}»`);

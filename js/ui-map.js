@@ -214,7 +214,7 @@ export async function renderMapScreen(appEl, vacationId) {
 
   function syncTapHint() {
     const hint = appEl.querySelector('[data-testid="map-tap-hint"]');
-    if (hint) hint.hidden = !(canAddPlace && segment !== "all");
+    if (hint) hint.hidden = !(canAddPlace && segment !== "all") || draftOpen;
   }
 
   function removeDraftPin() {
@@ -458,12 +458,19 @@ export async function renderMapScreen(appEl, vacationId) {
     return "Rückgängig ist fehlgeschlagen. Bitte erneut versuchen.";
   }
 
+  let popupClosedAt = 0;
+  map.on("popupclose", () => {
+    popupClosedAt = performance.now();
+  });
+
   map.on("click", (event) => {
     if (!mapAlive || !canAddPlace || segment === "all" || draftOpen) return;
+    if (performance.now() - popupClosedAt < 300) return;
     const lat = event?.latlng?.lat;
     const lng = event?.latlng?.lng;
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     draftOpen = true;
+    syncTapHint();
     removeDraftPin();
     const icon = L.divIcon({
       className: "map-marker-wrap",
@@ -515,10 +522,10 @@ export async function renderMapScreen(appEl, vacationId) {
             })();
           },
         });
-        if (mapAlive) await reloadMap();
       } finally {
         draftOpen = false;
         removeDraftPin();
+        syncTapHint();
       }
     })();
   });
