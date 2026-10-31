@@ -48,10 +48,11 @@ import { deleteMedia } from "./db.js";
 import { openConfirmDialog } from "./ui-confirm.js";
 import { startGalleryPhotoUpload } from "./gallery-upload.js";
 import { openPhotoUploadSheet } from "./ui-photo-upload-sheet.js";
-import { mediaOwnedBy, movePhotosToPlace, restorePhotoPlacement } from "./photo-move.js";
+import { canCaptionMedia, mediaOwnedBy, movePhotosToPlace, restorePhotoPlacement } from "./photo-move.js";
 import { openPhotoMoveSheet } from "./ui-photo-move-sheet.js";
 import { openPhotoTargetSheet } from "./ui-photo-target-sheet.js";
 import { openMediaViewer } from "./ui-media-viewer.js";
+import { openPhotoCaptionSheet } from "./ui-photo-caption-sheet.js";
 
 import { openEditPlaceSheet, openSoftPointSheet } from "./ui-place-sheets.js";
 import { mountTripFooter } from "./ui-trip-footer.js";
@@ -104,6 +105,7 @@ async function getState(id, vacation) {
       photoSelected: new Set(),
       userId: null,
       moveBusy: false,
+      captionBusy: false,
     };
     tripUiState.set(id, state);
   }
@@ -1395,9 +1397,49 @@ export async function renderUrlaubDetail(appEl, id) {
       const item = items.find((i) => i.place.id === placeId);
       if (!item) return;
       const viewable = filterViewableMedia(item.media);
-      const canDelete = canEditTripMedia(await getMyTripRole(id));
+      const role = await getMyTripRole(id);
+      const canDelete = canEditTripMedia(role);
       openMediaViewer(viewable, tile.dataset.mediaId, {
         canDelete,
+        canEditCaption: (entry) => canCaptionMedia(entry, role, state.userId),
+        onChanged: () => refreshDayList(),
+      });
+      return;
+    }
+
+    const editCaption = e.target.closest("[data-action='edit-photo-caption']");
+    if (editCaption) {
+      e.preventDefault();
+      if (state.captionBusy) return;
+      state.captionBusy = true;
+      try {
+        const media = findCachedMedia(editCaption.dataset.mediaId);
+        const role = await getMyTripRole(id);
+        if (!media || !canCaptionMedia(media, role, state.userId)) return;
+        await openPhotoCaptionSheet({
+          media,
+          onSaved: () => refreshDayList(),
+        });
+      } finally {
+        state.captionBusy = false;
+      }
+      return;
+    }
+
+    const openCaption = e.target.closest("[data-action='open-photo-caption']");
+    if (openCaption) {
+      e.preventDefault();
+      const placeId = e.target.closest(".oc[data-place-id]")?.dataset.placeId;
+      const mediaId = openCaption.dataset.mediaId;
+      if (!placeId || !mediaId) return;
+      const items = await loadDayPlacesEnriched(id, state.activeDay);
+      const item = items.find((entry) => entry.place.id === placeId);
+      if (!item) return;
+      const viewable = filterViewableMedia(item.media);
+      const role = await getMyTripRole(id);
+      openMediaViewer(viewable, mediaId, {
+        canDelete: canEditTripMedia(role),
+        canEditCaption: (entry) => canCaptionMedia(entry, role, state.userId),
         onChanged: () => refreshDayList(),
       });
       return;

@@ -1,9 +1,16 @@
-import { CloudNetworkError, CloudOfflineError, isFetchNetworkFailure, mapApiError } from "./cloud-errors.js";
+import {
+  CaptionUnavailableError,
+  CloudNetworkError,
+  CloudOfflineError,
+  isFetchNetworkFailure,
+  mapApiError,
+} from "./cloud-errors.js";
 import { deleteMediaStorageObjects } from "./cloud-media-storage.js";
 import { getUserId } from "./auth-service.js";
 import {
   mediaRowToApp,
   mediaToRow,
+  normalizeMediaCaption,
   noteRowToApp,
   noteToRow,
   placeToWaypointRow,
@@ -27,6 +34,34 @@ function assertWritable() {
 function isMissingCoverPresetColumn(error) {
   const blob = `${error?.code || ""} ${error?.message || ""} ${error?.details || ""} ${error?.hint || ""}`;
   return /PGRST204/i.test(blob) || (/cover_preset/i.test(blob) && /schema cache|could not find|column/i.test(blob));
+}
+
+function isMissingCaptionColumn(error) {
+  const blob = `${error?.code || ""} ${error?.message || ""} ${error?.details || ""} ${error?.hint || ""}`;
+  if (!/caption/i.test(blob)) return false;
+  return /PGRST204|42703|schema cache|could not find|does not exist|column/i.test(blob);
+}
+
+const MEDIA_FIELDS =
+  "id,trip_id,waypoint_id,day,taken_at,kind,storage_path,thumb_path,mime,size_bytes,width,height,upload_status,source_key,created_by,created_at,updated_at,deleted_at";
+
+let omitCaptionColumn = false;
+
+function mediaSelect() {
+  return omitCaptionColumn ? MEDIA_FIELDS : `${MEDIA_FIELDS},caption`;
+}
+
+async function runMediaRead(run) {
+  const cols = mediaSelect();
+  const first = await run(cols);
+  // Parallele Abfragen haben caption schon in ihrer eigenen Liste, auch wenn
+  // eine andere Anfrage das Flag inzwischen gesetzt hat. Sonst liefert die
+  // zweite den Fehler zurück und der Ort bleibt ohne Fotos.
+  if (first?.error && isMissingCaptionColumn(first.error) && cols !== MEDIA_FIELDS) {
+    omitCaptionColumn = true;
+    return run(MEDIA_FIELDS);
+  }
+  return first;
 }
 
 async function writeTripRow(supabase, row, id) {
@@ -452,6 +487,31 @@ export async function updateMediaRow(id, patch) {
 }
 
 /**
+ * Schreibt nur die Bildunterschrift.
+ * Fehlt die Spalte (PGRST204/42703), wird ohne caption erneut geschrieben
+ * und CaptionUnavailableError geworfen, statt die App abstürzen zu lassen.
+ */
+export async function updateMediaCaption(id, caption) {
+  assertWritable();
+  const normalized = normalizeMediaCaption(caption);
+  const patch = { caption: normalized, updated_at: new Date().toISOString() };
+  const run = (body) =>
+    getSupabase().from("media").update(body).eq("id", id).select().single();
+  let { data, error } = await run(patch);
+  if (error && isMissingCaptionColumn(error)) {
+    omitCaptionColumn = true;
+    const rest = { updated_at: patch.updated_at };
+    ({ error } = await run(rest));
+    if (error && !isMissingCaptionColumn(error)) throw mapApiError(error);
+    throw new CaptionUnavailableError();
+  }
+  if (error) throw mapApiError(error);
+  const mapped = mediaRowToApp(data);
+  window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  return mapped;
+}
+
+/**
  * Verschiebt ein Foto auf einen anderen Ort/Tag.
  * Der Patch enthält nur waypoint_id, day und updated_at — nie created_by.
  * Kein vacrecap:data-changed, damit die Tagesansicht Ort und Zähler aus dem Cache malt.
@@ -475,12 +535,9 @@ export async function updateMediaPlacement(id, { waypointId, day }) {
 
 export async function getMedia(id) {
   if (!id) return null;
-  const { data, error } = await getSupabase()
-    .from("media")
-    .select("*")
-    .eq("id", id)
-    .is("deleted_at", null)
-    .maybeSingle();
+  const { data, error } = await runMediaRead((columns) =>
+    getSupabase().from("media").select(columns).eq("id", id).is("deleted_at", null).maybeSingle()
+  );
   if (error) throw mapApiError(error);
   return data ? mediaRowToApp(data) : null;
 }
@@ -624,13 +681,15 @@ export async function fetchMediaForPlace(placeId) {
     return { media: [], error: null };
   }
   try {
-    const { data, error } = await getSupabase()
-      .from("media")
-      .select("*")
-      .eq("waypoint_id", placeId)
-      .eq("kind", "photo")
-      .is("deleted_at", null)
-      .order("taken_at", { ascending: true });
+    const { data, error } = await runMediaRead((columns) =>
+      getSupabase()
+        .from("media")
+        .select(columns)
+        .eq("waypoint_id", placeId)
+        .eq("kind", "photo")
+        .is("deleted_at", null)
+        .order("taken_at", { ascending: true })
+    );
     if (error) throw mapApiError(error);
     const reconciled = await reconcileStalePendingRows(data || []);
     return { media: reconciled.map(mediaRowToApp), error: null };
@@ -657,15 +716,17 @@ export async function fetchUploadedPhotosForTrip(vacationId) {
     const rows = [];
     let offset = 0;
     for (let page = 0; page < 40; page += 1) {
-      const { data, error } = await supabase
-        .from("media")
-        .select("*")
-        .eq("trip_id", vacationId)
-        .eq("kind", "photo")
-        .eq("upload_status", "uploaded")
-        .is("deleted_at", null)
-        .order("taken_at", { ascending: true })
-        .range(offset, offset + LIBRARY_PAGE - 1);
+      const { data, error } = await runMediaRead((columns) =>
+        supabase
+          .from("media")
+          .select(columns)
+          .eq("trip_id", vacationId)
+          .eq("kind", "photo")
+          .eq("upload_status", "uploaded")
+          .is("deleted_at", null)
+          .order("taken_at", { ascending: true })
+          .range(offset, offset + LIBRARY_PAGE - 1)
+      );
       if (error) throw mapApiError(error);
       const batch = data || [];
       if (!batch.length) break;
@@ -699,7 +760,9 @@ export async function fetchMediaByIds(ids) {
   if (!unique.length) return [];
   if (!navigator.onLine) return null;
   try {
-    const { data, error } = await getSupabase().from("media").select("*").in("id", unique);
+    const { data, error } = await runMediaRead((columns) =>
+      getSupabase().from("media").select(columns).in("id", unique)
+    );
     if (error) return null;
     return (data || []).map(mediaRowToApp).filter(Boolean);
   } catch {
@@ -709,13 +772,15 @@ export async function fetchMediaByIds(ids) {
 
 export async function getMediaBySourceKey(vacationId, sourceKey) {
   if (!sourceKey) return null;
-  const { data, error } = await getSupabase()
-    .from("media")
-    .select("*")
-    .eq("trip_id", vacationId)
-    .eq("source_key", sourceKey)
-    .is("deleted_at", null)
-    .maybeSingle();
+  const { data, error } = await runMediaRead((columns) =>
+    getSupabase()
+      .from("media")
+      .select(columns)
+      .eq("trip_id", vacationId)
+      .eq("source_key", sourceKey)
+      .is("deleted_at", null)
+      .maybeSingle()
+  );
   if (error) throw mapApiError(error);
   return data ? mediaRowToApp(data) : null;
 }
@@ -724,12 +789,14 @@ export async function getAllMediaForVacation(vacationId) {
   if (!vacationId) return [];
   if (!navigator.onLine) return [];
   try {
-    const { data, error } = await getSupabase()
-      .from("media")
-      .select("*")
-      .eq("trip_id", vacationId)
-      .is("deleted_at", null)
-      .order("taken_at", { ascending: true });
+    const { data, error } = await runMediaRead((columns) =>
+      getSupabase()
+        .from("media")
+        .select(columns)
+        .eq("trip_id", vacationId)
+        .is("deleted_at", null)
+        .order("taken_at", { ascending: true })
+    );
     if (error) throw mapApiError(error);
     return (data || []).map(mediaRowToApp).filter((m) => m.type === "photo");
   } catch (err) {

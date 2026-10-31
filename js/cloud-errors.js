@@ -14,6 +14,13 @@ export class CloudNetworkError extends Error {
   }
 }
 
+export class CaptionUnavailableError extends Error {
+  constructor(message = "Fotonotiz noch nicht verfügbar") {
+    super(message);
+    this.name = "CaptionUnavailableError";
+  }
+}
+
 export function isFetchNetworkFailure(err) {
   const msg = (err?.message || String(err || "")).toLowerCase();
   return (

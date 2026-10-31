@@ -154,7 +154,17 @@ export function mediaRowToApp(row) {
     sourceKey: row.source_key ?? null,
     author: row.created_by ?? null,
     deletedAt: row.deleted_at || null,
+    caption: normalizeMediaCaption(row.caption),
   };
+}
+
+/** Eine Bildunterschrift, höchstens 500 Zeichen. Leer wird null. */
+export function normalizeMediaCaption(value) {
+  if (value == null) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  const chars = Array.from(text);
+  return chars.length > 500 ? chars.slice(0, 500).join("") : text;
 }
 
 export function mediaToRow(media) {

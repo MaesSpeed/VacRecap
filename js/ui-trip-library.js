@@ -1,3 +1,4 @@
+import { getUserId } from "./auth-service.js";
 import { CloudOfflineError } from "./cloud-errors.js";
 import { fetchUploadedPhotosForTrip, getPlacesForVacation, getVacation } from "./db.js";
 import { startGalleryPhotoUpload } from "./gallery-upload.js";
@@ -7,6 +8,7 @@ import { getSignedThumbUrl } from "./media-signed-url-cache.js";
 import { navigate } from "./router.js";
 import { getSupabase } from "./supabase-client.js";
 import { loadTripSelection } from "./trip-selection-store.js";
+import { canCaptionMedia } from "./photo-move.js";
 import { canEditTripMedia, getMyTripRole } from "./trip-role.js";
 import { openMediaViewer } from "./ui-media-viewer.js";
 import { showWarnToast } from "./toast.js";
@@ -32,6 +34,8 @@ export async function renderTripLibrary(appEl, vacationId) {
 
   let lazyStop = () => {};
   let loadToken = 0;
+  let tripRole = "owner";
+  let tripUserId = null;
 
   const cleanup = () => {
     lazyStop();
@@ -206,6 +210,7 @@ export async function renderTripLibrary(appEl, vacationId) {
       if (!thumb || !main.contains(thumb)) return;
       openMediaViewer(flat, thumb.dataset.mediaId, {
         canDelete,
+        canEditCaption: (item) => canCaptionMedia(item, tripRole, tripUserId),
         onChanged: () => {
           void load();
         },
@@ -230,8 +235,11 @@ export async function renderTripLibrary(appEl, vacationId) {
     if (!stillCurrent(token)) return;
 
     const rolePromise = getMyTripRole(vacationId);
+    const userPromise = getUserId().catch(() => null);
     if (!navigator.onLine && libraryMemory.has(vacationId)) {
-      const canDelete = canEditTripMedia(await rolePromise);
+      tripRole = await rolePromise;
+      tripUserId = await userPromise;
+      const canDelete = canEditTripMedia(tripRole);
       if (!stillCurrent(token)) return;
       if (paintRemembered(canDelete, { offline: true })) return;
     }
@@ -239,14 +247,17 @@ export async function renderTripLibrary(appEl, vacationId) {
     paintLoading();
     if (!stillCurrent(token)) return;
 
-    const [photoResult, placesResult, role] = await Promise.all([
+    const [photoResult, placesResult, role, userId] = await Promise.all([
       fetchUploadedPhotosForTrip(vacationId),
       getPlacesForVacation(vacationId).then(
         (places) => ({ places, error: null }),
         (error) => ({ places: [], error })
       ),
       rolePromise,
+      userPromise,
     ]);
+    tripRole = role;
+    tripUserId = userId;
     if (!stillCurrent(token)) return;
 
     const canDelete = canEditTripMedia(role);
