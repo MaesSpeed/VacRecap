@@ -239,7 +239,7 @@ export async function renderRecapVideo(appEl, tripId) {
   }
   if (!alive()) return;
 
-    if (!canEdit) {
+  if (!canEdit) {
     if (!finalRow) {
       paintUnavailable(vacation, "Noch kein Recap-Video.");
       return;

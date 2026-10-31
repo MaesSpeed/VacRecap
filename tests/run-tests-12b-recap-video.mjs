@@ -239,6 +239,35 @@ function seedGardasee(state) {
   }
 }
 
+function patchKind(patch) {
+  if (patch.status === "draft" && patch.deleted_at) return "park";
+  if (patch.status === "final" && Object.prototype.hasOwnProperty.call(patch, "deleted_at")) return "restore";
+  if (patch.status === "final") return "promote";
+  return "other";
+}
+
+function finalUniqueViolation(rows, candidate) {
+  if (candidate.status !== "final") return false;
+  return rows.some(
+    (row) =>
+      row.id !== candidate.id &&
+      row.trip_id === candidate.trip_id &&
+      row.kind === candidate.kind &&
+      row.status === "final"
+  );
+}
+
+function finalUniqueError() {
+  return {
+    status: 409,
+    json: {
+      code: "23505",
+      message: 'duplicate key value violates unique constraint "trip_recaps_one_final"',
+      details: "Key (trip_id, kind) already exists.",
+    },
+  };
+}
+
 function createMockSupabaseState() {
   const session = {
     access_token: "test-access",
@@ -257,7 +286,7 @@ function createMockSupabaseState() {
     role: "owner",
     roleError: false,
     recapMissing: false,
-    failNextRecapPatch: false,
+    failPatch: null,
     recapOps: [],
     recapInsertGate: Promise.resolve(),
   };
@@ -363,19 +392,24 @@ function createMockSupabaseState() {
           source_text: null,
           ...row,
         };
+        if (finalUniqueViolation(state.recaps, full)) return finalUniqueError();
         state.recaps.push(full);
         return { status: 201, json: represent(full, headers) };
       }
       if (method === "PATCH") {
-        if (state.failNextRecapPatch) {
-          state.failNextRecapPatch = false;
-          state.recapOps.push("update-fail");
-          return { status: 500, json: { message: "Speichern fehlgeschlagen." } };
-        }
-        state.recapOps.push("update");
         const rows = applyFilters(state.recaps, url);
         if (!rows[0]) return { status: 406, json: { code: "PGRST116", message: "0 rows" } };
-        Object.assign(rows[0], JSON.parse(body || "{}"), { updated_at: new Date().toISOString() });
+        const patch = JSON.parse(body || "{}");
+        const kind = patchKind(patch);
+        if (state.failPatch && state.failPatch === kind) {
+          state.failPatch = null;
+          state.recapOps.push(`${kind}-fail`);
+          return { status: 500, json: { message: "Speichern fehlgeschlagen." } };
+        }
+        const next = { ...rows[0], ...patch };
+        if (finalUniqueViolation(state.recaps, next)) return finalUniqueError();
+        state.recapOps.push(kind);
+        Object.assign(rows[0], patch, { updated_at: new Date().toISOString() });
         return { status: 200, json: represent(rows[0], headers) };
       }
       if (method === "DELETE") {
@@ -536,26 +570,14 @@ async function runFlows(page, state, label) {
   assert(feedback.length === 1 && feedback[0].text === "Bitte langsamer", `${label}: Feedback ${JSON.stringify(feedback)}`);
   assert(feedback[0].status === "open" && feedback[0].by === USER && feedback[0].version === 1, `${label}: Feedback-Felder`);
 
-  state.failNextRecapPatch = true;
-  const opsAtFail = state.recapOps.length;
-  await page.click('[data-testid="recap-adopt"]');
-  await page.waitForFunction(() => /fehlgeschlagen/i.test(document.querySelector('[data-testid="app-toast"]')?.textContent || ""));
-  const failToast = await page.locator('[data-testid="app-toast"]').innerText();
-  assert(/fehlgeschlagen/i.test(failToast), `${label}: Fehlermeldung «${failToast}»`);
-  assert(draft.status === "draft" && !draft.finalized_at, `${label}: fehlgeschlagenes Übernehmen hat den Entwurf verändert`);
-  assert(!state.recaps.some((row) => row.status === "final" && row.trip_id === TRIP), `${label}: Fehler hat eine finale Fassung erzeugt`);
-  assert(!state.recapOps.slice(opsAtFail).includes("delete"), `${label}: Fehler löscht trotzdem (${state.recapOps.slice(opsAtFail)})`);
-
   await page.click('[data-testid="recap-adopt"]');
   await page.waitForFunction(() => document.querySelector('[data-testid="recap-kicker"]')?.textContent?.trim() === "Final");
   assert((await page.locator('[data-testid="recap-discard"]').count()) === 0, `${label}: finale Fassung noch verwerfbar`);
   assert((await page.locator('[data-testid="recap-new-draft"]').count()) === 1, `${label}: Neuer Entwurf fehlt`);
   assert(draft.status === "final" && draft.finalized_at, `${label}: Entwurf nicht final`);
+  assert(draft.deleted_at == null, `${label}: erstes Final im Papierkorb`);
   assert(draft.feedback[0].text === "Bitte langsamer", `${label}: Feedback beim Übernehmen verloren`);
-  const adoptOps = state.recapOps.slice(opsAtFail);
-  const updateAt = adoptOps.lastIndexOf("update");
-  const deleteAt = adoptOps.lastIndexOf("delete");
-  assert(updateAt >= 0 && deleteAt > updateAt, `${label}: Reihenfolge ${adoptOps}`);
+  assert(state.recaps.filter((row) => row.status === "final" && row.trip_id === TRIP).length === 1, `${label}: mehr als ein Final`);
 
   const insertsBeforeReopen = state.recapOps.filter((op) => op === "insert").length;
   await page.click('[data-action="back"]');
@@ -578,18 +600,42 @@ async function runFlows(page, state, label) {
   assert(second && second.version === 2 && second.based_on === draft.id, `${label}: Version ${second?.version}`);
   assert(state.recaps.filter((row) => row.trip_id === TRIP && row.status === "final").length === 1, `${label}: Final beim neuen Entwurf weg`);
 
-  state.failNextRecapPatch = true;
-  const opsBeforeSecondFail = state.recapOps.length;
+  const keptFinalized = draft.finalized_at;
+  await page.evaluate(() => document.querySelector('[data-testid="app-toast"]')?.remove());
+  state.failPatch = "park";
+  const opsAtPark = state.recapOps.length;
   await page.click('[data-testid="recap-adopt"]');
   await page.waitForFunction(() => /fehlgeschlagen/i.test(document.querySelector('[data-testid="app-toast"]')?.textContent || ""));
-  assert(second.status === "draft", `${label}: zweiter Entwurf wurde trotz Fehler final`);
-  assert(state.recaps.some((row) => row.id === draft.id && row.status === "final"), `${label}: alte finale Fassung ist weg`);
-  assert(!state.recapOps.slice(opsBeforeSecondFail).includes("delete"), `${label}: Fehler löscht das Final`);
+  assert(second.status === "draft" && !second.finalized_at, `${label}: Parken-Fehler hat den Entwurf verändert`);
+  assert(draft.status === "final" && draft.deleted_at == null && draft.finalized_at === keptFinalized, `${label}: Parken-Fehler hat das Final verändert`);
+  assert(!state.recapOps.slice(opsAtPark).includes("promote") && !state.recapOps.slice(opsAtPark).includes("delete"), `${label}: Parken-Fehler macht weiter (${state.recapOps.slice(opsAtPark)})`);
 
+  await page.evaluate(() => document.querySelector('[data-testid="app-toast"]')?.remove());
+  state.failPatch = "promote";
+  const opsAtPromote = state.recapOps.length;
+  await page.click('[data-testid="recap-adopt"]');
+  await page.waitForFunction(() => /fehlgeschlagen/i.test(document.querySelector('[data-testid="app-toast"]')?.textContent || ""));
+  assert(second.status === "draft" && !second.finalized_at, `${label}: Freigeben-Fehler hat den Entwurf übernommen`);
+  assert(draft.status === "final" && draft.deleted_at == null && draft.finalized_at === keptFinalized, `${label}: Rollback stellt das Final nicht wieder her`);
+  assert(!state.recaps.some((row) => row.deleted_at), `${label}: Papierkorb bleibt nach Rollback`);
+  const promoteOps = state.recapOps.slice(opsAtPromote);
+  assert(promoteOps.includes("park") && promoteOps.includes("promote-fail") && promoteOps.includes("restore"), `${label}: Rollback-Schritte ${promoteOps}`);
+  assert(!promoteOps.includes("delete"), `${label}: Rollback löscht das Final`);
+
+  await page.evaluate(() => document.querySelector('[data-testid="app-toast"]')?.remove());
+  const opsAtReplace = state.recapOps.length;
   await page.click('[data-testid="recap-adopt"]');
   await page.waitForFunction(() => document.querySelector('[data-testid="recap-kicker"]')?.textContent?.trim() === "Final");
   assert(!state.recaps.some((row) => row.id === draft.id), `${label}: alte finale Fassung bleibt nach Erfolg`);
-  assert(second.status === "final", `${label}: neuer Entwurf nicht übernommen`);
+  assert(second.status === "final" && second.deleted_at == null, `${label}: neuer Entwurf nicht übernommen`);
+  assert(state.recaps.filter((row) => row.status === "final" && row.trip_id === TRIP).length === 1, `${label}: zwei Finals nach Ersetzen`);
+  const replaceOps = state.recapOps.slice(opsAtReplace);
+  assert(
+    replaceOps.indexOf("park") >= 0 &&
+      replaceOps.indexOf("promote") > replaceOps.indexOf("park") &&
+      replaceOps.indexOf("delete") > replaceOps.indexOf("promote"),
+    `${label}: Ersetzen-Reihenfolge ${replaceOps}`
+  );
 
   await page.click('[data-testid="recap-new-draft"]');
   await page.waitForSelector('[data-testid="recap-discard"]');

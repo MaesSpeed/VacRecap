@@ -112,27 +112,71 @@ export async function discardVideoDraft(recapId) {
 }
 
 /**
- * Erst freigeben, danach andere finale Zeilen löschen.
- * Schlägt der erste Schritt fehl, bleibt die bisherige finale Fassung stehen.
+ * Ersetzt eine finale Fassung, ohne den partiellen Unique-Index
+ * trip_recaps_one_final zu verletzen. Die alte Zeile geht zuerst in den
+ * Papierkorb (status draft, deleted_at). Schlägt das Freigeben fehl, kommt
+ * sie zurück. Das harte Löschen ist danach nur noch Aufräumen.
  */
 export async function adoptVideoDraft(recap) {
   if (!recap?.id || !recap.tripId) throw new Error("Entwurf fehlt.");
-  const data = await unwrap(
-    getSupabase()
-      .from("trip_recaps")
-      .update({ status: "final", finalized_at: new Date().toISOString() })
-      .eq("id", recap.id)
-      .select("*")
-      .single()
-  );
-  await unwrap(
-    getSupabase()
-      .from("trip_recaps")
-      .delete()
-      .eq("trip_id", recap.tripId)
-      .eq("kind", "video")
-      .eq("status", "final")
-      .neq("id", recap.id)
-  );
-  return mapRow(data);
+  const supabase = getSupabase();
+  const existing = await listVideoRecaps(recap.tripId);
+  const previous =
+    existing
+      .filter((row) => row.status === "final" && row.id !== recap.id && !row.deletedAt)
+      .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))[0] || null;
+
+  if (previous) {
+    await unwrap(
+      supabase
+        .from("trip_recaps")
+        .update({ status: "draft", deleted_at: new Date().toISOString() })
+        .eq("id", previous.id)
+        .select("*")
+        .single()
+    );
+  }
+
+  let promoted;
+  try {
+    const data = await unwrap(
+      supabase
+        .from("trip_recaps")
+        .update({ status: "final", finalized_at: new Date().toISOString() })
+        .eq("id", recap.id)
+        .select("*")
+        .single()
+    );
+    promoted = mapRow(data);
+  } catch (err) {
+    if (!previous) throw err;
+    try {
+      await unwrap(
+        supabase
+          .from("trip_recaps")
+          .update({
+            status: "final",
+            deleted_at: null,
+            finalized_at: previous.finalizedAt,
+          })
+          .eq("id", previous.id)
+          .select("*")
+          .single()
+      );
+    } catch {
+      throw new Error(
+        "Das Storyboard konnte nicht übernommen werden. Die bisherige finale Fassung ließ sich nicht zurückholen."
+      );
+    }
+    throw err;
+  }
+
+  if (previous) {
+    try {
+      await unwrap(supabase.from("trip_recaps").delete().eq("id", previous.id));
+    } catch {
+      /* Papierkorb bleibt unsichtbar, auch wenn das Löschen scheitert. */
+    }
+  }
+  return promoted;
 }
