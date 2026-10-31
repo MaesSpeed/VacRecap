@@ -202,6 +202,10 @@ body {
   opacity: 0.95;
 }
 
+.card--hero__overlay .card-compact__titlerow:has(.card-syms:not(:empty)) + .card--hero__dates {
+  margin-top: 12px;
+}
+
 .card--hero__footer {
   display: flex;
   align-items: center;
@@ -420,8 +424,13 @@ body {
   grid-column: 1 / -1;
 }
 
+.card--compact:has(> .card-symbol-hint:not([hidden])) {
+  padding-bottom: 5px;
+}
+
 .card--compact > .card-symbol-hint:not([hidden]) {
-  margin-top: -4px;
+  margin-top: -12px;
+  line-height: 1.15;
 }
 
 .card--hero__footer .card-symbol-hint {
@@ -967,6 +976,12 @@ body {
   font-size: 11px;
   font-weight: 700;
   line-height: 1.45;
+}
+
+.companion-pill[hidden],
+.card-sym[hidden],
+.card-recap-btn[hidden] {
+  display: none;
 }
 
 .companion-pill::before {

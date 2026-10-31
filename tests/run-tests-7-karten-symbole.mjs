@@ -18,7 +18,9 @@ const TAGS = "trip-tags";
 const PLUS = "trip-plus";
 const LEER = "trip-leer";
 const NOW = "trip-now";
-const TRIPS = [PARIS, DRAFTS, MIX, BOTH, LONG, TAGS, PLUS, LEER, NOW];
+const FOREIGN = "trip-foreign";
+const OTHER = "22222222-2222-2222-2222-222222222222";
+const TRIPS = [PARIS, DRAFTS, MIX, BOTH, LONG, TAGS, PLUS, LEER, NOW, FOREIGN];
 const LONG_TITLE = "Sonnige Rundreise entlang der Küste mit einem ausgesprochen langen Namen";
 
 const MIME = {
@@ -97,7 +99,7 @@ function startServer() {
   });
 }
 
-function tripRow(id, title, start, end, tags = [], names = []) {
+function tripRow(id, title, start, end, tags = [], names = [], createdBy = USER) {
   return {
     id,
     title,
@@ -105,7 +107,7 @@ function tripRow(id, title, start, end, tags = [], names = []) {
     end_date: end,
     created_at: `${start}T00:00:00.000Z`,
     updated_at: `${end}T00:00:00.000Z`,
-    created_by: USER,
+    created_by: createdBy,
     companions: names,
     companion_tags: tags,
     cover_media_id: null,
@@ -150,6 +152,7 @@ function createMockSupabaseState() {
     role: "owner",
     recapMissing: false,
     holdCardQuery: null,
+    membersDown: false,
     recapGets: [],
     memberGets: [],
     trips: [
@@ -162,6 +165,7 @@ function createMockSupabaseState() {
       tripRow(PLUS, "Tagebuch plus", "2025-04-01", "2025-04-04"),
       tripRow(LEER, "Leer", "2024-03-01", "2024-03-03"),
       tripRow(NOW, "Unterwegs", "2026-10-30", "2026-11-02"),
+      tripRow(FOREIGN, "Fremd", "2024-02-01", "2024-02-03", [], [], OTHER),
     ],
     recaps: [
       recap({
@@ -277,6 +281,24 @@ function createMockSupabaseState() {
         created_at: "2025-04-06T08:00:00.000Z",
       }),
       recap({
+        id: "now-video",
+        trip_id: NOW,
+        kind: "video",
+        status: "final",
+        version: 1,
+        content: { scenes: [], seconds: 0 },
+        created_at: "2026-10-30T08:00:00.000Z",
+      }),
+      recap({
+        id: "foreign-diary",
+        trip_id: FOREIGN,
+        kind: "diary",
+        status: "draft",
+        version: 1,
+        content: { days: [day("2024-02-01", "FREMD-TEXT")] },
+        created_at: "2024-02-04T08:00:00.000Z",
+      }),
+      recap({
         id: "plus-d2",
         trip_id: PLUS,
         kind: "diary",
@@ -336,6 +358,7 @@ function createMockSupabaseState() {
     const table = url.pathname.split("/").filter(Boolean).pop();
     if (table === "trip_members" && method === "GET") {
       state.memberGets.push(url.searchParams.toString());
+      if (state.membersDown) return { status: 500, json: { message: "Rolle nicht geladen" } };
       const filter = url.searchParams.get("trip_id") || "";
       let ids = [BOTH];
       if (filter.startsWith("eq.")) ids = [filter.slice(3)];
@@ -610,6 +633,24 @@ async function runFlows(page, state, label) {
     const more = tags.text.match(/\+(\d+)/);
     assert(more && Number(more[1]) === 3 - shown.length, `${label}: Überlauf «${tags.text}»`);
   }
+  const tagFit = await page.locator(`[data-vacation-id="${TAGS}"]`).evaluate((card) => {
+    const line = card.querySelector("[data-testid='companion-tags']");
+    const cardBox = card.getBoundingClientRect();
+    const pills = [...line.querySelectorAll(".companion-pill")];
+    const hidden = pills.filter((pill) => pill.hidden);
+    const visible = pills.filter((pill) => !pill.hidden);
+    return {
+      hiddenDisplay: hidden.every((pill) => getComputedStyle(pill).display === "none"),
+      inside: visible.every((pill) => {
+        const box = pill.getBoundingClientRect();
+        return box.left >= cardBox.left - 1 && box.right <= cardBox.right + 1 && box.width > 8;
+      }),
+      fits: line.scrollWidth <= line.clientWidth + 1,
+      visibleText: visible.map((pill) => pill.textContent).join(" "),
+    };
+  });
+  assert(tagFit.hiddenDisplay, `${label}: versteckte Tags bleiben sichtbar`);
+  assert(tagFit.inside && tagFit.fits, `${label}: Tags abgeschnitten «${tagFit.visibleText}»`);
 
   const stack = await page.locator(`[data-vacation-id="${DRAFTS}"]`).evaluate((card) => {
     const sym = card.querySelector(".card-sym").getBoundingClientRect();
@@ -626,9 +667,22 @@ async function runFlows(page, state, label) {
   assert(nowSection === "Läuft jetzt", `${label}: Unterwegs steht in «${nowSection}»`);
   assert((await recapBtn(page, PARIS, "video").count()) === 0, `${label}: Button auf künftiger Reise`);
   assert((await recapBtn(page, NOW, "video").count()) === 0 && (await recapBtn(page, NOW, "diary").count()) === 0, `${label}: Button auf laufender Reise`);
+  const dateHit = await page.locator(`[data-vacation-id="${NOW}"]`).evaluate((card) => {
+    const sym = card.querySelector(".card-sym");
+    const dates = card.querySelector(".card--hero__dates");
+    if (!sym || !dates) return null;
+    const symBox = sym.getBoundingClientRect();
+    const dateBox = dates.getBoundingClientRect();
+    const hitBottom = symBox.top + symBox.height / 2 + 22;
+    return { overlap: hitBottom > dateBox.top + 0.5, gap: dateBox.top - (symBox.top + symBox.height / 2 + 22) };
+  });
+  assert(dateHit && !dateHit.overlap, `${label}: Tippfläche trifft das Datum (${dateHit?.gap})`);
   assert((await symbol(page, LEER, "video").count()) === 0 && (await symbol(page, LEER, "diary").count()) === 0, `${label}: C1 Symbole`);
   assert((await recapBtn(page, LEER, "video").getAttribute("data-state")) === "open", `${label}: C1 Video`);
   assert((await recapBtn(page, LEER, "diary").getAttribute("data-state")) === "open", `${label}: C1 Tagebuch`);
+  const diaryIcon = await recapBtn(page, LEER, "diary").locator("svg").innerHTML();
+  assert(diaryIcon.includes("M9 7h6"), `${label}: Tagebuch-Button ohne Buch`);
+  assert(!diaryIcon.includes("M14 3H7"), `${label}: Tagebuch-Button nutzt das Dokument`);
   assert((await recapBtn(page, LEER, "video").locator("svg").count()) === 1, `${label}: C1 ohne Film-Symbol`);
   const leerHint = page.locator(`[data-vacation-id="${LEER}"] [data-testid="card-symbol-hint"]`);
   assert((await leerHint.count()) === 0 || (await leerHint.isHidden()), `${label}: C1 Hinweis`);
@@ -800,6 +854,30 @@ async function runFlows(page, state, label) {
     assert((await recapBtn(page, BOTH, "diary").getAttribute("data-state")) === "final", `${label}: ${role} C4 Tagebuch`);
     assert((await page.locator("[data-testid='card-symbol-hint']:visible").count()) === 0, `${label}: ${role} Hinweis zurück`);
   }
+
+  state.role = "owner";
+  state.membersDown = true;
+  await reloadHome(page);
+  assert((await page.locator("[data-testid='card-symbol']").count()) === 0, `${label}: Symbole trotz Rollenfehler`);
+  assert((await page.locator("[data-testid='app-toast']").count()) === 0, `${label}: Dialog beim Rollenfehler`);
+  assert((await page.locator("[role='alertdialog']").count()) === 0, `${label}: Dialog beim Laden`);
+  assert((await recapBtn(page, DRAFTS, "diary").count()) === 1, `${label}: eigene Reise ohne Button`);
+  assert((await recapBtn(page, FOREIGN, "video").count()) === 1 && (await recapBtn(page, FOREIGN, "diary").count()) === 1, `${label}: unbekannte Rolle ohne Buttons`);
+  await recapBtn(page, DRAFTS, "diary").click();
+  await page.waitForSelector("[data-testid='diary-unavailable']");
+  const ownedMsg = await page.locator("[data-testid='diary-unavailable']").innerText();
+  assert(ownedMsg.includes("Rolle konnte nicht geladen werden"), `${label}: Besitzer «${ownedMsg}»`);
+  assert(!ownedMsg.includes("Noch kein"), `${label}: Besitzer gilt als Gast «${ownedMsg}»`);
+  assert(!ownedMsg.includes("TEXT-ZWEI"), `${label}: Entwurf trotz Rollenfehler`);
+  await backToOverview(page);
+  await recapBtn(page, FOREIGN, "diary").click();
+  await page.waitForSelector("[data-testid='diary-unavailable']");
+  const roleMsg = await page.locator("[data-testid='diary-unavailable']").innerText();
+  assert(roleMsg.includes("Rolle konnte nicht geladen werden"), `${label}: «${roleMsg}»`);
+  assert(!roleMsg.includes("Noch kein"), `${label}: unbekannte Rolle als Gast «${roleMsg}»`);
+  assert(!roleMsg.includes("FREMD-TEXT"), `${label}: fremder Entwurf sichtbar`);
+  await backToOverview(page);
+  state.membersDown = false;
 
   state.role = "editor";
   state.recapMissing = true;

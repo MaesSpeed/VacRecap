@@ -28,7 +28,7 @@ import {
 } from "./recap-service.js";
 import { navigate } from "./router.js";
 import { showToast, showWarnToast } from "./toast.js";
-import { canEditTripMedia, getMyTripRole, tripRoleLoadFailed } from "./trip-role.js";
+import { resolveTripEditing, ROLE_UNKNOWN_MESSAGE, tripRoleLoadFailed } from "./trip-role.js";
 import { openConfirmDialog } from "./ui-confirm.js";
 import { resolveThumbUrlMap } from "./ui-place-list.js";
 import { escapeHtml, formatDateRangeCard, parseIsoDate, todayIso } from "./utils.js";
@@ -201,10 +201,12 @@ function previewMarkup(model, vacation) {
   </section>`;
 }
 
-async function canEditDiary(tripId) {
-  const role = await getMyTripRole(tripId);
-  if (tripRoleLoadFailed(tripId)) return false;
-  return canEditTripMedia(role);
+function canEditDiary(tripId) {
+  return resolveTripEditing(tripId);
+}
+
+function unavailableCopy(tripId, emptyCopy) {
+  return tripRoleLoadFailed(tripId) ? ROLE_UNKNOWN_MESSAGE : emptyCopy;
 }
 
 function diaryFailure(err, fallback) {
@@ -271,7 +273,7 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
 
   if (!canEdit) {
     if (!finalRow) {
-      paintUnavailable("Noch kein Reisetagebuch.");
+      paintUnavailable(unavailableCopy(tripId, "Noch kein Reisetagebuch."));
       return;
     }
     await paintDraft(finalRow, { readonly: true, offerNew: false });

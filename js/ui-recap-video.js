@@ -16,7 +16,7 @@ import {
 } from "./recap-service.js";
 import { buildVideoRecap } from "./recap-storyboard.js";
 import { navigate } from "./router.js";
-import { canEditTripMedia, getMyTripRole, tripRoleLoadFailed } from "./trip-role.js";
+import { resolveTripEditing, ROLE_UNKNOWN_MESSAGE, tripRoleLoadFailed } from "./trip-role.js";
 import { openConfirmDialog } from "./ui-confirm.js";
 import { resolveThumbUrlMap } from "./ui-place-list.js";
 import { showToast, showWarnToast } from "./toast.js";
@@ -76,10 +76,12 @@ function pickStatus(rows, status) {
   );
 }
 
-async function canEditRecap(tripId) {
-  const role = await getMyTripRole(tripId);
-  if (tripRoleLoadFailed(tripId)) return false;
-  return canEditTripMedia(role);
+function canEditRecap(tripId) {
+  return resolveTripEditing(tripId);
+}
+
+function unavailableCopy(tripId, emptyCopy) {
+  return tripRoleLoadFailed(tripId) ? ROLE_UNKNOWN_MESSAGE : emptyCopy;
 }
 
 export async function loadRecapEntry(tripId) {
@@ -257,7 +259,7 @@ export async function renderRecapVideo(appEl, tripId, { recapId = "" } = {}) {
 
   if (!canEdit) {
     if (!finalRow) {
-      paintUnavailable(vacation, "Noch kein Recap-Video.");
+      paintUnavailable(vacation, unavailableCopy(tripId, "Noch kein Recap-Video."));
       return;
     }
     await paintStory(vacation, finalRow, material, { readonly: true, offerNewDraft: false });

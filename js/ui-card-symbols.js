@@ -8,6 +8,7 @@ const HINT_KEY = "vacrecap-card-symbol-hint";
 
 const FILM = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/></svg>`;
 const DOC = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>`;
+const BOOK = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 21V5M9 7h6"/></svg>`;
 const HAND = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11M12 10V9a1.5 1.5 0 0 1 3 0v2M15 10.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-1a6 6 0 0 1-5-2.7L3.5 15a1.5 1.5 0 0 1 2.5-1.6L9 16"/></svg>`;
 const CHECK = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
 
@@ -70,7 +71,7 @@ function actionButton(kind, bucket, canEdit) {
   const drafts = bucket?.drafts || 0;
   const label = KIND_LABEL[kind];
   const state = final ? "final" : "open";
-  const icon = final ? CHECK : kind === "video" ? FILM : DOC;
+  const icon = final ? CHECK : kind === "video" ? FILM : BOOK;
   const countLabel = !final && drafts ? `, ${drafts} ${draftNoun(drafts)}` : "";
   return `<button type="button" class="card-recap-btn${final ? " card-recap-btn--done" : ""}" data-testid="card-recap-btn" data-kind="${kind}" data-state="${state}" data-drafts="${drafts}" aria-label="${escapeHtml(label + countLabel)}">${icon}<span>${label}</span></button>`;
 }
@@ -165,13 +166,17 @@ export function paintCardSymbols(appEl, vacations, mountGen) {
       if (appEl?.dataset?.appRenderGen !== mountGen) return;
       if (!appEl.classList.contains("screen--urlaube")) return;
       const summary = recapResult.status === "fulfilled" ? cardSymbolSummary(recapResult.value) : null;
-      const roles = roleResult.status === "fulfilled" ? roleResult.value : new Map();
-      const showHint = !hintSeen();
+      const roleInfo =
+        roleResult.status === "fulfilled" ? roleResult.value : { failed: true, roles: new Map(), userId: null };
+      const rolesFailed = Boolean(roleInfo?.failed);
+      const roles = roleInfo?.roles || new Map();
+      const showHint = !hintSeen() && !rolesFailed;
       appEl.querySelectorAll("[data-vacation-id]").forEach((card) => {
         const id = card.dataset.vacationId;
         const entry = summary ? summary.get(id) : undefined;
-        applyCard(card, entry, showHint, titles.get(id) || "");
-        applyActions(card, entry, canEditTripMedia(roles.get(id) || "owner"));
+        applyCard(card, rolesFailed ? undefined : entry, showHint, titles.get(id) || "");
+        const canEdit = rolesFailed ? true : canEditTripMedia(roles.get(id) || "owner");
+        applyActions(card, entry, canEdit);
       });
     })
     .finally(() => {
