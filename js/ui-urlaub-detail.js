@@ -1581,6 +1581,7 @@ export async function renderUrlaubDetail(appEl, id) {
 
   contentEl.addEventListener("pointerdown", (event) => {
     if (event.button > 0) return;
+    if (event.target.closest("[data-kr-tip]")) return;
     const tile = event.target.closest(".tile[data-media-id], .th[data-media-id]");
     if (!tile) return;
     clearPhotoPress();
@@ -1612,6 +1613,7 @@ export async function renderUrlaubDetail(appEl, id) {
   });
 
   contentEl.addEventListener("click", async (e) => {
+    if (e.target.closest("[data-kr-tip]")) return;
     if (suppressTileClick) {
       suppressTileClick = false;
       e.preventDefault();

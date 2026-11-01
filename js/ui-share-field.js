@@ -9,6 +9,11 @@ import { showToast } from "./toast.js";
 import { escapeHtml } from "./utils.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const draftStore = new Map();
+
+function cloneDrafts(list) {
+  return (list || []).map((draft) => ({ ...draft }));
+}
 const DOTS = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="19" cy="12" r="1.3" fill="currentColor"/></svg>`;
 
 const HELP = {
@@ -58,10 +63,17 @@ export function bindShareField(root, { tripId, myUserId }) {
   const rolesEl = root.querySelector('[data-role="share-roles"]');
   const accessEl = root.querySelector('[data-role="share-access"]');
   const accessLabel = root.querySelector('[data-role="share-access-label"]');
-  let drafts = [];
+  let drafts = cloneDrafts(draftStore.get(tripId));
   let people = [];
 
+  function remember() {
+    if (!tripId) return;
+    if (drafts.length) draftStore.set(tripId, cloneDrafts(drafts));
+    else draftStore.delete(tripId);
+  }
+
   function paint() {
+    remember();
     chipsEl.innerHTML = drafts
       .map((draft, index) => {
         const bad = draft.invalid || draft.error;
@@ -275,7 +287,7 @@ export function bindShareField(root, { tripId, myUserId }) {
         title: isInvite ? "Einladung zurückziehen?" : "Zugriff entziehen?",
         message: isInvite
           ? `Die Einladung an ${more.dataset.email || name} verfällt.`
-          : `${name} sieht die Reise dann nicht mehr. Ihre Fotos und Notizen bleiben in der Reise.`,
+          : `${name} sieht die Reise dann nicht mehr. Fotos und Notizen von ${name} bleiben in der Reise.`,
         confirmLabel: isInvite ? "Zurückziehen" : "Entziehen",
         testId: "confirm-revoke",
       });

@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
+import { mkdirSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, webkit } from "playwright";
@@ -8,7 +9,25 @@ import { chromium, webkit } from "playwright";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
 const SUPABASE_HOST = "hgboqdovlfeuqfhfeykn.supabase.co";
-const SHOTS = "/opt/cursor/artifacts/paket8";
+
+function resolveShotDir() {
+  const candidates = [
+    process.env.VACRECAP_SHOTS,
+    path.join(__dirname, "artifacts"),
+    path.join(os.tmpdir(), "vacrecap-paket8"),
+  ].filter(Boolean);
+  for (const dir of candidates) {
+    try {
+      mkdirSync(dir, { recursive: true });
+      return dir;
+    } catch {
+      /* nächster Kandidat */
+    }
+  }
+  return os.tmpdir();
+}
+
+const SHOTS = resolveShotDir();
 
 const DOMI = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1";
 const SABINE = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa2";
@@ -788,6 +807,60 @@ async function openEdit(page, id) {
   );
 }
 
+async function chipBlob(page) {
+  return page.locator('[data-testid="share-chip"]').evaluateAll((nodes) => nodes.map((node) => node.textContent || "").join(" "));
+}
+
+async function waitRestoredChips(page) {
+  await page.waitForFunction(() => {
+    const section = document.querySelector('[data-testid="share-section"]');
+    const chips = [...document.querySelectorAll('[data-testid="share-chip"]')].map((node) => node.textContent || "");
+    if (!section || section.dataset.remount) return false;
+    return chips.length === 2 && chips.some((text) => text.includes("kaputt")) && chips.some((text) => text.includes("tom@example.com"));
+  });
+}
+
+async function checkOfflineDrafts(page, label) {
+  await page.fill('[data-testid="share-email-input"]', "tom@example.com, kaputt");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid="share-chip"]').length === 2);
+  const before = await chipBlob(page);
+  assert(before.includes("tom@example.com") && before.includes("kaputt"), `${label}: Chips vorher «${before}»`);
+  await page.locator('[data-testid="share-section"]').evaluate((el) => {
+    el.dataset.remount = "offline";
+  });
+  await page.evaluate(() => window.dispatchEvent(new Event("offline")));
+  await waitRestoredChips(page);
+  await page.locator('[data-testid="share-section"]').evaluate((el) => {
+    el.dataset.remount = "online";
+  });
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await waitRestoredChips(page);
+  try {
+    await page.locator('[data-testid="share-section"]').evaluate((el) => {
+      el.dataset.remount = "save";
+    });
+    await page.context().setOffline(true);
+    await page.evaluate(() => window.dispatchEvent(new Event("offline")));
+    await waitRestoredChips(page);
+    await page.click('button[type="submit"]');
+    await page.waitForFunction(() => (document.querySelector('[data-testid="app-toast"]')?.textContent || "").includes("Einladen geht nur mit Verbindung"));
+    assert((await page.locator('[data-testid="share-chip"]').count()) === 2, `${label}: Chips nach Offline-Speichern weg`);
+    assert((await chipBlob(page)).includes("kaputt"), `${label}: roter Chip nach Offline-Speichern weg`);
+  } finally {
+    await page.context().setOffline(false);
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  }
+  await page.locator('[data-testid="share-section"]').evaluate((el) => {
+    el.dataset.remount = "clear";
+  });
+  await waitRestoredChips(page);
+  while ((await page.locator('[data-testid="share-chip"]').count()) > 0) {
+    await page.locator('[data-testid="share-chip"]').first().click();
+  }
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid="share-chip"]').length === 0);
+}
+
 async function runFlows(page, state, label, shots, baseUrl) {
   await login(page, baseUrl);
 
@@ -798,6 +871,7 @@ async function runFlows(page, state, label, shots, baseUrl) {
   const dabei = labels.findIndex((text) => text.includes("Wer ist dabei"));
   const share = labels.findIndex((text) => text.includes("Freigeben"));
   assert(dabei >= 0 && share > dabei, `${label}: Freigeben steht nicht unter Wer ist dabei`);
+  await checkOfflineDrafts(page, label);
   await page.fill('[data-testid="share-email-input"]', "tom@example.com, niemand@example.com, domi@example.com");
   await page.keyboard.press("Enter");
   await page.waitForSelector('[data-testid="share-chip"]');
@@ -980,6 +1054,12 @@ async function runFlows(page, state, label, shots, baseUrl) {
   await page.locator('[data-place-id="p-hafen"]').click();
   await page.waitForSelector('[data-place-id="p-hafen"] .tile');
   assert((await page.locator('[data-place-id="p-hafen"] .tile .kr-av').count()) >= 1, `${label}: Kreis am Foto fehlt`);
+  await page.locator('[data-place-id="p-hafen"] .tile [data-kr-tip]').first().click();
+  await page.waitForSelector('[data-testid="member-tip"]');
+  const photoTip = await page.locator('[data-testid="member-tip"]').innerText();
+  assert(photoTip.includes("·"), `${label}: Foto-Kreis ohne Rolle «${photoTip}»`);
+  assert((await page.locator('[data-testid="media-viewer"]').count()) === 0, `${label}: Foto-Kreis öffnet den Viewer`);
+  await page.locator('[data-testid="member-tip"]').evaluate((el) => el.remove()).catch(() => {});
   assert((await page.locator('[data-note-id="n-domi"] .kr-av').count()) === 1, `${label}: Kreis an der Notiz fehlt`);
   await page.evaluate(() => {
     window.location.hash = "#/urlaube";

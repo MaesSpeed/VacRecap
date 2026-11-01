@@ -435,6 +435,8 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
     }
 
     shareApi?.commitInput?.();
+    const inviteOffline = Boolean(shareApi?.hasDrafts() && !navigator.onLine);
+    if (inviteOffline) showToast("Einladen geht nur mit Verbindung");
     appEl.dataset.formSaving = "1";
     let saved;
     const persist = async (force = false) => putVacation(vacation, { force });
@@ -468,11 +470,13 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
         }
       } else {
         delete appEl.dataset.formSaving;
-        showToast(
-          err instanceof CloudOfflineError || err instanceof CloudNetworkError
-            ? err.message
-            : err?.message || "Speichern fehlgeschlagen."
-        );
+        if (!(inviteOffline && (err instanceof CloudOfflineError || err instanceof CloudNetworkError))) {
+          showToast(
+            err instanceof CloudOfflineError || err instanceof CloudNetworkError
+              ? err.message
+              : err?.message || "Speichern fehlgeschlagen."
+          );
+        }
         return;
       }
     }
