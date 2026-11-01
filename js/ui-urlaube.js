@@ -6,6 +6,14 @@ import { computeVacationStats, formatVacationStatsLine } from "./vacation-stats.
 import { navigate } from "./router.js";
 import { clearTripUiState } from "./ui-urlaub-detail.js";
 import { avatarListForVacation, companionTagsMarkup } from "./vacation.js";
+import { acceptTripInvite, declineTripInvite, listMyTripInvites } from "./trip-access.js";
+import { loadTripPeople } from "./trip-people.js";
+import { canDeleteTrip, canEditAny, getConfirmedTripRole, ROLE_LABEL, clearTripRoleCache } from "./trip-role.js";
+import { leaveTrip } from "./trip-access.js";
+import { clearTripPeople } from "./trip-people.js";
+import { stackHtml } from "./member-marks.js";
+import { presetUrl } from "./covers.js";
+import { openConfirmDialog } from "./ui-confirm.js";
 import {
   currentDayIndex,
   dayCountInclusive,
@@ -19,6 +27,7 @@ import {
 } from "./utils.js";
 
 const LONG_PRESS_MS = 550;
+let peopleByTrip = new Map();
 const CHEVRON_SVG = `<svg width="8" height="14" viewBox="0 0 8 14" fill="none" aria-hidden="true"><path d="M1 1l6 6-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 export async function renderUrlaubeScreen(appEl, vacations) {
@@ -35,6 +44,10 @@ export async function renderUrlaubeScreen(appEl, vacations) {
     });
   grouped.upcoming.sort((a, b) => a.startDate.localeCompare(b.startDate));
   grouped.past.sort((a, b) => b.endDate.localeCompare(a.endDate));
+  const invites = await listMyTripInvites();
+  peopleByTrip = new Map(
+    await Promise.all(vacations.map(async (vacation) => [vacation.id, await loadTripPeople(vacation.id, { refresh: true })]))
+  );
 
   appEl.className = "screen screen--urlaube";
   delete appEl.dataset.vacationId;
@@ -55,6 +68,7 @@ export async function renderUrlaubeScreen(appEl, vacations) {
       </div>
     </header>
     <main class="urlaube-main">
+      ${inviteSection(invites)}
       ${
         vacations.length === 0
           ? `<div class="empty-state" data-testid="urlaube-empty">
@@ -99,6 +113,13 @@ export async function renderUrlaubeScreen(appEl, vacations) {
 
   appEl.querySelectorAll('[data-action="new"]').forEach((btn) => {
     btn.addEventListener("click", () => navigate({ name: "urlaub-form", mode: "create" }));
+  });
+
+  appEl.querySelectorAll('[data-action="accept-invite"]').forEach((btn) => {
+    btn.addEventListener("click", () => acceptInvite(btn.dataset.inviteId));
+  });
+  appEl.querySelectorAll('[data-action="decline-invite"]').forEach((btn) => {
+    btn.addEventListener("click", () => declineInvite(btn.dataset.inviteId));
   });
 
   appEl.querySelector('[data-action="settings"]')?.addEventListener("click", () => {
@@ -218,6 +239,8 @@ function fitCompanionLines(root) {
 }
 
 function renderAvatars(v) {
+  const members = (peopleByTrip.get(v.id) || []).filter((person) => person.person_kind === "member");
+  if (members.length > 1) return stackHtml(members);
   const names = avatarListForVacation(v);
   const items = initialsFromNames(names);
   const extra =
@@ -275,17 +298,27 @@ function bindCardInteractions(card, vacations) {
 function showCardMenu(id, vacations) {
   const vacation = vacations.find((v) => v.id === id);
   if (!vacation) return;
-
-  const overlay = document.getElementById("overlay-root");
-  overlay.hidden = false;
-  overlay.innerHTML = `
+  void (async () => {
+    const roleInfo = await getConfirmedTripRole(id);
+    const showEdit = canEditAny(roleInfo.role);
+    const showDelete = canDeleteTrip(roleInfo.role, roleInfo.confirmed);
+    const showLeave = roleInfo.confirmed && roleInfo.role !== "owner";
+    const overlay = document.getElementById("overlay-root");
+    overlay.hidden = false;
+    overlay.innerHTML = `
     <div class="action-sheet" role="dialog" aria-label="Reise-Aktionen" data-testid="vacation-action-sheet">
       <p class="action-sheet__title">${escapeHtml(vacation.title)}</p>
-      <button type="button" data-action="edit">Bearbeiten</button>
-      <button type="button" data-action="delete" class="danger">Löschen</button>
+      ${showEdit ? `<button type="button" data-action="edit">Bearbeiten</button>` : ""}
+      ${showDelete ? `<button type="button" data-action="delete" class="danger">Löschen</button>` : ""}
+      ${showLeave ? `<button type="button" data-action="leave" class="danger" data-testid="card-leave-trip">Reise verlassen</button>` : ""}
       <button type="button" data-action="cancel">Abbrechen</button>
     </div>
   `;
+    bindCardMenu(overlay, id, vacation);
+  })();
+}
+
+function bindCardMenu(overlay, id, vacation) {
 
   const close = () => {
     overlay.hidden = true;
@@ -297,13 +330,17 @@ function showCardMenu(id, vacations) {
   overlay.querySelector('[data-action="cancel"]').addEventListener("click", () =>
     closeOverlayHistory(activeClose)
   );
-  overlay.querySelector('[data-action="edit"]').addEventListener("click", () => {
+  overlay.querySelector('[data-action="edit"]')?.addEventListener("click", () => {
     releaseOverlayHistory(activeClose);
     navigate({ name: "urlaub-form", mode: "edit", id });
   });
-  overlay.querySelector('[data-action="delete"]').addEventListener("click", () => {
+  overlay.querySelector('[data-action="delete"]')?.addEventListener("click", () => {
     closeOverlayHistory(activeClose);
     confirmDelete(id, vacation.title);
+  });
+  overlay.querySelector('[data-action="leave"]')?.addEventListener("click", () => {
+    closeOverlayHistory(activeClose);
+    confirmLeave(id);
   });
 }
 
@@ -338,12 +375,121 @@ function confirmDelete(id, title) {
     if (v?.cover?.type === "custom" && v.cover.blobId) {
       await deleteBlob(v.cover.blobId);
     }
-    await deleteVacationData(id);
-    await deleteVacation(id);
-    closeOverlayHistory(activeClose);
     const { showToast } = await import("./toast.js");
+    try {
+      await deleteVacation(id);
+    } catch (err) {
+      closeOverlayHistory(activeClose);
+      showToast(err?.message || "Die Reise konnte nicht gelöscht werden.");
+      return;
+    }
+    closeOverlayHistory(activeClose);
     showToast("Reise gelöscht");
     window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
     navigate({ name: "urlaube" }, { replace: true });
   });
+}
+
+async function acceptInvite(inviteId) {
+  const { showToast } = await import("./toast.js");
+  try {
+    await acceptTripInvite(inviteId);
+    clearTripRoleCache();
+    clearTripPeople();
+    showToast("Du bist jetzt dabei");
+    window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  } catch (err) {
+    const code = String(err?.code || "");
+    if (code === "P0001" || /ungueltig|ungültig|abgelaufen/i.test(err?.message || "")) {
+      showToast("Einladung ist nicht mehr gültig");
+    } else {
+      showToast(err?.message || "Beitreten hat nicht geklappt.");
+    }
+    window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  }
+}
+
+async function declineInvite(inviteId) {
+  const ok = await openConfirmDialog({
+    title: "Einladung ablehnen?",
+    message: "Die Einladung verschwindet aus deiner Übersicht.",
+    confirmLabel: "Ablehnen",
+    testId: "confirm-decline-invite",
+  });
+  if (!ok) return;
+  try {
+    await declineTripInvite(inviteId);
+    window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  } catch (err) {
+    const { showToast } = await import("./toast.js");
+    showToast(err?.message || "Ablehnen hat nicht geklappt.");
+  }
+}
+
+function confirmLeave(id) {
+  void (async () => {
+    const ok = await openConfirmDialog({
+      title: "Reise verlassen?",
+      message: "Deine Fotos und Notizen bleiben in der Reise.",
+      confirmLabel: "Verlassen",
+      testId: "confirm-leave-trip",
+    });
+    if (!ok) return;
+    const { showToast } = await import("./toast.js");
+    try {
+      await leaveTrip(id);
+      clearTripRoleCache(id);
+      clearTripPeople(id);
+      showToast("Reise verlassen");
+      navigate({ name: "urlaube" }, { replace: true });
+    } catch (err) {
+      showToast(err?.message || "Die Reise konnte nicht verlassen werden.");
+    }
+  })();
+}
+
+function inviteSection(invites) {
+  if (!invites?.length) return "";
+  return `
+    <section class="urlaube-section" data-testid="invite-section">
+      <h2 class="section-label inv-label">Einladung <span class="inv-new">NEU</span></h2>
+      ${invites.map(inviteCard).join("")}
+    </section>`;
+}
+
+function inviteCard(invite) {
+  const title = invite.trip_title || "Reise";
+  const role = ROLE_LABEL[invite.role] || "Beitragender";
+  const dates =
+    invite.start_date && invite.end_date ? formatDateRangeCard(invite.start_date, invite.end_date) : "";
+  const members = Array.isArray(invite.members) ? invite.members : [];
+  const hint =
+    invite.role === "editor"
+      ? "Als Mitbearbeiter bearbeitest du alles mit, wie der Besitzer."
+      : "Als Beitragender fügst du eigene Fotos und Notizen hinzu. Fremdes kannst du ansehen.";
+  const cover = presetUrl(invite.cover_preset || "stadt");
+  const inviter = invite.inviter_name || "Jemand";
+  const color = invite.inviter_color || "#0066b3";
+  const letter = Array.from(inviter)[0]?.toLocaleUpperCase("de-DE") || "?";
+  const dabei = members.length
+    ? `<div class="kr-dabei"><span class="kr-dabei__l">Schon dabei</span>${stackHtml(members.map((member) => ({ ...member, person_kind: "member", display_name: member.display_name, avatar_color: member.avatar_color, user_id: member.user_id, role: member.role })))}<span class="kr-dabei__t">${escapeHtml(members.map((member) => member.display_name).filter(Boolean).join(" · "))}</span></div>`
+    : "";
+  return `
+    <article class="inv-card" data-testid="invite-card" data-invite-id="${escapeHtml(invite.invite_id)}">
+      <div class="inv-top">
+        <img src="${escapeHtml(cover)}" alt="" />
+        <div>
+          <h3 class="inv-title">Du wurdest zur Reise „${escapeHtml(title)}“ eingeladen</h3>
+          <p class="inv-from kr-from"><span>Von</span><span class="kr-av kr-av--sm" style="--kr:${escapeHtml(color)}">${escapeHtml(letter)}</span><span>${escapeHtml(inviter)} · ${escapeHtml(ROLE_LABEL[invite.inviter_role] || "Besitzer")}</span></p>
+          ${dates ? `<p class="card-compact__dates inv-dates">${escapeHtml(dates)}</p>` : ""}
+          <span class="inv-role">Rolle: ${escapeHtml(role)}</span>
+        </div>
+      </div>
+      ${dabei}
+      <p class="inv-hint">${escapeHtml(hint)}</p>
+      <div class="inv-acts">
+        <button type="button" class="btn btn-emaille--ghost" data-action="decline-invite" data-invite-id="${escapeHtml(invite.invite_id)}">Ablehnen</button>
+        <button type="button" class="btn btn-emaille" data-action="accept-invite" data-testid="invite-accept" data-invite-id="${escapeHtml(invite.invite_id)}">Beitreten</button>
+      </div>
+    </article>`;
 }

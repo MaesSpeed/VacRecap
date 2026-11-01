@@ -490,7 +490,7 @@ async function openSheet(page, kind, tripId) {
 
 async function runFlows(page, state, where) {
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 64, `${where}: Build ${build}`);
+  assert(Number(build) === 65, `${where}: Build ${build}`);
   const tripId = await loginAndOpen(page);
 
   assertHits(await hitBoxes(page, ".trip-header .link-btn--back"), `${where} Zurück`);
@@ -711,7 +711,7 @@ async function runSuite(browserType, baseUrl, label, viewport) {
       (err) => !err.includes("access control checks") && !err.includes("Load failed") && !err.includes("Failed to fetch")
     );
     assert(!unexpected.length, `${where}: Seitenfehler ${unexpected.join(" | ")}`);
-    console.log(`Playwright 64 Ort/Sheets OK (${where}, Build 64)`);
+    console.log(`Playwright 64 Ort/Sheets OK (${where}, Build 65)`);
   } finally {
     await browser.close();
   }
@@ -726,4 +726,4 @@ try {
 } finally {
   await new Promise((resolve) => server.close(resolve));
 }
-console.log("Playwright 64 Ort/Sheets OK (Build 64)");
+console.log("Playwright 64 Ort/Sheets OK (Build 65)");

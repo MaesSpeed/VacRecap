@@ -742,7 +742,7 @@ async function runSuite(browserType, baseUrl, engine) {
   await page.goto(baseUrl);
   await page.waitForSelector('[data-testid="login-screen"]');
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 64, `${engine}: Build ${build}, erwartet 64`);
+  assert(Number(build) === 65, `${engine}: Build ${build}, erwartet 65`);
   await page.fill('input[name="email"]', "test@example.com");
   await page.click('form[data-step="email"] button[type="submit"]');
   await page.waitForSelector('form[data-step="otp"]');
@@ -789,7 +789,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 4 chip-wisch tests OK (Build 64)");
+  console.log("Playwright 4 chip-wisch tests OK (Build 65)");
 }
 
 main().catch((err) => {

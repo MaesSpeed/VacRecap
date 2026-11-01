@@ -1,5 +1,5 @@
 import { updateMediaPlacement } from "./db.js";
-import { canEditTripMedia } from "./trip-role.js";
+import { canEditItem } from "./trip-role.js";
 
 /** Eigenes, hochgeladenes Foto. Fremde Zeilen und Videos bleiben liegen. */
 export function mediaOwnedBy(media, userId) {
@@ -9,9 +9,9 @@ export function mediaOwnedBy(media, userId) {
   return (media.uploadStatus || "uploaded") === "uploaded";
 }
 
-/** Bildunterschrift: nur eigene Fotos, und nur Owner/Editor wie beim übrigen Medien-Update. */
+/** Bildunterschrift: nur eigene Fotos, und nur wenn die Rolle dieses Foto ändern darf. */
 export function canCaptionMedia(media, role, userId) {
-  if (!canEditTripMedia(role)) return false;
+  if (!canEditItem(role, media, userId)) return false;
   return mediaOwnedBy(media, userId);
 }
 
@@ -33,7 +33,14 @@ export async function movePhotosToPlace(photos, place) {
   try {
     for (const snap of previous) {
       if (!snap.id) continue;
-      await updateMediaPlacement(snap.id, { waypointId, day });
+      const source = photos.find((item) => item.id === snap.id);
+      const mapped = await updateMediaPlacement(snap.id, {
+        waypointId,
+        day,
+        remoteUpdatedAt: source?.remoteUpdatedAt || null,
+      });
+      snap.afterUpdatedAt = mapped?.remoteUpdatedAt || null;
+      if (source && mapped?.remoteUpdatedAt) source.remoteUpdatedAt = mapped.remoteUpdatedAt;
       applied.push(snap);
     }
     return previous;
@@ -41,7 +48,11 @@ export async function movePhotosToPlace(photos, place) {
     let undoFailed = false;
     for (const snap of applied) {
       try {
-        await updateMediaPlacement(snap.id, { waypointId: snap.waypoint_id, day: snap.day });
+        await updateMediaPlacement(snap.id, {
+        waypointId: snap.waypoint_id,
+        day: snap.day,
+        remoteUpdatedAt: snap.afterUpdatedAt || null,
+      });
       } catch {
         undoFailed = true;
       }
@@ -58,7 +69,11 @@ export async function restorePhotoPlacement(snapshots) {
   try {
     for (const snap of snapshots) {
       if (!snap?.id) continue;
-      await updateMediaPlacement(snap.id, { waypointId: snap.placeId, day: snap.day });
+      await updateMediaPlacement(snap.id, {
+        waypointId: snap.placeId,
+        day: snap.day,
+        remoteUpdatedAt: snap.remoteUpdatedAt || snap.afterUpdatedAt || null,
+      });
       applied.push(snap.id);
     }
     return applied;

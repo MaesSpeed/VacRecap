@@ -520,7 +520,7 @@ async function waitFor(fn, message, ms = 8000) {
 
 async function runFlows(page, state, label) {
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 64, `${label}: Build ${build}`);
+  assert(Number(build) === 65, `${label}: Build ${build}`);
 
   await page.waitForSelector(`[data-vacation-id="${PARIS}"] .card-compact__title`);
   await waitFor(() => cardQueries(state).length >= 1, `${label}: Kartenabfrage fehlt`);
@@ -942,7 +942,7 @@ async function runSuite(browserType, baseUrl, label, viewport) {
     await runFlows(page, state, where);
     const errors = pageErrors.filter((entry) => !/access control checks/i.test(entry));
     assert(errors.length === 0, `${where}: ${errors.join(" | ")}`);
-    console.log(`Playwright 7 Karten-Symbole OK (${where}, Build 64)`);
+    console.log(`Playwright 7 Karten-Symbole OK (${where}, Build 65)`);
   } finally {
     await browser.close();
   }
@@ -963,4 +963,4 @@ try {
 } finally {
   await new Promise((resolve) => server.close(resolve));
 }
-console.log("Playwright 7 Karten-Symbole OK (Build 64)");
+console.log("Playwright 7 Karten-Symbole OK (Build 65)");

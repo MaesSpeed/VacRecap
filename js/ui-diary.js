@@ -1,4 +1,7 @@
-import { RecapUnavailableError } from "./cloud-errors.js";
+import { RecapUnavailableError, StaleWriteError } from "./cloud-errors.js";
+import { rememberStaleNotice, staleChangeCopy } from "./save-conflict.js";
+import { watchPresence, presenceBannerHtml } from "./trip-presence.js";
+import { loadTripPeople } from "./trip-people.js";
 import { dayColorFor } from "./day-colors.js";
 import { dayIndexInTrip, dayRoleLabel, vacationDays } from "./days.js";
 import { getVacation } from "./db.js";
@@ -382,6 +385,8 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
         <p class="recap-kicker" data-testid="diary-range">${escapeHtml(range)}</p>
         <p class="diary-steps" data-testid="diary-steps"><span class="diary-steps__on">1 Bericht einfügen</span><span aria-hidden="true"> — </span><span>2 Entwurf ansehen</span></p>
         <p class="diary-help" data-testid="diary-help">Schreib jeden Wochentag in eine eigene Zeile, darunter den Text. So erkennt die App, was zu welchem Tag gehört.</p>
+        <div data-role="diary-presence"></div>
+        <p class="fg-role" data-testid="diary-conflict" hidden></p>
         <textarea class="diary-source" data-testid="diary-source" maxlength="${DIARY_TEXT_MAX}" placeholder="${escapeHtml(PLACEHOLDER)}"></textarea>
         <p class="diary-save-hint" data-testid="diary-save-hint" hidden>Auf diesem Gerät gemerkt.</p>
         <div class="diary-tools">
@@ -397,6 +402,11 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
     textarea.value = clampDiaryText(seededDiaryText(tripId, initial || ""));
     let lastSaved = textarea.value;
     let saveTimer = 0;
+    let holdConflict = false;
+    const stopDiaryPresence = watchPresence(tripId, "diary", (rows) => {
+      const host = main.querySelector('[data-role="diary-presence"]');
+      if (host) host.innerHTML = presenceBannerHtml(rows);
+    });
 
     const hintEl = main.querySelector('[data-testid="diary-save-hint"]');
     const showSavedLocally = (on) => {
@@ -416,12 +426,25 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
           writeDiaryLocal(tripId, text, false);
           showSavedLocally(false);
         })
-        .catch(() => {
+        .catch(async (err) => {
+          if (err instanceof StaleWriteError && !err.deleted) {
+            holdConflict = true;
+            const people = await loadTripPeople(tripId).catch(() => []);
+            const copy = staleChangeCopy(err, people);
+            const hint = main.querySelector('[data-testid="diary-conflict"]');
+            if (hint) {
+              hint.hidden = false;
+              hint.textContent = copy.hint;
+            }
+            rememberStaleNotice(tripId, { line: copy.line });
+            return;
+          }
           showSavedLocally(true);
         });
     };
 
     const scheduleDiarySave = () => {
+      if (holdConflict) return;
       window.clearTimeout(saveTimer);
       saveTimer = window.setTimeout(() => {
         void flushDiary();
@@ -442,7 +465,19 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
     document.addEventListener("visibilitychange", onDiaryHide);
     window.addEventListener("pagehide", onDiaryPageHide);
     const prevCleanup = appEl._screenCleanup;
+    const conflictHint = main.querySelector('[data-testid="diary-conflict"]');
+    conflictHint?.addEventListener("click", () => {
+      void listDiaryRecaps(tripId).then((rows) => {
+        const notes = rows.find((row) => row.status === "notes" && !row.deletedAt);
+        if (!notes || !textarea.isConnected) return;
+        textarea.value = notes.sourceText || "";
+        lastSaved = textarea.value;
+        holdConflict = false;
+        if (conflictHint) conflictHint.hidden = true;
+      });
+    });
     appEl._screenCleanup = () => {
+      stopDiaryPresence();
       window.clearTimeout(saveTimer);
       document.removeEventListener("visibilitychange", onDiaryHide);
       window.removeEventListener("pagehide", onDiaryPageHide);

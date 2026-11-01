@@ -8,6 +8,8 @@ export function normalizePlace(raw) {
     createdAt: raw.createdAt ?? Date.now(),
     updatedAt: raw.updatedAt ?? Date.now(),
     author: raw.author ?? "ich",
+    remoteUpdatedAt: raw.remoteUpdatedAt || null,
+    updatedBy: raw.updatedBy || null,
     vacationId: raw.vacationId,
     day,
     dayDate: day,

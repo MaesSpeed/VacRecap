@@ -118,7 +118,11 @@ function hideViewerShareSnack(overlay) {
 
 export function openMediaViewer(mediaItems, startId, options = {}) {
   const { onChanged } = options;
-  const canDelete = options.canDelete !== false;
+  const canDeleteOption = options.canDelete;
+  const allowDelete = (item) => {
+    if (typeof canDeleteOption === "function") return Boolean(canDeleteOption(item));
+    return canDeleteOption !== false;
+  };
   const canEditCaption =
     typeof options.canEditCaption === "function" ? options.canEditCaption : () => false;
   const sorted = mediaItems.slice().sort((a, b) => a.ts - b.ts);
@@ -172,7 +176,7 @@ export function openMediaViewer(mediaItems, startId, options = {}) {
         <header class="media-viewer__bar">
           <button type="button" class="media-viewer__back" data-action="close" data-testid="media-viewer-close" aria-label="Zurück">${ICON_BACK_CHEVRON_WHITE}</button>
           ${
-            canDelete
+            allowDelete(item)
               ? `<button type="button" class="media-viewer__delete" data-action="delete" data-testid="media-viewer-delete" aria-label="Löschen">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m-7 4v7m4-7v7M6 7l1 12a1 1 0 0 0 1 .9h8a1 1 0 0 0 1-.9L18 7"/>
@@ -251,7 +255,7 @@ export function openMediaViewer(mediaItems, startId, options = {}) {
           scheduleShareSnackDismiss(overlay, shareSnackTimerRef, tapAt);
         });
     });
-    if (canDelete) overlay.querySelector('[data-action="delete"]').addEventListener("click", async () => {
+    if (allowDelete(item)) overlay.querySelector('[data-action="delete"]').addEventListener("click", async () => {
       const title = isVideo ? "Video löschen?" : "Foto löschen?";
       const ok = await openConfirmDialog({
         title,
@@ -297,7 +301,7 @@ export function openMediaViewer(mediaItems, startId, options = {}) {
                 index = removedIndex;
                 void render();
               } else {
-                openMediaViewer(sorted, snapshot.id, { onChanged, canDelete });
+                openMediaViewer(sorted, snapshot.id, { onChanged, canDelete: canDeleteOption, canEditCaption });
               }
             })
             .catch((err) => {

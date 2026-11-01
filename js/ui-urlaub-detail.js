@@ -7,7 +7,7 @@ import {
   vacationDays,
 } from "./days.js";
 import { getUserId } from "./auth-service.js";
-import { getFreeNotesForDay, getPlacesForDay, getPlacesForVacation, getVacation } from "./db.js";
+import { fetchUploadedPhotosForTrip, getFreeNotesForDay, getPlacesForDay, getPlacesForVacation, getVacation } from "./db.js";
 import { ICON_BACK_CHEVRON, ICON_GEAR, ICON_MAP } from "./icons.js";
 import { fallbackPlaceName, formatTimeFromTs } from "./geo.js";
 import { readPhotoTakenAt } from "./exif-taken-at.js";
@@ -50,7 +50,11 @@ import {
   withFreeNotesHtml,
   wrapPlaceList,
 } from "./ui-place-list.js";
-import { canEditTripMedia, getMyTripRole } from "./trip-role.js";
+import { bindCircleTips, shareContext, showCircleTip } from "./member-marks.js";
+import { canAddOwn, canEditItem, getConfirmedTripRole, ROLE_LABEL } from "./trip-role.js";
+import { loadTripPeople, personLetter } from "./trip-people.js";
+import { watchTripActivity } from "./trip-presence.js";
+import { takeStaleNotice } from "./save-conflict.js";
 import { loadRecapEntry, recapEntryCardHtml } from "./ui-recap-video.js";
 import { deleteMedia } from "./db.js";
 import { openConfirmDialog } from "./ui-confirm.js";
@@ -151,7 +155,12 @@ export async function renderUrlaubDetail(appEl, id) {
   }
 
   const days = vacationDays(vacation);
-  const [state, recapEntry] = await Promise.all([getState(id, vacation), loadRecapEntry(id)]);
+  const [state, recapEntry, roleInfo, people] = await Promise.all([
+    getState(id, vacation),
+    loadRecapEntry(id),
+    getConfirmedTripRole(id),
+    loadTripPeople(id, { refresh: true }),
+  ]);
   if (!state.userId) {
     try {
       state.userId = await getUserId();
@@ -159,6 +168,8 @@ export async function renderUrlaubDetail(appEl, id) {
       state.userId = null;
     }
   }
+  const share = shareContext(roleInfo.role, state.userId, people);
+  const liveUsers = new Set();
 
   appEl.className = "screen screen--trip screen--trip-swipe";
   appEl.dataset.vacationId = id;
@@ -173,6 +184,8 @@ export async function renderUrlaubDetail(appEl, id) {
       </div>
     </header>
     ${tripCompanionsMarkup(vacation)}
+    <div data-role="member-bar"></div>
+    <div data-role="role-banner"></div>
     <div class="day-nav">
       <div class="day-chips-wrap">
         <div class="day-chip-mark" data-testid="day-chip-mark" aria-hidden="true"></div>
@@ -185,6 +198,51 @@ export async function renderUrlaubDetail(appEl, id) {
     <input type="file" accept="image/*" multiple hidden data-role="gallery-input" data-testid="gallery-input" />
     <div data-role="footer-mount"></div>
   `;
+
+  const paintMemberChrome = () => {
+    const barHost = appEl.querySelector('[data-role="member-bar"]');
+    const bannerHost = appEl.querySelector('[data-role="role-banner"]');
+    if (bannerHost) {
+      bannerHost.innerHTML = share.viewer
+        ? `<div class="fg-role" data-testid="role-banner"><span aria-hidden="true">ⓘ</span><span>Du bist <b>Beitragender</b>. Eigenes hinzufügen und ändern, Fremdes nur ansehen.</span></div>`
+        : "";
+    }
+    if (!barHost) return;
+    if (!share.showBar) {
+      barHost.innerHTML = "";
+      return;
+    }
+    const parts = share.members
+      .map((person, index) => {
+        const label = ROLE_LABEL[person.role] || "";
+        const color = share.colors.get(person.user_id) || person.avatar_color || "#5D6D7E";
+        const live = liveUsers.has(person.user_id) ? " kr-m--live" : "";
+        const sep = index ? `<span class="kr-sep" aria-hidden="true"></span>` : "";
+        return `${sep}<button type="button" class="kr-m${live}" data-kr-tip="${escapeHtml(`${person.display_name || ""} · ${label}`)}" data-user-id="${escapeHtml(person.user_id || "")}" data-testid="member-chip">${`<span class="kr-av kr-av--md" style="--kr:${escapeHtml(color)}">${escapeHtml(personLetter(person))}</span>`}<span>${escapeHtml(label)}</span></button>`;
+      })
+      .join("");
+    barHost.innerHTML = `<div class="kr-bar" data-testid="member-bar">${parts}</div>`;
+  };
+  paintMemberChrome();
+  bindCircleTips(appEl);
+  appEl.querySelector('[data-role="member-bar"]')?.addEventListener("click", async (event) => {
+    const chip = event.target.closest("[data-testid='member-chip']");
+    if (!chip) return;
+    event.preventDefault();
+    event.stopPropagation();
+    let count = 0;
+    try {
+      const result = await fetchUploadedPhotosForTrip(id);
+      count = (result?.media || []).filter((item) => item.author === chip.dataset.userId && !item.deletedAt).length;
+    } catch {
+      count = 0;
+    }
+    const noun = count === 1 ? "Foto" : "Fotos";
+    chip.dataset.krSub = `${count} ${noun} hier beigetragen`;
+    showCircleTip(chip);
+  });
+  const staleNotice = takeStaleNotice(id);
+  if (staleNotice?.line) showToast(staleNotice.line);
 
   let ignoreSelectPop = false;
   let exitSelectAfterOverlayPop = false;
@@ -248,7 +306,15 @@ export async function renderUrlaubDetail(appEl, id) {
   if (appEl?.dataset?.appRenderGen === mountGen) {
     window.addEventListener("popstate", onTripPop);
     window.addEventListener("keydown", onTripKey);
+    const stopActivity = watchTripActivity(id, (rows) => {
+      liveUsers.clear();
+      for (const row of rows || []) {
+        if (row.user_id) liveUsers.add(row.user_id);
+      }
+      paintMemberChrome();
+    });
     appEl._screenCleanup = () => {
+      stopActivity();
       window.removeEventListener("popstate", onTripPop);
       window.removeEventListener("keydown", onTripKey);
     };
@@ -738,7 +804,8 @@ export async function renderUrlaubDetail(appEl, id) {
       }
     }
     const thumbUrls = await thumbUrlsFor(allMedia, visibleIds);
-    const canEditMedia = canEditTripMedia(await getMyTripRole(id));
+    const roleNow = (await getConfirmedTripRole(id)).role;
+    const canEditMedia = canAddOwn(roleNow);
     let placeHtml = emptyDayHtml;
     if (bundle.items.length) {
       const { listHtml, mediaErrorHtml, selectBarHtml } = renderPlaceListHtml(bundle.items, {
@@ -747,6 +814,8 @@ export async function renderUrlaubDetail(appEl, id) {
         thumbUrls,
         canEditMedia,
         freshPlaceIds: state.freshPlaceIds,
+        share,
+        canEditPlace: (place) => canEditItem(roleNow, place, state.userId),
         photoSelect: {
           active: selecting,
           selectedIds: state.photoSelected || new Set(),
@@ -764,6 +833,7 @@ export async function renderUrlaubDetail(appEl, id) {
         withFreeNotesHtml(placeHtml, bundle.freeNotes, {
           expanded: active && state.freeNotesExpanded,
           replaceEmpty: bundle.items.length === 0,
+          share,
         }),
       thumbUrls,
       stale,
@@ -1511,6 +1581,7 @@ export async function renderUrlaubDetail(appEl, id) {
 
   contentEl.addEventListener("pointerdown", (event) => {
     if (event.button > 0) return;
+    if (event.target.closest("[data-kr-tip]")) return;
     const tile = event.target.closest(".tile[data-media-id], .th[data-media-id]");
     if (!tile) return;
     clearPhotoPress();
@@ -1542,6 +1613,7 @@ export async function renderUrlaubDetail(appEl, id) {
   });
 
   contentEl.addEventListener("click", async (e) => {
+    if (e.target.closest("[data-kr-tip]")) return;
     if (suppressTileClick) {
       suppressTileClick = false;
       e.preventDefault();
@@ -1639,10 +1711,9 @@ export async function renderUrlaubDetail(appEl, id) {
       const item = items.find((i) => i.place.id === placeId);
       if (!item) return;
       const viewable = filterViewableMedia(item.media);
-      const role = await getMyTripRole(id);
-      const canDelete = canEditTripMedia(role);
+      const role = (await getConfirmedTripRole(id)).role;
       openMediaViewer(viewable, tile.dataset.mediaId, {
-        canDelete,
+        canDelete: (entry) => canEditItem(role, entry, state.userId),
         canEditCaption: (entry) => canCaptionMedia(entry, role, state.userId),
         onChanged: () => refreshDayList(),
       });
@@ -1656,7 +1727,7 @@ export async function renderUrlaubDetail(appEl, id) {
       state.captionBusy = true;
       try {
         const media = findCachedMedia(editCaption.dataset.mediaId);
-        const role = await getMyTripRole(id);
+        const role = (await getConfirmedTripRole(id)).role;
         if (!media || !canCaptionMedia(media, role, state.userId)) return;
         await openPhotoCaptionSheet({
           media,
@@ -1678,9 +1749,9 @@ export async function renderUrlaubDetail(appEl, id) {
       const item = items.find((entry) => entry.place.id === placeId);
       if (!item) return;
       const viewable = filterViewableMedia(item.media);
-      const role = await getMyTripRole(id);
+      const role = (await getConfirmedTripRole(id)).role;
       openMediaViewer(viewable, mediaId, {
-        canDelete: canEditTripMedia(role),
+        canDelete: (entry) => canEditItem(role, entry, state.userId),
         canEditCaption: (entry) => canCaptionMedia(entry, role, state.userId),
         onChanged: () => refreshDayList(),
       });

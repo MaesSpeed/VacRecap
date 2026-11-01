@@ -551,11 +551,11 @@ async function runFlows(page, state, label) {
   state.role = "viewer";
   await page.reload();
   await page.waitForFunction(() => (document.body.innerText || "").includes("Morgenlicht"));
-  assert((await page.locator('[data-testid="photo-caption-edit"]').count()) === 0, `${label}: Betrachter sieht Bearbeiten`);
+  assert((await page.locator('[data-testid="photo-caption-edit"]').count()) >= 1, `${label}: Beitragender bearbeitet die eigene Notiz nicht`);
   assert((await page.locator('[data-testid="photo-caption-row"][data-media-id="m-own-1"]').innerText()).includes("Morgenlicht"), `${label}: Betrachter sieht die Notiz nicht`);
   await page.locator('[data-testid="photo-caption-row"][data-media-id="m-own-1"]').click();
   await page.waitForSelector('[data-testid="media-viewer-caption"]');
-  assert((await page.locator('[data-testid="media-viewer"] [data-testid="photo-caption-edit"]').count()) === 0, `${label}: Betrachter bearbeitet in der Großansicht`);
+  assert((await page.locator('[data-testid="media-viewer"] [data-testid="photo-caption-edit"]').count()) === 1, `${label}: Beitragender bearbeitet in der Großansicht nicht`);
   assert((await page.locator('[data-testid="media-viewer-caption"]').innerText()).includes("Morgenlicht"), `${label}: Großansicht für Betrachter leer`);
   await page.click('[data-testid="media-viewer-close"]');
 }
@@ -592,7 +592,7 @@ async function runSuite(browserType, baseUrl, label, viewport) {
   const where = `${label} ${viewport.width}x${viewport.height}`;
   await page.goto(baseUrl);
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 64, `${where}: Build ${build}`);
+  assert(Number(build) === 65, `${where}: Build ${build}`);
   const tripId = await loginAndOpen(page);
   seedTrip(state, tripId);
   await page.reload();

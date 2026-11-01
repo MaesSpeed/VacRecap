@@ -28,6 +28,17 @@ export class RecapUnavailableError extends Error {
   }
 }
 
+/** Die Zeile wurde zwischen Lesen und Schreiben geändert oder gelöscht. */
+export class StaleWriteError extends Error {
+  constructor(message, { fresh = null, deleted = false, expected = null } = {}) {
+    super(message);
+    this.name = "StaleWriteError";
+    this.fresh = fresh;
+    this.deleted = Boolean(deleted);
+    this.expected = expected;
+  }
+}
+
 export function isFetchNetworkFailure(err) {
   const msg = (err?.message || String(err || "")).toLowerCase();
   return (

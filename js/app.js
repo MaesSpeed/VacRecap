@@ -150,6 +150,7 @@ async function startApp() {
   startRouter();
   window.addEventListener("vacrecap:data-changed", () => {
     if (document.querySelector("[data-testid='cover-sheet']")) return;
+    if (document.getElementById("app")?.dataset.formSaving === "1") return;
     scheduleRender();
   });
   window.addEventListener("online", () => {

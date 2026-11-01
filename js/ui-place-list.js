@@ -1,6 +1,7 @@
 import { fetchMediaForPlace, getNotesForPlace } from "./db.js";
 import { formatTimeFromTs } from "./geo.js";
 import { formatMediaDuration } from "./media-process.js";
+import { photoBadges, noteMarkup } from "./member-marks.js";
 import { mediaOwnedBy } from "./photo-move.js";
 import { buildPlaceMetaLine } from "./place-stats.js";
 import { filterSoftPointsHidden, softPointLabel } from "./place-service.js";
@@ -77,7 +78,7 @@ function sortNotesByRecentUpdate(notes) {
   return notes.slice().sort((a, b) => (b.ts ?? b.createdAt ?? 0) - (a.ts ?? a.createdAt ?? 0));
 }
 
-export function renderFreeNotesHtml(notes, { expanded = false } = {}) {
+export function renderFreeNotesHtml(notes, { expanded = false, share = null } = {}) {
   if (!notes?.length) return "";
   const sorted = sortNotesByRecentUpdate(notes);
   const preview = expanded ? sorted : sorted.slice(0, 2);
@@ -87,12 +88,12 @@ export function renderFreeNotesHtml(notes, { expanded = false } = {}) {
       <h3 class="free-notes__title">Kein Ort / freie Notiz</h3>
       <div class="np">
         ${preview
-          .map(
-            (n) => `
-          <div class="nr" data-note-id="${n.id}" data-free-note="1">
-            <span class="nr__icon">${ICON_NOTE}</span>
-            <button type="button" class="nr__text nr__text--btn" data-action="edit-free-note">${escapeHtml(n.text || "")}</button>
-          </div>`
+          .map((n) =>
+            noteMarkup(
+              { ...n, _icon: ICON_NOTE, _text: escapeHtml(n.text || "") },
+              "edit-free-note",
+              share
+            )
           )
           .join("")}
         ${
@@ -110,8 +111,8 @@ export function renderFreeNotesHtml(notes, { expanded = false } = {}) {
     </section>`;
 }
 
-export function withFreeNotesHtml(placeHtml, freeNotes, { expanded = false, replaceEmpty = false } = {}) {
-  const freeHtml = renderFreeNotesHtml(freeNotes, { expanded });
+export function withFreeNotesHtml(placeHtml, freeNotes, { expanded = false, replaceEmpty = false, share = null } = {}) {
+  const freeHtml = renderFreeNotesHtml(freeNotes, { expanded, share });
   if (!freeHtml) return placeHtml;
   if (replaceEmpty) return freeHtml;
   return `${freeHtml}${placeHtml}`;
@@ -142,7 +143,7 @@ function uploadedPhotoCount(media) {
   return (media || []).filter((item) => item.type !== "video" && (item.uploadStatus || "uploaded") === "uploaded").length;
 }
 
-export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrls = {}, canEditMedia = true, freshPlaceIds = null, photoSelect = null }) {
+export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrls = {}, canEditMedia = true, freshPlaceIds = null, photoSelect = null, share = null, canEditPlace = null }) {
   if (!items.length) return { listHtml: "", mediaErrorHtml: "", selectBarHtml: "" };
 
   const anyMediaError = items.some((i) => i.mediaLoadError);
@@ -209,10 +210,7 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
               ${previewNotes
                 .map(
                   (n) => `
-                <div class="nr" data-note-id="${n.id}">
-                  <span class="nr__icon">${ICON_NOTE}</span>
-                  <button type="button" class="nr__text nr__text--btn" data-action="edit-note">${escapeHtml(n.text || "")}</button>
-                </div>`
+                ${noteMarkup({ ...n, _icon: ICON_NOTE, _text: escapeHtml(n.text || "") }, "edit-note", share)}`
                 )
                 .join("")}
               ${
@@ -248,18 +246,11 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
               </div>
               ${
                 selected && !photoSelect?.active
-                  ? `<div class="qa">
-                <button type="button" class="qa__btn" data-action="edit-place" aria-label="Bearbeiten">${ICON_EDIT}</button>
-                ${
-                  canEditMedia
-                    ? `<button type="button" class="qa__btn" data-action="gallery-place" data-testid="place-gallery" aria-label="Fotos">${ICON_GALLERY}</button><button type="button" class="qa__btn" data-action="camera-place" aria-label="Kamera">${ICON_CAM}</button>`
-                    : ""
-                }
-              </div>`
+                  ? qaButtons(place, canEditMedia, canEditPlace)
                   : ""
               }
             </div>
-            ${selected && hasMedia ? `<div class="tiles">${renderTiles(media, thumbUrls, canEditMedia, photoSelect)}</div>` : ""}
+            ${selected && hasMedia ? `<div class="tiles">${renderTiles(media, thumbUrls, canEditMedia, photoSelect, share)}</div>` : ""}
             ${foreignHint}
             ${
               showSelectStart
@@ -321,7 +312,19 @@ function renderPhotoCaptionRows(media, thumbUrls) {
     .join("");
 }
 
-function renderTiles(media, thumbUrls, canEditMedia, photoSelect) {
+function qaButtons(place, canEditMedia, canEditPlace) {
+  const allowEdit = typeof canEditPlace === "function" ? canEditPlace(place) : true;
+  const edit = allowEdit
+    ? `<button type="button" class="qa__btn" data-action="edit-place" aria-label="Bearbeiten">${ICON_EDIT}</button>`
+    : "";
+  const add = canEditMedia
+    ? `<button type="button" class="qa__btn" data-action="gallery-place" data-testid="place-gallery" aria-label="Fotos">${ICON_GALLERY}</button><button type="button" class="qa__btn" data-action="camera-place" aria-label="Kamera">${ICON_CAM}</button>`
+    : "";
+  if (!edit && !add) return "";
+  return `<div class="qa">${edit}${add}</div>`;
+}
+
+function renderTiles(media, thumbUrls, canEditMedia, photoSelect, share = null) {
   const selecting = Boolean(photoSelect?.active);
   const sorted = media.slice().sort((a, b) => b.ts - a.ts);
   const visible = (selecting ? sorted : sorted.slice(0, 4)).slice().sort((a, b) => a.ts - b.ts);
@@ -359,13 +362,14 @@ function renderTiles(media, thumbUrls, canEditMedia, photoSelect) {
           : "";
       const openable = uploaded && !failed;
       const mark = selecting && own ? `<span class="tile__mark" aria-hidden="true"></span>` : "";
+      const badges = photoBadges(m, share);
       const label = locked
         ? "Fremdes Foto, nicht verschiebbar"
         : failed
           ? "Fehlgeschlagenes Foto entfernen"
           : "Medium anzeigen";
       const pressed = selecting && own ? ` aria-pressed="${picked ? "true" : "false"}"` : "";
-      return `<button type="button" class="tile tile--btn${failed ? " tile--failed" : ""}${openable ? "" : " tile--no-open"}${picked ? " tile--selected" : ""}${locked ? " tile--locked" : ""}" data-testid="place-photo" data-media-id="${m.id}" data-own="${own ? "1" : "0"}" data-upload-status="${status}"${pressed}${locked ? ' aria-disabled="true"' : ""} aria-label="${label}">${img}${mark}${badge}${captionMark}${removeBtn}${play}${dur}${overlayExtra}</button>`;
+      return `<button type="button" class="tile tile--btn${failed ? " tile--failed" : ""}${openable ? "" : " tile--no-open"}${picked ? " tile--selected" : ""}${locked ? " tile--locked" : ""}${badges.foreign ? " fg-foreign" : ""}" data-testid="place-photo" data-media-id="${m.id}" data-own="${own ? "1" : "0"}" data-upload-status="${status}"${pressed}${locked ? ' aria-disabled="true"' : ""} aria-label="${label}">${img}${mark}${badge}${badges.mine}${badges.lock}${badges.circle}${captionMark}${removeBtn}${play}${dur}${overlayExtra}</button>`;
     })
     .join("");
 }

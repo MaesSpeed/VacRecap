@@ -7,6 +7,11 @@ import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { promoteSoftPlace, updatePlaceName } from "./place-service.js";
 import { openConfirmDialog } from "./ui-confirm.js";
 import { showToast } from "./toast.js";
+import { StaleWriteError } from "./cloud-errors.js";
+import { decideStaleWrite } from "./save-conflict.js";
+import { waypointRowToPlace } from "./cloud-mappers.js";
+import { watchPresence, presenceBannerHtml } from "./trip-presence.js";
+import { normalizePlace } from "./places.js";
 import { escapeHtml } from "./utils.js";
 
 function mediaCountLabel(count) {
@@ -27,6 +32,7 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
       <header class="sheet__header">
         <h2 class="sheet__title">Ort bearbeiten</h2>
       </header>
+      <div data-role="place-presence"></div>
       <label class="field">
         <span class="field__label">Name</span>
         <input type="text" data-role="name" maxlength="200" value="${escapeHtml(place.name)}" />
@@ -39,7 +45,15 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
     </div>
   `;
 
+  const stopPresence = place?.vacationId
+    ? watchPresence(place.vacationId, place.id ? `place:${place.id}` : "place:new", (rows) => {
+        const host = overlay.querySelector('[data-role="place-presence"]');
+        if (host) host.innerHTML = presenceBannerHtml(rows);
+      })
+    : () => {};
+
   const close = () => {
+    stopPresence();
     overlay.hidden = true;
     overlay.innerHTML = "";
   };
@@ -59,10 +73,31 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
   );
   overlay.querySelector('[data-action="save"]').addEventListener("click", async () => {
     if (saveBtn.disabled) return;
-    const updated = await updatePlaceName(place, input.value);
-    closeOverlayHistory(activeClose);
-    showToast("Gespeichert");
-    onSaved?.(updated);
+    try {
+      const updated = await updatePlaceName(place, input.value);
+      closeOverlayHistory(activeClose);
+      showToast("Gespeichert");
+      onSaved?.(updated);
+    } catch (err) {
+      if (!(err instanceof StaleWriteError)) {
+        showToast(err?.message || "Speichern fehlgeschlagen.");
+        return;
+      }
+      const decision = await decideStaleWrite(err, { tripId: place.vacationId });
+      if (decision === "force") {
+        const updated = await updatePlaceName({ ...place, forceSave: true }, input.value);
+        closeOverlayHistory(activeClose);
+        showToast("Gespeichert");
+        onSaved?.(updated);
+        return;
+      }
+      if (decision === "reload" && err.fresh) {
+        const fresh = normalizePlace(waypointRowToPlace(err.fresh));
+        place.remoteUpdatedAt = fresh.remoteUpdatedAt;
+        place.name = fresh.name;
+        input.value = fresh.name || "";
+      }
+    }
   });
   overlay.querySelector('[data-action="delete"]').addEventListener("click", async () => {
     const [media, notes] = await Promise.all([
@@ -80,7 +115,12 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
       testId: "confirm-delete-place",
     });
     if (!ok) return;
-    await deletePlaceCascade(place.id);
+    try {
+      await deletePlaceCascade(place.id);
+    } catch (err) {
+      showToast(err?.message || "Der Ort konnte nicht gelöscht werden.");
+      return;
+    }
     closeOverlayHistory(activeClose);
     showToast("Ort gelöscht");
     onDeleted?.(place.id);

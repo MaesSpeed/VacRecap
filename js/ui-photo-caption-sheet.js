@@ -1,4 +1,6 @@
-import { CaptionUnavailableError, CloudNetworkError, CloudOfflineError } from "./cloud-errors.js";
+import { CaptionUnavailableError, CloudNetworkError, CloudOfflineError, StaleWriteError } from "./cloud-errors.js";
+import { decideStaleWrite } from "./save-conflict.js";
+import { watchPresence, presenceBannerHtml } from "./trip-presence.js";
 import { updateMediaCaption } from "./db.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { bindSheetPull } from "./sheet-pull.js";
@@ -35,6 +37,7 @@ export function openPhotoCaptionSheet({ media, onSaved }) {
     layer.innerHTML = `
       <div class="sheet sheet--note-bottom" data-testid="photo-caption-sheet" role="dialog" aria-modal="true" aria-labelledby="photo-caption-title">
         <div class="sheet-handle" data-role="pick-handle" aria-hidden="true"></div>
+        <div data-role="caption-presence"></div>
         <header class="note-sheet__bar">
           <button type="button" class="note-sheet__cancel" data-action="cancel" data-testid="photo-caption-cancel">Abbrechen</button>
           <h2 class="note-sheet__title" id="photo-caption-title">Notiz zum Foto</h2>
@@ -62,7 +65,15 @@ export function openPhotoCaptionSheet({ media, onSaved }) {
     textarea.addEventListener("input", syncSave);
     syncSave();
 
+    const stopPresence = media.vacationId
+      ? watchPresence(media.vacationId, `caption:${media.id}`, (rows) => {
+          const host = layer.querySelector('[data-role="caption-presence"]');
+          if (host) host.innerHTML = presenceBannerHtml(rows);
+        })
+      : () => {};
+
     const domClose = () => {
+      stopPresence();
       window.removeEventListener("keydown", onKey, true);
       if (layer.isConnected) layer.remove();
       if (!overlay.querySelector(".media-viewer, .sheet")) {
@@ -93,15 +104,30 @@ export function openPhotoCaptionSheet({ media, onSaved }) {
       closeOverlayHistory(activeClose);
     });
 
-    async function commit(next, { cleared = false } = {}) {
+    async function commit(next, { cleared = false, force = false } = {}) {
       if (saving) return;
       saving = true;
       try {
         const previous = media.caption || null;
         let updated;
         try {
-          updated = await updateMediaCaption(media.id, next);
+          updated = await updateMediaCaption(media.id, next, {
+            remoteUpdatedAt: media.remoteUpdatedAt,
+            force,
+          });
         } catch (err) {
+          if (err instanceof StaleWriteError) {
+            saving = false;
+            const decision = await decideStaleWrite(err, { tripId: media.vacationId });
+            if (decision === "force") return commit(next, { cleared, force: true });
+            if (decision === "reload" && err.fresh) {
+              media.remoteUpdatedAt = err.fresh.updated_at || null;
+              media.caption = err.fresh.caption ?? null;
+              textarea.value = media.caption || "";
+              syncSave();
+            }
+            return;
+          }
           if (err instanceof CaptionUnavailableError) {
             closeOverlayHistory(activeClose);
             showWarnToast(err.message);

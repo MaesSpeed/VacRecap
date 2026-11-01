@@ -1,7 +1,7 @@
 import { bindOverlay, releaseOverlayHistory } from "./overlay-stack.js";
 import { cardSymbolSummary, listRecapCardRows, listRecaps } from "./recap-service.js";
 import { navigate } from "./router.js";
-import { canEditTripMedia, listMyTripRoles } from "./trip-role.js";
+import { canStartRecap, listMyTripRoles } from "./trip-role.js";
 import { escapeHtml, formatDateShort, tripStatus } from "./utils.js";
 
 const HINT_KEY = "vacrecap-card-symbol-hint";
@@ -175,7 +175,7 @@ export function paintCardSymbols(appEl, vacations, mountGen) {
         const id = card.dataset.vacationId;
         const entry = summary ? summary.get(id) : undefined;
         applyCard(card, rolesFailed ? undefined : entry, showHint, titles.get(id) || "");
-        const canEdit = rolesFailed ? true : canEditTripMedia(roles.get(id) || "owner");
+        const canEdit = rolesFailed ? true : canStartRecap(roles.get(id) || "owner");
         applyActions(card, entry, canEdit);
       });
     })
