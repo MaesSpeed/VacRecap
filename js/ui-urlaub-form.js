@@ -5,7 +5,13 @@ import { navigate } from "./router.js";
 import { clearTripUiState } from "./ui-urlaub-detail.js";
 import { CloudNetworkError, CloudOfflineError } from "./cloud-errors.js";
 import { showToast, showWarnToast } from "./toast.js";
-import { canEditTripMedia, getMyTripRole } from "./trip-role.js";
+import { canEditAny, canManageSharing, getConfirmedTripRole } from "./trip-role.js";
+import { bindShareField, shareFieldHtml } from "./ui-share-field.js";
+import { decideStaleWrite } from "./save-conflict.js";
+import { watchPresence, presenceBannerHtml } from "./trip-presence.js";
+import { StaleWriteError } from "./cloud-errors.js";
+import { tripRowToVacation } from "./cloud-mappers.js";
+import { getUserId } from "./auth-service.js";
 import { openCoverSheet } from "./ui-cover-sheet.js";
 import { COMPANION_TAGS, createEmptyVacation, normalizeCompanionTags, normalizeVacation } from "./vacation.js";
 import {
@@ -19,10 +25,12 @@ import { openDateRangePicker } from "./ui-calendar.js";
 
 export async function renderUrlaubForm(appEl, { mode, id }) {
   const mountGen = appEl?.dataset?.appRenderGen ?? "";
-  let vacation =
-    mode === "edit" && id
-      ? normalizeVacation(await getVacation(id))
-      : createEmptyVacation();
+  const loaded = mode === "edit" && id ? await getVacation(id) : null;
+  if (mode === "edit" && !loaded) {
+    navigate({ name: "urlaube" });
+    return;
+  }
+  let vacation = loaded ? normalizeVacation(loaded) : createEmptyVacation();
 
   if (mode === "edit" && !vacation.id) {
     navigate({ name: "urlaube" });
@@ -30,12 +38,15 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
   }
 
   const isEdit = mode === "edit";
-  const [role, photoResult, places] = await Promise.all([
-    isEdit ? getMyTripRole(vacation.id) : Promise.resolve("owner"),
+  const [roleInfo, photoResult, places, myUserId] = await Promise.all([
+    isEdit ? getConfirmedTripRole(vacation.id) : Promise.resolve({ role: "owner", confirmed: true }),
     isEdit ? fetchUploadedPhotosForTrip(vacation.id) : Promise.resolve({ media: [] }),
     isEdit ? getPlacesForVacation(vacation.id).catch(() => []) : Promise.resolve([]),
+    getUserId().catch(() => null),
   ]);
-  const canEditCover = canEditTripMedia(role);
+  const role = roleInfo.role;
+  const canEditCover = canEditAny(role);
+  const canShare = isEdit && canManageSharing(role, roleInfo.confirmed);
   const tripPhotos = (photoResult?.media || []).filter((photo) => photo.vacationId === vacation.id);
   let placeList = places;
   let coverInfo = await resolveVacationCover(vacation, { variant: "original" });
@@ -109,6 +120,8 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
         </div>
         <div class="chip-row chip-row--names" data-role="name-chips"></div>
       </div>
+      ${canShare ? shareFieldHtml() : ""}
+      <div data-role="form-presence"></div>
     </form>
     <footer class="form-footer">
       <button type="submit" form="vacation-form" class="btn btn-emaille btn-emaille--block">
@@ -131,6 +144,17 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
   const saveHint = appEl.querySelector('[data-testid="cover-save-hint"]');
   const nameInput = appEl.querySelector('[data-role="name-input"]');
   const nameChipsEl = appEl.querySelector('[data-role="name-chips"]');
+  const shareApi = canShare ? bindShareField(appEl, { tripId: vacation.id, myUserId }) : null;
+  const stopPresence = isEdit
+    ? watchPresence(vacation.id, "trip-form", (rows) => {
+        const host = appEl.querySelector('[data-role="form-presence"]');
+        if (host) host.innerHTML = presenceBannerHtml(rows);
+      })
+    : () => {};
+  appEl._screenCleanup = () => {
+    stopPresence();
+    shareApi?.commitInput?.();
+  };
 
   function paintCover() {
     const photo = vacation.cover?.type === "media";
@@ -374,6 +398,16 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
     refreshNames();
   });
 
+  form.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key === "Enter" && event.target?.matches?.("[data-testid='share-email-input'], [data-role='name-input']")) {
+        event.preventDefault();
+      }
+    },
+    true
+  );
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     commitPendingName();
@@ -400,17 +434,61 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
       await deleteBlob(old.cover.blobId);
     }
 
+    shareApi?.commitInput?.();
+    appEl.dataset.formSaving = "1";
     let saved;
+    const persist = async (force = false) => putVacation(vacation, { force });
     try {
-      saved = await putVacation(vacation);
+      saved = await persist(false);
     } catch (err) {
-      showToast(
-        err instanceof CloudOfflineError || err instanceof CloudNetworkError
-          ? err.message
-          : err?.message || "Speichern fehlgeschlagen."
-      );
-      return;
+      if (err instanceof StaleWriteError) {
+        const decision = await decideStaleWrite(err, { tripId: vacation.id });
+        if (decision === "force") {
+          try {
+            saved = await persist(true);
+          } catch (again) {
+            delete appEl.dataset.formSaving;
+            showToast(again?.message || "Speichern fehlgeschlagen.");
+            return;
+          }
+        } else if (decision === "reload" && err.fresh) {
+          const mapped = tripRowToVacation(err.fresh);
+          if (mapped) {
+            vacation.remoteUpdatedAt = mapped.remoteUpdatedAt;
+            vacation.title = mapped.title;
+            vacation.startDate = mapped.startDate;
+            vacation.endDate = mapped.endDate;
+            if (titleInput) titleInput.value = mapped.title || "";
+          }
+          delete appEl.dataset.formSaving;
+          return;
+        } else {
+          delete appEl.dataset.formSaving;
+          return;
+        }
+      } else {
+        delete appEl.dataset.formSaving;
+        showToast(
+          err instanceof CloudOfflineError || err instanceof CloudNetworkError
+            ? err.message
+            : err?.message || "Speichern fehlgeschlagen."
+        );
+        return;
+      }
     }
+    if (saved) {
+      vacation.remoteUpdatedAt = saved.remoteUpdatedAt || vacation.remoteUpdatedAt;
+      vacation.id = saved.id || vacation.id;
+    }
+
+    let stayForShare = false;
+    if (shareApi && (shareApi.hasDrafts() || shareApi.pendingInvites().length)) {
+      const shareResult = await shareApi.submitInvites();
+      stayForShare = Boolean(shareResult?.stayed);
+    }
+
+    delete appEl.dataset.formSaving;
+    if (stayForShare) return;
 
     sessionStorage.removeItem("vacrecap-form-return");
     const headline = isEdit ? `«${title}» gespeichert` : `Reise «${title}» angelegt`;

@@ -8,7 +8,7 @@ import { updateMediaRow } from "./db.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { processPhotoForCloud } from "./media-process.js";
 import { deletePlaceIfEmpty } from "./target-place.js";
-import { canEditTripMedia, getMyTripRole } from "./trip-role.js";
+import { canAddOwn, getMyTripRole } from "./trip-role.js";
 import { showToast, showWarnToast } from "./toast.js";
 import { formatDatePart } from "./utils.js";
 
@@ -197,7 +197,7 @@ export function openPhotoUploadSheet({
     if (!item || item.status === "uploaded") return;
 
     const role = await getMyTripRole(vacationId);
-    if (!canEditTripMedia(role)) {
+    if (!canAddOwn(role)) {
       item.status = "failed";
       item.retryable = false;
       item.error = "Du hast nur Lesezugriff auf diese Reise.";

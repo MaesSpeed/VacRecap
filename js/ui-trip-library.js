@@ -9,7 +9,7 @@ import { navigate } from "./router.js";
 import { getSupabase } from "./supabase-client.js";
 import { loadTripSelection } from "./trip-selection-store.js";
 import { canCaptionMedia } from "./photo-move.js";
-import { canEditTripMedia, getMyTripRole } from "./trip-role.js";
+import { canAddOwn, canEditItem, getMyTripRole } from "./trip-role.js";
 import { openMediaViewer } from "./ui-media-viewer.js";
 import { showWarnToast } from "./toast.js";
 import { escapeHtml } from "./utils.js";
@@ -173,7 +173,7 @@ export async function renderTripLibrary(appEl, vacationId) {
     });
   }
 
-  function paintPhotos(groups, flat, canDelete, { offline = false } = {}) {
+  function paintPhotos(groups, flat, canDelete, { offline = false, canAdd = false } = {}) {
     const html = groups
       .map((group) => {
         const places = group.places
@@ -204,7 +204,7 @@ export async function renderTripLibrary(appEl, vacationId) {
       })
       .join("");
 
-    const main = shell(html, { canEdit: canDelete, offline });
+    const main = shell(html, { canEdit: canAdd, offline });
     main?.addEventListener("click", (e) => {
       const thumb = e.target.closest(".library-thumb[data-media-id]");
       if (!thumb || !main.contains(thumb)) return;
@@ -226,7 +226,7 @@ export async function renderTripLibrary(appEl, vacationId) {
     const flat = remembered.photos
       .slice()
       .sort((a, b) => a.ts - b.ts || String(a.id).localeCompare(String(b.id)));
-    paintPhotos(groups, flat, canDelete, { offline });
+    paintPhotos(groups, flat, canDelete, { offline, canAdd: canAddOwn(tripRole) });
     return true;
   }
 
@@ -239,7 +239,7 @@ export async function renderTripLibrary(appEl, vacationId) {
     if (!navigator.onLine && libraryMemory.has(vacationId)) {
       tripRole = await rolePromise;
       tripUserId = await userPromise;
-      const canDelete = canEditTripMedia(tripRole);
+      const canDelete = (item) => canEditItem(tripRole, item, tripUserId);
       if (!stillCurrent(token)) return;
       if (paintRemembered(canDelete, { offline: true })) return;
     }
@@ -260,7 +260,8 @@ export async function renderTripLibrary(appEl, vacationId) {
     tripUserId = userId;
     if (!stillCurrent(token)) return;
 
-    const canDelete = canEditTripMedia(role);
+    const canAdd = canAddOwn(role);
+    const canDelete = (item) => canEditItem(role, item, userId);
     const offline =
       !navigator.onLine ||
       photoResult.error instanceof CloudOfflineError ||
@@ -269,7 +270,7 @@ export async function renderTripLibrary(appEl, vacationId) {
     if (photoResult.error || placesResult.error) {
       if (offline && paintRemembered(canDelete, { offline: true })) return;
       if (offline) {
-        paintOfflineEmpty(canDelete);
+        paintOfflineEmpty(canAdd);
         return;
       }
       paintError();
@@ -279,14 +280,14 @@ export async function renderTripLibrary(appEl, vacationId) {
     const photos = (photoResult.media || []).filter(isLibraryPhoto);
     libraryMemory.set(vacationId, { photos, places: placesResult.places || [] });
     if (!photos.length) {
-      paintEmpty(canDelete);
+      paintEmpty(canAdd);
       return;
     }
     const groups = groupLibraryPhotos(photos, placesResult.places);
     const flat = photos
       .slice()
       .sort((a, b) => a.ts - b.ts || String(a.id).localeCompare(String(b.id)));
-    paintPhotos(groups, flat, canDelete);
+    paintPhotos(groups, flat, canDelete, { canAdd });
   }
 
   await load();

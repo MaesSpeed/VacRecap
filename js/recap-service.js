@@ -1,5 +1,5 @@
 import { getUserId } from "./auth-service.js";
-import { RecapUnavailableError, mapApiError } from "./cloud-errors.js";
+import { RecapUnavailableError, StaleWriteError, mapApiError } from "./cloud-errors.js";
 import { fetchUploadedPhotosForTrip, getNotesForVacation, getPlacesForVacation } from "./db.js";
 import { clampDiaryText } from "./diary-model.js";
 import { buildVideoRecap } from "./recap-storyboard.js";
@@ -29,6 +29,8 @@ function mapRow(row) {
     createdBy: row.created_by || null,
     createdAt: row.created_at || null,
     updatedAt: row.updated_at || null,
+    remoteUpdatedAt: row.updated_at || null,
+    updatedBy: row.updated_by || null,
     finalizedAt: row.finalized_at || null,
     deletedAt: row.deleted_at || null,
     sourceText: row.source_text || "",
@@ -182,23 +184,43 @@ export async function updateRecapContent(recap, content) {
 
 const diaryNotesQueue = new Map();
 
-async function saveDiaryNotesNow(tripId, sourceText) {
+async function updateDiarySource(notes, sourceText, { force = false } = {}) {
+  let query = getSupabase().from("trip_recaps").update({ source_text: sourceText }).eq("id", notes.id);
+  if (notes.remoteUpdatedAt && !force) query = query.eq("updated_at", notes.remoteUpdatedAt);
+  const { data, error } = await query.select("*");
+  if (error) {
+    if (isMissingRecapTable(error)) throw new RecapUnavailableError();
+    throw mapApiError(error);
+  }
+  const rows = Array.isArray(data) ? data : data ? [data] : [];
+  if (rows.length) return mapRow(rows[0]);
+  if (!notes.remoteUpdatedAt || force) throw new Error("Dafür fehlt die Berechtigung.");
+  const { data: fresh, error: readError } = await getSupabase()
+    .from("trip_recaps")
+    .select("*")
+    .eq("id", notes.id)
+    .maybeSingle();
+  if (readError) {
+    if (isMissingRecapTable(readError)) throw new RecapUnavailableError();
+    throw mapApiError(readError);
+  }
+  const deleted = !fresh || Boolean(fresh.deleted_at);
+  throw new StaleWriteError(deleted ? "Wurde inzwischen gelöscht" : "Inzwischen geändert", {
+    fresh,
+    deleted,
+    expected: notes.remoteUpdatedAt,
+  });
+}
+
+async function saveDiaryNotesNow(tripId, sourceText, { force = false } = {}) {
   const text = clampDiaryText(sourceText);
   const rows = await listDiaryRecaps(tripId);
   const notes = rows.find((row) => row.status === "notes" && !row.deletedAt) || null;
   if (!String(text || "").trim()) {
     if (!notes) return null;
-    const data = await unwrap(
-      getSupabase().from("trip_recaps").update({ source_text: "" }).eq("id", notes.id).select("*").single()
-    );
-    return mapRow(data);
+    return updateDiarySource(notes, "", { force });
   }
-  if (notes) {
-    const data = await unwrap(
-      getSupabase().from("trip_recaps").update({ source_text: text }).eq("id", notes.id).select("*").single()
-    );
-    return mapRow(data);
-  }
+  if (notes) return updateDiarySource(notes, text, { force });
   const userId = await getUserId();
   const payload = {
     trip_id: tripId,
@@ -214,11 +236,11 @@ async function saveDiaryNotesNow(tripId, sourceText) {
   return mapRow(data);
 }
 
-export function saveDiaryNotes(tripId, sourceText) {
+export function saveDiaryNotes(tripId, sourceText, options = {}) {
   const prev = diaryNotesQueue.get(tripId) || Promise.resolve();
   const run = prev.then(
-    () => saveDiaryNotesNow(tripId, sourceText),
-    () => saveDiaryNotesNow(tripId, sourceText)
+    () => saveDiaryNotesNow(tripId, sourceText, options),
+    () => saveDiaryNotesNow(tripId, sourceText, options)
   );
   const tracked = run
     .finally(() => {

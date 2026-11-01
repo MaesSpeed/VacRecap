@@ -43,6 +43,8 @@ export async function signOut() {
   clearSignedUrlCache();
   const { clearTripRoleCache } = await import("./trip-role.js");
   clearTripRoleCache();
+  const { clearTripPeople } = await import("./trip-people.js");
+  clearTripPeople();
   await getSupabase().auth.signOut();
 }
 

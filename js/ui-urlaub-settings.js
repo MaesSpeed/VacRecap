@@ -1,6 +1,10 @@
-import { deleteVacation, deleteVacationData, getVacation } from "./db.js";
+import { deleteVacation, getVacation } from "./db.js";
 import { listDiaryRecaps, listVideoRecaps } from "./recap-service.js";
-import { canEditTripMedia, getMyTripRole, tripRoleLoadFailed } from "./trip-role.js";
+import { canDeleteTrip, canEditAny, canStartRecap, getConfirmedTripRole, tripRoleLoadFailed } from "./trip-role.js";
+import { leaveTrip } from "./trip-access.js";
+import { clearTripPeople } from "./trip-people.js";
+import { clearTripRoleCache } from "./trip-role.js";
+import { openConfirmDialog } from "./ui-confirm.js";
 import { ICON_BACK_CHEVRON } from "./icons.js";
 import { navigate } from "./router.js";
 import {
@@ -39,14 +43,18 @@ export async function renderUrlaubSettings(appEl, id) {
     return;
   }
 
-  const [remember, radiusM, captureLoc, mapRoutes, recapAction, diaryAction] = await Promise.all([
+  const [remember, radiusM, captureLoc, mapRoutes, recapAction, diaryAction, roleInfo] = await Promise.all([
     getRememberLocationOnOpen(),
     getSamePlaceRadiusM(),
     getRememberCaptureLocation(),
     getMapRoutesEnabled(),
     recapSettingsAction(id),
     diarySettingsAction(id),
+    getConfirmedTripRole(id),
   ]);
+  const showEdit = canEditAny(roleInfo.role);
+  const showDelete = canDeleteTrip(roleInfo.role, roleInfo.confirmed);
+  const showLeave = roleInfo.confirmed && roleInfo.role !== "owner";
   const radiusOptions = samePlaceRadiusOptions();
 
   appEl.className = "screen screen--settings";
@@ -133,8 +141,9 @@ export async function renderUrlaubSettings(appEl, id) {
               ? `<button type="button" class="settings-link-row" data-action="diary" data-testid="settings-diary">${escapeHtml(diaryAction)}</button>`
               : ""
           }
-          <button type="button" class="settings-link-row" data-action="edit">Reise bearbeiten</button>
-          <button type="button" class="settings-link-row settings-link-row--danger" data-action="delete">Reise löschen</button>
+          ${showEdit ? `<button type="button" class="settings-link-row" data-action="edit" data-testid="settings-edit-trip">Reise bearbeiten</button>` : ""}
+          ${showDelete ? `<button type="button" class="settings-link-row settings-link-row--danger" data-action="delete" data-testid="settings-delete-trip">Reise löschen</button>` : ""}
+          ${showLeave ? `<button type="button" class="settings-link-row settings-link-row--danger" data-action="leave" data-testid="settings-leave-trip">Reise verlassen</button>` : ""}
         </div>
       </section>
       <section class="settings-block">
@@ -241,7 +250,7 @@ export async function renderUrlaubSettings(appEl, id) {
     navigate({ name: "urlaub-tagebuch", id });
   });
 
-  appEl.querySelector('[data-action="edit"]').addEventListener("click", () => {
+  appEl.querySelector('[data-action="edit"]')?.addEventListener("click", () => {
     sessionStorage.setItem(
       "vacrecap-form-return",
       JSON.stringify({ name: "urlaub-settings", id })
@@ -249,15 +258,18 @@ export async function renderUrlaubSettings(appEl, id) {
     navigate({ name: "urlaub-form", mode: "edit", id });
   });
 
-  appEl.querySelector('[data-action="delete"]').addEventListener("click", () => {
+  appEl.querySelector('[data-action="delete"]')?.addEventListener("click", () => {
     confirmDeleteVacation(vacation);
+  });
+  appEl.querySelector('[data-action="leave"]')?.addEventListener("click", () => {
+    confirmLeaveTrip(id);
   });
 }
 
 async function recapSettingsAction(tripId) {
   try {
-    const role = await getMyTripRole(tripId);
-    if (canEditTripMedia(role) && !tripRoleLoadFailed(tripId)) return "Recap-Video erstellen";
+    const info = await getConfirmedTripRole(tripId);
+    if (canStartRecap(info.role) && !tripRoleLoadFailed(tripId)) return "Recap-Video erstellen";
     const rows = await listVideoRecaps(tripId);
     if (rows.some((row) => row.status === "final" && !row.deletedAt)) return "Recap-Video ansehen";
     return "";
@@ -268,8 +280,8 @@ async function recapSettingsAction(tripId) {
 
 async function diarySettingsAction(tripId) {
   try {
-    const role = await getMyTripRole(tripId);
-    if (canEditTripMedia(role) && !tripRoleLoadFailed(tripId)) return "Reisetagebuch erstellen";
+    const info = await getConfirmedTripRole(tripId);
+    if (canStartRecap(info.role) && !tripRoleLoadFailed(tripId)) return "Reisetagebuch erstellen";
     const rows = await listDiaryRecaps(tripId);
     if (rows.some((row) => row.status === "final" && !row.deletedAt)) return "Reisetagebuch ansehen";
     return "";
@@ -306,11 +318,37 @@ function confirmDeleteVacation(vacation) {
     if (vacation.cover?.type === "custom" && vacation.cover.blobId) {
       await deleteBlob(vacation.cover.blobId);
     }
-    await deleteVacationData(vacation.id);
-    await deleteVacation(vacation.id);
+    try {
+      await deleteVacation(vacation.id);
+    } catch (err) {
+      closeOverlayHistory(activeClose);
+      showToast(err?.message || "Die Reise konnte nicht gelöscht werden.");
+      return;
+    }
     closeOverlayHistory(activeClose);
     showToast("Reise gelöscht");
     window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
     navigate({ name: "urlaube" }, { replace: true });
   });
+}
+
+function confirmLeaveTrip(tripId) {
+  void (async () => {
+    const ok = await openConfirmDialog({
+      title: "Reise verlassen?",
+      message: "Deine Fotos und Notizen bleiben in der Reise.",
+      confirmLabel: "Verlassen",
+      testId: "confirm-leave-trip",
+    });
+    if (!ok) return;
+    try {
+      await leaveTrip(tripId);
+      clearTripRoleCache(tripId);
+      clearTripPeople(tripId);
+      showToast("Reise verlassen");
+      navigate({ name: "urlaube" }, { replace: true });
+    } catch (err) {
+      showToast(err?.message || "Die Reise konnte nicht verlassen werden.");
+    }
+  })();
 }

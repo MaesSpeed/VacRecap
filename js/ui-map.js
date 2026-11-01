@@ -18,7 +18,7 @@ import { queuePendingFooter } from "./pending-footer.js";
 import { navigate } from "./router.js";
 import { deletePlaceIfEmpty, movePlacePhotos, resolveFooterCaptureTarget } from "./target-place.js";
 import { loadTripSelection } from "./trip-selection-store.js";
-import { canEditTripMedia, getMyTripRole } from "./trip-role.js";
+import { canAddOwn, getMyTripRole } from "./trip-role.js";
 import { openAddPlaceFlow } from "./ui-add-place-sheet.js";
 import { forgetFreshPlace, noteFreshPlace, setTripSelection, storeTripSelection } from "./ui-urlaub-detail.js";
 import { mountTripFooter } from "./ui-trip-footer.js";
@@ -110,7 +110,7 @@ export async function renderMapScreen(appEl, vacationId) {
   const days = vacationDays(vacation);
   let segment = getMapSegment(vacationId);
   const [role, addUserId] = await Promise.all([getMyTripRole(vacationId), getUserId()]);
-  const canAddPlace = canEditTripMedia(role);
+  const canAddPlace = canAddOwn(role);
   let draftOpen = false;
   let draftPin = null;
 

@@ -523,7 +523,7 @@ async function swipeNext(page) {
 async function runLibrarySuite(page, state, label, shotPath) {
   await page.goto(state.baseUrl || "/");
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  if (Number(build) !== 64) throw new Error(`${label}: Build ${build} != 64`);
+  if (Number(build) !== 65) throw new Error(`${label}: Build ${build} != 65`);
   await login(page);
   const { tripId, placeId, placeB } = await seedTrip(page);
 
@@ -958,16 +958,12 @@ async function runLibrarySuite(page, state, label, shotPath) {
   await page.click('[data-testid="library-back"]');
   await page.waitForSelector('[data-testid="trip-content"]');
   await openLibrary(page);
-  if ((await page.locator('[data-testid="library-add-photos"]').count()) !== 0) {
-    throw new Error(`${label}: Viewer sieht + Fotos`);
-  }
-  if ((await page.locator('[data-testid="library-add-photos-empty"]').count()) !== 0) {
-    throw new Error(`${label}: Viewer sieht + Fotos im Leerzustand`);
-  }
+  await page.waitForSelector(".library-thumb");
+  await page.waitForSelector('[data-testid="library-add-photos"]');
   await page.locator(".library-thumb").first().click();
   await page.waitForSelector('[data-testid="media-viewer"]');
-  if (await page.locator('[data-testid="media-viewer-delete"]').count() !== 0) {
-    throw new Error(`${label}: Viewer sieht den Löschen-Knopf`);
+  if (await page.locator('[data-testid="media-viewer-delete"]').count() !== 1) {
+    throw new Error(`${label}: Beitragender löscht das eigene Foto nicht`);
   }
   await page.click('[data-testid="media-viewer-close"]');
 
@@ -1030,7 +1026,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 7b tests OK (Build 64)");
+  console.log("Playwright 7b tests OK (Build 65)");
 }
 
 main().catch((err) => {

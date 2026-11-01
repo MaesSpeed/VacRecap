@@ -202,6 +202,7 @@ export async function updatePlaceName(place, name) {
     title: trimmed,
     updatedAt: Date.now(),
   });
+  updated.forceSave = Boolean(place.forceSave);
   await putPlace(updated);
   return updated;
 }

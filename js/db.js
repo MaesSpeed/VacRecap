@@ -2,6 +2,7 @@ import {
   CaptionUnavailableError,
   CloudNetworkError,
   CloudOfflineError,
+  StaleWriteError,
   isFetchNetworkFailure,
   mapApiError,
 } from "./cloud-errors.js";
@@ -81,9 +82,53 @@ async function runMediaRead(run) {
  * weggelassen und der Rest gespeichert. Lesen bleibt select("*"): ohne
  * Spalte fehlt das Feld im JSON, ohne gemeinsames Flag wie bei caption.
  */
-async function writeTripRow(supabase, row, id) {
+function rowsOf(data) {
+  if (!data) return [];
+  return Array.isArray(data) ? data : [data];
+}
+
+async function readFreshRow(supabase, table, id) {
+  const { data, error } = await supabase.from(table).select("*").eq("id", id).maybeSingle();
+  if (error) throw mapApiError(error);
+  return data || null;
+}
+
+function staleFromFresh(fresh, expected) {
+  const deleted = !fresh || Boolean(fresh.deleted_at);
+  return new StaleWriteError(deleted ? "Wurde inzwischen gelöscht" : "Inzwischen geändert", {
+    fresh,
+    deleted,
+    expected,
+  });
+}
+
+/**
+ * Bestehende Zeile mit updated_at-Bedingung. 0 Zeilen: Konflikt, Löschung oder fehlende Rechte.
+ * Neue Zeilen bleiben beim Aufrufer (insert/upsert).
+ */
+async function updateGuarded(supabase, table, id, patch, remoteUpdatedAt, { force = false } = {}) {
+  let query = supabase.from(table).update(patch).eq("id", id);
+  if (remoteUpdatedAt && !force) query = query.eq("updated_at", remoteUpdatedAt);
+  const { data, error } = await query.select();
+  if (error) throw mapApiError(error);
+  const rows = rowsOf(data);
+  if (rows.length) return rows[0];
+  if (!remoteUpdatedAt || force) {
+    throw new Error("Dafür fehlt die Berechtigung.");
+  }
+  const fresh = await readFreshRow(supabase, table, id);
+  throw staleFromFresh(fresh, remoteUpdatedAt);
+}
+
+async function writeTripRow(supabase, row, id, { remoteUpdatedAt = null, force = false } = {}) {
+  const guarded = Boolean(id && remoteUpdatedAt);
   const run = async (payload) => {
     const body = id ? { ...payload, id } : payload;
+    if (guarded) {
+      let query = supabase.from("trips").update(body).eq("id", id);
+      if (!force) query = query.eq("updated_at", remoteUpdatedAt);
+      return query.select();
+    }
     if (id) {
       return supabase.from("trips").upsert(body, { onConflict: "id" }).select().single();
     }
@@ -93,7 +138,15 @@ async function writeTripRow(supabase, row, id) {
   let companionsUnavailable = false;
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const { data, error } = await run(payload);
-    if (!error) return { data, companionsUnavailable };
+    if (!error) {
+      const rowData = guarded ? rowsOf(data)[0] : data;
+      if (guarded && !rowData) {
+        if (force) throw new Error("Dafür fehlt die Berechtigung.");
+        const fresh = await readFreshRow(supabase, "trips", id);
+        throw staleFromFresh(fresh, remoteUpdatedAt);
+      }
+      return { data: rowData, companionsUnavailable };
+    }
     if (
       isMissingCompanionTagsColumn(error) &&
       Object.prototype.hasOwnProperty.call(payload, "companion_tags")
@@ -152,12 +205,15 @@ export async function requestPersistentStorage() {
   /* Cloud-Modus: kein IDB-Persist */
 }
 
-export async function putVacation(vacation) {
+export async function putVacation(vacation, { force = false } = {}) {
   assertWritable();
   const v = normalizeVacation(vacation);
   const supabase = getSupabase();
   const row = vacationToTripRow(v);
-  const { data, companionsUnavailable } = await writeTripRow(supabase, row, v.id || null);
+  const { data, companionsUnavailable } = await writeTripRow(supabase, row, v.id || null, {
+    remoteUpdatedAt: vacation?.remoteUpdatedAt || null,
+    force,
+  });
   const mapped = tripRowToVacation(data);
   const prev = readCache()?.trips || [];
   const idx = prev.findIndex((t) => t.id === mapped.id);
@@ -206,8 +262,11 @@ export async function getAllVacations() {
 
 export async function deleteVacation(id) {
   assertWritable();
-  const { error } = await getSupabase().from("trips").delete().eq("id", id);
+  const { data, error } = await getSupabase().from("trips").delete().eq("id", id).select("id");
   if (error) throw mapApiError(error);
+  if (!rowsOf(data).length) {
+    throw new Error("Nur der Besitzer kann die Reise löschen");
+  }
   const cache = readCache();
   if (cache) {
     writeCache({
@@ -313,7 +372,11 @@ export async function putPlace(place) {
   const supabase = getSupabase();
   const row = placeToWaypointRow(p);
   let data;
-  if (p.id) {
+  if (p.id && (p.remoteUpdatedAt || place.remoteUpdatedAt)) {
+    data = await updateGuarded(supabase, "waypoints", p.id, row, p.remoteUpdatedAt || place.remoteUpdatedAt, {
+      force: Boolean(place.forceSave),
+    });
+  } else if (p.id) {
     data = await upsertRow(supabase, "waypoints", row, p.id);
   } else {
     const { data: inserted, error } = await supabase.from("waypoints").insert(row).select().single();
@@ -337,11 +400,13 @@ function mergeWaypointCache(place) {
 export async function deletePlace(id) {
   assertWritable();
   const place = await getPlace(id);
-  const { error } = await getSupabase()
+  const { data, error } = await getSupabase()
     .from("waypoints")
     .update({ deleted_at: new Date().toISOString() })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
   if (error) throw mapApiError(error);
+  if (!rowsOf(data).length) throw new Error("Dafür fehlt die Berechtigung.");
   if (place) {
     const cache = readCache();
     const list = (cache?.waypoints?.[place.vacationId] || []).filter((p) => p.id !== id);
@@ -504,7 +569,11 @@ export async function putNote(record) {
   const row = noteToRow(record);
   const supabase = getSupabase();
   let data;
-  if (record.id) {
+  if (record.id && record.remoteUpdatedAt) {
+    data = await updateGuarded(supabase, "notes", record.id, row, record.remoteUpdatedAt, {
+      force: Boolean(record.forceSave),
+    });
+  } else if (record.id) {
     data = await upsertRow(supabase, "notes", row, record.id);
   } else {
     const { data: inserted, error } = await supabase.from("notes").insert(row).select().single();
@@ -527,11 +596,13 @@ function mergeNoteCache(note) {
 
 export async function deleteNote(id) {
   assertWritable();
-  const { error } = await getSupabase()
+  const { data, error } = await getSupabase()
     .from("notes")
     .update({ deleted_at: new Date().toISOString() })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
   if (error) throw mapApiError(error);
+  if (!rowsOf(data).length) throw new Error("Dafür fehlt die Berechtigung.");
   removeNoteFromCache(id);
   window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
 }
@@ -587,12 +658,15 @@ export async function updateMediaRow(id, patch) {
  * Fehlt die Spalte (PGRST204/42703), wird ohne caption erneut geschrieben
  * und CaptionUnavailableError geworfen, statt die App abstürzen zu lassen.
  */
-export async function updateMediaCaption(id, caption) {
+export async function updateMediaCaption(id, caption, { remoteUpdatedAt = null, force = false } = {}) {
   assertWritable();
   const normalized = normalizeMediaCaption(caption);
   const patch = { caption: normalized, updated_at: new Date().toISOString() };
-  const run = (body) =>
-    getSupabase().from("media").update(body).eq("id", id).select().single();
+  const run = (body) => {
+    let query = getSupabase().from("media").update(body).eq("id", id);
+    if (remoteUpdatedAt && !force) query = query.eq("updated_at", remoteUpdatedAt);
+    return query.select();
+  };
   let { data, error } = await run(patch);
   if (error && isMissingCaptionColumn(error)) {
     omitCaptionColumn = true;
@@ -602,7 +676,13 @@ export async function updateMediaCaption(id, caption) {
     throw new CaptionUnavailableError();
   }
   if (error) throw mapApiError(error);
-  const mapped = mediaRowToApp(data);
+  const row = rowsOf(data)[0];
+  if (!row) {
+    if (!remoteUpdatedAt || force) throw new Error("Dafür fehlt die Berechtigung.");
+    const fresh = await readFreshRow(getSupabase(), "media", id);
+    throw staleFromFresh(fresh, remoteUpdatedAt);
+  }
+  const mapped = mediaRowToApp(row);
   window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
   return mapped;
 }
@@ -613,7 +693,7 @@ export async function updateMediaCaption(id, caption) {
  * taken_at nur, wenn der Aufrufer es ausdrücklich setzt (Foto ohne eigene Zeit).
  * Kein vacrecap:data-changed, damit die Tagesansicht Ort und Zähler aus dem Cache malt.
  */
-export async function updateMediaPlacement(id, { waypointId, day, takenAt } = {}) {
+export async function updateMediaPlacement(id, { waypointId, day, takenAt, remoteUpdatedAt = null, force = false } = {}) {
   assertWritable();
   const patch = {
     waypoint_id: waypointId,
@@ -623,14 +703,17 @@ export async function updateMediaPlacement(id, { waypointId, day, takenAt } = {}
   if (takenAt !== undefined) {
     patch.taken_at = takenAt == null ? null : new Date(takenAt).toISOString();
   }
-  const { data, error } = await getSupabase()
-    .from("media")
-    .update(patch)
-    .eq("id", id)
-    .select()
-    .single();
+  let query = getSupabase().from("media").update(patch).eq("id", id);
+  if (remoteUpdatedAt && !force) query = query.eq("updated_at", remoteUpdatedAt);
+  const { data, error } = await query.select();
   if (error) throw mapApiError(error);
-  return mediaRowToApp(data);
+  const row = rowsOf(data)[0];
+  if (!row) {
+    if (!remoteUpdatedAt || force) throw new Error("Dafür fehlt die Berechtigung.");
+    const fresh = await readFreshRow(getSupabase(), "media", id);
+    throw staleFromFresh(fresh, remoteUpdatedAt);
+  }
+  return mediaRowToApp(row);
 }
 
 export async function getMedia(id) {
@@ -646,11 +729,13 @@ export async function markMediaDeleted(id) {
   assertWritable();
   const existing = await getMedia(id);
   if (!existing) return null;
-  const { error } = await getSupabase()
+  const { data, error } = await getSupabase()
     .from("media")
     .update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-    .eq("id", id);
+    .eq("id", id)
+    .select("id");
   if (error) throw mapApiError(error);
+  if (!rowsOf(data).length) throw new Error("Dafür fehlt die Berechtigung.");
   window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
   return existing;
 }

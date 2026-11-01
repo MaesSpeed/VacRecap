@@ -3,7 +3,10 @@ import { bindSheetPull } from "./sheet-pull.js";
 import { createNote, moveNoteToPlace, removeNote, updateNoteText } from "./note-service.js";
 import { dayRoleLabel, vacationDays } from "./days.js";
 import { openConfirmDialog } from "./ui-confirm.js";
-import { CloudNetworkError, CloudOfflineError, noteKeptMessage } from "./cloud-errors.js";
+import { CloudNetworkError, CloudOfflineError, StaleWriteError, noteKeptMessage } from "./cloud-errors.js";
+import { decideStaleWrite } from "./save-conflict.js";
+import { noteRowToApp } from "./cloud-mappers.js";
+import { watchPresence, presenceBannerHtml } from "./trip-presence.js";
 import { showToast, showWarnToast } from "./toast.js";
 import { escapeHtml } from "./utils.js";
 
@@ -36,7 +39,15 @@ export function openNoteSheet({
 
   let kbViewportHandler = null;
 
+  const stopPresence = vacationId
+    ? watchPresence(vacationId, note?.id ? `note:${note.id}` : "note:new", (rows) => {
+        const host = overlay.querySelector('[data-role="note-presence"]');
+        if (host) host.innerHTML = presenceBannerHtml(rows);
+      })
+    : () => {};
+
   const domClose = () => {
+    stopPresence();
     if (kbViewportHandler) {
       window.visualViewport?.removeEventListener("resize", kbViewportHandler);
       window.visualViewport?.removeEventListener("scroll", kbViewportHandler);
@@ -76,6 +87,7 @@ export function openNoteSheet({
             : `<span class="note-sheet__spacer" aria-hidden="true"></span>`
         }
       </header>
+      <div data-role="note-presence"></div>
       <div class="note-sheet__place" data-role="place-box">
         <span class="note-sheet__pin">${PIN_ICON}</span>
         <div class="note-sheet__place-text">
@@ -251,7 +263,24 @@ export function openNoteSheet({
       }
 
       if (isEdit) {
-        const updated = await updateNoteText(note, text);
+        let updated;
+        try {
+          updated = await updateNoteText(note, text);
+        } catch (err) {
+          if (!(err instanceof StaleWriteError)) throw err;
+          const decision = await decideStaleWrite(err, { tripId: vacationId });
+          if (decision === "force") updated = await updateNoteText({ ...note, forceSave: true }, text);
+          else if (decision === "reload" && err.fresh) {
+            const fresh = noteRowToApp(err.fresh);
+            note.remoteUpdatedAt = fresh.remoteUpdatedAt;
+            note.text = fresh.text;
+            note.updatedBy = fresh.updatedBy;
+            textarea.value = fresh.text || "";
+            return;
+          } else {
+            return;
+          }
+        }
         const nextPlaceId = freeChosen ? null : placeToUse.id;
         if (nextPlaceId !== (note.placeId || null)) {
           await moveNoteToPlace(updated, freeChosen ? null : placeToUse, { day, vacationId });
