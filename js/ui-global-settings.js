@@ -1,6 +1,7 @@
 import { signOut } from "./auth-service.js";
 import { APP_BUILD_VERSION } from "./app-version.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
+import { bindSheetPull } from "./sheet-pull.js";
 import { clearReadCache } from "./local-cache.js";
 
 export function openGlobalSettingsSheet(hostEl) {
@@ -10,6 +11,7 @@ export function openGlobalSettingsSheet(hostEl) {
   overlay.hidden = false;
   overlay.innerHTML = `
     <div class="sheet sheet--settings-global" data-testid="global-settings-sheet">
+      <div class="sheet-handle" data-role="pick-handle" aria-hidden="true"></div>
       <div class="sheet__header">
         <h2 class="sheet__title">Einstellungen</h2>
         <button type="button" class="sheet__close" data-action="close" aria-label="Schließen">×</button>
@@ -28,6 +30,11 @@ export function openGlobalSettingsSheet(hostEl) {
   };
 
   const activeClose = bindOverlay(overlay, close);
+  const settingsSheet = overlay.querySelector('[data-testid="global-settings-sheet"]');
+  bindSheetPull(settingsSheet, {
+    onClose: () => closeOverlayHistory(activeClose),
+    scrollEl: settingsSheet?.querySelector(".sheet__body") || settingsSheet,
+  });
 
   overlay.querySelector('[data-action="close"]')?.addEventListener("click", () =>
     closeOverlayHistory(activeClose)

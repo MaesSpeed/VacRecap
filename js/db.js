@@ -18,7 +18,7 @@ import {
   vacationToTripRow,
   waypointRowToPlace,
 } from "./cloud-mappers.js";
-import { isOfflineReadOnly, readCache, writeCache } from "./local-cache.js";
+import { cachePayloadIsSmall, isOfflineReadOnly, readCache, writeCache } from "./local-cache.js";
 import { getSupabase } from "./supabase-client.js";
 import { normalizePlace } from "./places.js";
 import { normalizeVacation } from "./vacation.js";
@@ -408,18 +408,35 @@ export async function getNotesForPlace(placeId) {
   return fetchNotesForWaypoint(placeId);
 }
 
+function notesFromCache(tripId) {
+  const list = readCache()?.notes?.[tripId];
+  if (!Array.isArray(list) || !list.length) return null;
+  if (!cachePayloadIsSmall(list)) return null;
+  return list;
+}
+
 export async function getNotesForVacation(tripId) {
   if (!tripId) return [];
-  const { data, error } = await getSupabase()
-    .from("notes")
-    .select("*")
-    .eq("trip_id", tripId)
-    .is("deleted_at", null)
-    .order("updated_at", { ascending: true });
-  if (error) throw mapApiError(error);
-  const notes = (data || []).map(noteRowToApp);
-  writeCache({ notes: { [tripId]: notes } });
-  return notes;
+  if (!navigator.onLine) {
+    const cached = notesFromCache(tripId);
+    if (cached) return cached;
+  }
+  try {
+    const { data, error } = await getSupabase()
+      .from("notes")
+      .select("*")
+      .eq("trip_id", tripId)
+      .is("deleted_at", null)
+      .order("updated_at", { ascending: true });
+    if (error) throw mapApiError(error);
+    const notes = (data || []).map(noteRowToApp);
+    if (cachePayloadIsSmall(notes) || notes.length === 0) writeCache({ notes: { [tripId]: notes } });
+    return notes;
+  } catch (err) {
+    const cached = notesFromCache(tripId);
+    if (cached) return cached;
+    throw err;
+  }
 }
 
 /** Wirft bei Netzwerkfehlern, statt eine leere Liste vorzutäuschen. */
@@ -868,19 +885,38 @@ export async function getMediaBySourceKey(vacationId, sourceKey) {
   return data ? mediaRowToApp(data) : null;
 }
 
-/** Fotos der Reise. Wirft, wenn die Liste nicht geladen werden kann. */
+function photosFromCache(vacationId) {
+  const list = readCache()?.media?.[vacationId];
+  if (!Array.isArray(list) || !list.length) return null;
+  if (!cachePayloadIsSmall(list)) return null;
+  return list;
+}
+
+/** Fotos der Reise. Wirft, wenn die Liste nicht geladen werden kann und kein kleiner Cache da ist. */
 export async function getAssignablePhotos(vacationId) {
   if (!vacationId) return [];
-  const { data, error } = await runMediaRead((columns) =>
-    getSupabase()
-      .from("media")
-      .select(columns)
-      .eq("trip_id", vacationId)
-      .is("deleted_at", null)
-      .order("taken_at", { ascending: true })
-  );
-  if (error) throw mapApiError(error);
-  return (data || []).map(mediaRowToApp).filter((item) => item && item.type === "photo");
+  if (!navigator.onLine) {
+    const cached = photosFromCache(vacationId);
+    if (cached) return cached;
+  }
+  try {
+    const { data, error } = await runMediaRead((columns) =>
+      getSupabase()
+        .from("media")
+        .select(columns)
+        .eq("trip_id", vacationId)
+        .is("deleted_at", null)
+        .order("taken_at", { ascending: true })
+    );
+    if (error) throw mapApiError(error);
+    const photos = (data || []).map(mediaRowToApp).filter((item) => item && item.type === "photo");
+    if (cachePayloadIsSmall(photos) || photos.length === 0) writeCache({ media: { [vacationId]: photos } });
+    return photos;
+  } catch (err) {
+    const cached = photosFromCache(vacationId);
+    if (cached) return cached;
+    throw err;
+  }
 }
 
 export async function getAllMediaForVacation(vacationId) {

@@ -1,4 +1,5 @@
 import { closeOverlayHistory, openOverlayHistory } from "./overlay-stack.js";
+import { bindSheetPull } from "./sheet-pull.js";
 import { escapeHtml } from "./utils.js";
 
 const PIN_SVG = `<svg width="16" height="16" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M16 2.8c-5.8 0-10 4.3-10 9.7 0 6.9 10 15.7 10 15.7s10-8.8 10-15.7c0-5.4-4.2-9.7-10-9.7z" fill="#d4523e"/><circle cx="16" cy="12.6" r="3.8" fill="#fff"/></svg>`;
@@ -33,9 +34,10 @@ export function openPhotoTargetSheet({ title, thumbs = [], options }) {
           .map((src) => `<img src="${escapeHtml(src)}" alt="" />`)
           .join("")}</div>`
       : "";
+    overlay.hidden = false;
     layer.innerHTML = `
       <div class="sheet sheet--target" data-testid="photo-target-sheet" role="dialog" aria-modal="true">
-        <div class="sheet-handle" aria-hidden="true"></div>
+        <div class="sheet-handle" data-role="pick-handle" aria-hidden="true"></div>
         <h2 class="sheet__title">${escapeHtml(title)}</h2>
         ${thumbHtml}
         <ul class="target-sheet__list">
@@ -61,8 +63,14 @@ export function openPhotoTargetSheet({ title, thumbs = [], options }) {
 
     const closeDom = () => {
       layer.remove();
+      if (!overlay.querySelector(".sheet, [data-testid='media-viewer']")) overlay.hidden = true;
     };
     openOverlayHistory(closeDom);
+    const targetSheet = layer.querySelector('[data-testid="photo-target-sheet"]');
+    bindSheetPull(targetSheet, {
+      onClose: () => choose(null),
+      scrollEl: targetSheet?.querySelector(".target-sheet__list") || targetSheet,
+    });
 
     const choose = (opt) => {
       closeOverlayHistory(closeDom);

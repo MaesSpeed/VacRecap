@@ -1,6 +1,7 @@
 import { dayChipDateLine, dayRoleLabel, vacationDays } from "./days.js";
 import { formatTimeFromTs } from "./geo.js";
 import { closeOverlayHistory, openOverlayHistory } from "./overlay-stack.js";
+import { bindSheetPull } from "./sheet-pull.js";
 import { sortPlacesChronologicalDesc } from "./places.js";
 import { escapeHtml } from "./utils.js";
 
@@ -66,7 +67,7 @@ export function openPhotoMoveSheet({ vacation, places, initialDay, blockedPlaceI
 
       layer.innerHTML = `
         <div class="sheet sheet--move" data-testid="photo-move-sheet" role="dialog" aria-modal="true" aria-labelledby="photo-move-title">
-          <div class="sheet-handle" aria-hidden="true"></div>
+          <div class="sheet-handle" data-role="pick-handle" aria-hidden="true"></div>
           <h2 class="sheet__title" id="photo-move-title">Verschieben nach …</h2>
           <p class="move-sheet__lead">Tag wählen, dann den Ort.</p>
           <div class="move-days" data-testid="photo-move-days" role="tablist">
@@ -98,6 +99,11 @@ export function openPhotoMoveSheet({ vacation, places, initialDay, blockedPlaceI
         });
       });
       layer.querySelector("[data-action='cancel']")?.addEventListener("click", () => choose(null));
+      const moveSheet = layer.querySelector('[data-testid="photo-move-sheet"]');
+      bindSheetPull(moveSheet, {
+        onClose: () => choose(null),
+        scrollEl: moveSheet?.querySelector('[data-testid="photo-move-places"]') || moveSheet,
+      });
     };
 
     layer.addEventListener("click", (event) => {

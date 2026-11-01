@@ -10,6 +10,7 @@ import { DAY_PARTS, timestampForDayTime } from "./day-parts.js";
 import { dayChipDateLine, dayRoleLabel, vacationDays } from "./days.js";
 import { fallbackPlaceName, reverseGeocodeDetails } from "./geo.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
+import { bindSheetPull } from "./sheet-pull.js";
 import { mediaOwnedBy } from "./photo-move.js";
 import { showWarnToast } from "./toast.js";
 import { resolveThumbUrlMap } from "./ui-place-list.js";
@@ -64,6 +65,7 @@ export function openAddPlaceFlow({ vacation, vacationId, day, lat, lng, userId }
     let moreOpen = false;
     let saving = false;
     let step = 1;
+    let contentLoadFailed = false;
 
     const finish = (value) => {
       if (settled) return;
@@ -101,6 +103,7 @@ export function openAddPlaceFlow({ vacation, vacationId, day, lat, lng, userId }
     function syncTimeHint() {
       const hint = sheet.querySelector('[data-testid="add-place-time-hint"]');
       const next = sheet.querySelector('[data-testid="add-place-next"]');
+      const only = sheet.querySelector('[data-testid="add-place-only"]');
       const ready = timestampForDayTime(day, timeValue) != null;
       if (hint) {
         hint.textContent = ready
@@ -108,6 +111,7 @@ export function openAddPlaceFlow({ vacation, vacationId, day, lat, lng, userId }
           : "Tageszeit tippen oder genaue Uhrzeit wählen.";
       }
       if (next) next.disabled = !ready;
+      if (only) only.disabled = !ready;
     }
 
     function applyNameDom() {
@@ -128,7 +132,7 @@ export function openAddPlaceFlow({ vacation, vacationId, day, lat, lng, userId }
       step = 1;
       paint(
         `
-        <div class="sheet-handle" aria-hidden="true"></div>
+        <div class="sheet-handle" data-role="pick-handle" aria-hidden="true"></div>
         <h2 class="sheet__title">Neuer Ort</h2>
         <p class="add-place-day" data-testid="add-place-day">${escapeHtml(dayLabel(vacation, day))}</p>
         <label class="field">
@@ -136,13 +140,13 @@ export function openAddPlaceFlow({ vacation, vacationId, day, lat, lng, userId }
           <input type="text" maxlength="200" data-testid="add-place-name" value="${escapeHtml(nameValue)}" />
         </label>
         <p class="add-place-suggestion" data-testid="add-place-suggestion" hidden></p>
-        <label class="field">
-          <span class="field__label">Uhrzeit</span>
+        <div class="field">
+          <label class="field__label" for="add-place-time">Uhrzeit</label>
           <div class="add-place-time-row">
-            <input type="time" step="60" data-testid="add-place-time" value="${escapeHtml(timeValue)}" />
+            <input id="add-place-time" type="time" step="60" data-testid="add-place-time" value="${escapeHtml(timeValue)}" />
             <p class="add-place-time-hint" data-testid="add-place-time-hint"></p>
           </div>
-        </label>
+        </div>
         <div class="chip-row" data-testid="add-place-parts">
           ${DAY_PARTS.map(
             (part) =>
@@ -151,6 +155,7 @@ export function openAddPlaceFlow({ vacation, vacationId, day, lat, lng, userId }
         </div>
         <div class="sheet-actions">
           <button type="button" class="btn btn-emaille btn-emaille--block" data-testid="add-place-next" disabled>Weiter: Fotos hinzufügen</button>
+          <button type="button" class="btn btn-emaille btn-emaille--ghost btn-emaille--block" data-testid="add-place-only" disabled>Nur Ort speichern</button>
           <button type="button" class="link-btn" data-testid="add-place-cancel">Abbrechen</button>
         </div>`,
         "add-place-sheet"
@@ -183,6 +188,9 @@ export function openAddPlaceFlow({ vacation, vacationId, day, lat, lng, userId }
       });
       sheet.querySelector('[data-testid="add-place-next"]')?.addEventListener("click", () => {
         void goToPhotos();
+      });
+      sheet.querySelector('[data-testid="add-place-only"]')?.addEventListener("click", () => {
+        void savePlaceOnly();
       });
       sheet.querySelector('[data-testid="add-place-cancel"]')?.addEventListener("click", closeFlow);
     }
@@ -236,9 +244,15 @@ export function openAddPlaceFlow({ vacation, vacationId, day, lat, lng, userId }
       const saveLabel = photoCount || noteCount ? "Speichern" : "Ort ohne Fotos speichern";
       paint(
         `
-        <div class="sheet-handle" aria-hidden="true"></div>
+        <div class="sheet-handle" data-role="pick-handle" aria-hidden="true"></div>
         <h2 class="sheet__title">Fotos und Notizen hinzufügen</h2>
         <p class="add-place-lead" data-testid="add-media-lead">${escapeHtml(`${displayName} · ${dayChipDateLine(day)} · ${timeValue}`)}</p>
+        ${
+          contentLoadFailed
+            ? `<p class="add-place-load-hint" data-testid="add-place-load-hint">Fotos und Notizen konnten nicht geladen werden.</p>
+        <button type="button" class="link-btn" data-testid="add-place-reload">Erneut laden</button>`
+            : ""
+        }
         <div class="pick-groups">
           ${visible.map((group) => renderGroup(group, thumbs)).join("") || `<p class="pick-empty">An diesem Tag liegt noch nichts ohne Ort.</p>`}
         </div>
@@ -284,6 +298,12 @@ export function openAddPlaceFlow({ vacation, vacationId, day, lat, lng, userId }
         if (saving) return;
         paintStep1();
       });
+      sheet.querySelector('[data-testid="add-place-reload"]')?.addEventListener("click", () => {
+        if (saving) return;
+        bundle = null;
+        contentLoadFailed = false;
+        void goToPhotos();
+      });
     }
 
     async function goToPhotos() {
@@ -291,11 +311,12 @@ export function openAddPlaceFlow({ vacation, vacationId, day, lat, lng, userId }
       if (timestampForDayTime(day, timeValue) == null) return;
       nameValue = sheet.querySelector('[data-testid="add-place-name"]')?.value ?? nameValue;
       paint(
-        `<h2 class="sheet__title">Fotos und Notizen hinzufügen</h2><p class="add-place-lead">Wird geladen…</p>`,
+        `<div class="sheet-handle" data-role="pick-handle" aria-hidden="true"></div><h2 class="sheet__title">Fotos und Notizen hinzufügen</h2><p class="add-place-lead">Wird geladen…</p>`,
         "add-media-sheet"
       );
       try {
         if (!bundle) bundle = await loadAssignableContent(vacationId);
+        contentLoadFailed = Boolean(bundle.loadFailed);
         const grouped = groupAssignableContent({
           places: bundle.places,
           photos: bundle.photos,
@@ -307,7 +328,7 @@ export function openAddPlaceFlow({ vacation, vacationId, day, lat, lng, userId }
         if (!selectionReady) {
           selectedPhotos = grouped.selectedPhotoIds;
           selectedNotes = grouped.selectedNoteIds;
-          selectionReady = true;
+          if (!contentLoadFailed) selectionReady = true;
         }
         const photos = groups.flatMap((group) => group.photos);
         let thumbs = {};
@@ -318,10 +339,44 @@ export function openAddPlaceFlow({ vacation, vacationId, day, lat, lng, userId }
         }
         if (settled) return;
         paintStep2(thumbs);
-      } catch (err) {
+      } catch {
         if (settled) return;
+        bundle = { places: [], photos: [], notes: [], loadFailed: true };
+        contentLoadFailed = true;
+        groups = [];
+        paintStep2({});
+      }
+    }
+
+    async function savePlaceOnly() {
+      if (saving) return;
+      const ts = timestampForDayTime(day, timeValue);
+      if (ts == null) return;
+      saving = true;
+      nameValue = sheet.querySelector('[data-testid="add-place-name"]')?.value ?? nameValue;
+      const button = sheet.querySelector('[data-testid="add-place-only"]');
+      const next = sheet.querySelector('[data-testid="add-place-next"]');
+      if (button) button.disabled = true;
+      if (next) next.disabled = true;
+      try {
+        const result = await commitBackfilledPlace({
+          vacationId,
+          day,
+          lat,
+          lng,
+          name: nameValue.trim(),
+          ts,
+          photos: [],
+          notes: [],
+        });
+        if (settled) return;
+        savedResult = { status: "saved", ...result };
+        closeFlow();
+      } catch (err) {
+        saving = false;
+        if (settled) return;
+        syncTimeHint();
         showWarnToast(addPlaceErrorMessage(err));
-        paintStep1();
       }
     }
 
@@ -365,6 +420,7 @@ export function openAddPlaceFlow({ vacation, vacationId, day, lat, lng, userId }
 
     paintStep1();
     activeClose = bindOverlay(overlay, domClose);
+    bindSheetPull(sheet, { onClose: closeFlow, scrollEl: sheet });
     reverseGeocodeDetails(lat, lng, { signal: geocodeAbort.signal })
       .then((details) => {
         if (settled) return;

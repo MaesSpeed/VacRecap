@@ -15,7 +15,7 @@ import { renderUrlaubForm } from "./ui-urlaub-form.js";
 import { renderUrlaubeScreen } from "./ui-urlaube.js";
 import { installVisualViewportKeyboard } from "./visual-viewport.js";
 import { dismissOverlayOnly, initOverlayHistory } from "./overlay-stack.js";
-import { showWarnToast } from "./toast.js";
+import { installToastPositionSync, showWarnToast } from "./toast.js";
 import { CloudNetworkError, CloudOfflineError } from "./cloud-errors.js";
 
 const appEl = document.getElementById("app");
@@ -166,6 +166,7 @@ async function startApp() {
 async function boot() {
   installGestureGuards();
   installVisualViewportKeyboard();
+  installToastPositionSync();
   initOverlayHistory();
   runLegacyCleanup();
   void flushPendingMediaPurges();

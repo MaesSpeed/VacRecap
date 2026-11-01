@@ -44,13 +44,39 @@ function placeDay(place) {
   return place?.day || place?.dayDate || "";
 }
 
-export async function loadAssignableContent(vacationId) {
-  const [places, photos, notes] = await Promise.all([
+const ASSIGN_RETRY_MS = 600;
+
+async function readAssignableOnce(vacationId) {
+  const [places, photos, notes] = await Promise.allSettled([
     getPlacesForVacation(vacationId),
     getAssignablePhotos(vacationId),
     getNotesForVacation(vacationId),
   ]);
-  return { places: places.filter((place) => !place.soft), photos, notes };
+  return { places, photos, notes };
+}
+
+function preferFulfilled(first, second) {
+  if (second?.status === "fulfilled") return second;
+  return first;
+}
+
+export async function loadAssignableContent(vacationId) {
+  let result = await readAssignableOnce(vacationId);
+  const failed = (slot) => !slot || slot.status !== "fulfilled";
+  if (failed(result.places) || failed(result.photos) || failed(result.notes)) {
+    await new Promise((resolve) => setTimeout(resolve, ASSIGN_RETRY_MS));
+    const retry = await readAssignableOnce(vacationId);
+    result = {
+      places: preferFulfilled(result.places, retry.places),
+      photos: preferFulfilled(result.photos, retry.photos),
+      notes: preferFulfilled(result.notes, retry.notes),
+    };
+  }
+  const places = result.places.status === "fulfilled" ? result.places.value.filter((place) => !place.soft) : [];
+  const photos = result.photos.status === "fulfilled" ? result.photos.value : [];
+  const notes = result.notes.status === "fulfilled" ? result.notes.value : [];
+  const loadFailed = failed(result.places) || failed(result.photos) || failed(result.notes);
+  return { places, photos, notes, loadFailed };
 }
 
 export function groupAssignableContent({ places, photos, notes, day, userId }) {

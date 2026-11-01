@@ -38,6 +38,14 @@ export function clearReadCache() {
   }
 }
 
+export function cachePayloadIsSmall(value, limit = 48 * 1024) {
+  try {
+    return JSON.stringify(value).length <= limit;
+  } catch {
+    return false;
+  }
+}
+
 function trimPayload(obj) {
   const raw = JSON.stringify(obj);
   if (raw.length <= MAX_BYTES) return obj;
@@ -66,11 +74,12 @@ export function readCache() {
 export function writeCache(partial) {
   if (!activeUserId) return;
   try {
-    const prev = readCache() || { trips: [], waypoints: {}, notes: {} };
+    const prev = readCache() || { trips: [], waypoints: {}, notes: {}, media: {} };
     const next = {
       trips: partial.trips ?? prev.trips,
       waypoints: { ...prev.waypoints, ...(partial.waypoints || {}) },
       notes: { ...prev.notes, ...(partial.notes || {}) },
+      media: { ...prev.media, ...(partial.media || {}) },
       savedAt: Date.now(),
     };
     localStorage.setItem(cacheKey(), JSON.stringify(trimPayload(next)));
