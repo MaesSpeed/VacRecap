@@ -217,6 +217,23 @@ async function svgBox(page, selector) {
   return handle.jsonValue();
 }
 
+async function waitForTripSettled(page) {
+  await page.waitForFunction(() => {
+    const header = document.querySelector(".screen--trip .trip-header");
+    const content = document.querySelector('[data-testid="trip-content"]');
+    const day = content?.getAttribute("data-active-day");
+    if (!header || !day) return null;
+    const stamp = `${day}|${document.querySelectorAll(".screen--trip .oc").length}`;
+    const now = performance.now();
+    const prev = window.__tripSettle;
+    if (!prev || prev.header !== header || prev.stamp !== stamp) {
+      window.__tripSettle = { header, stamp, since: now };
+      return null;
+    }
+    return now - prev.since >= 300 ? stamp : null;
+  }, null, { timeout: 20_000 });
+}
+
 async function trackX(page) {
   return page.locator("[data-role='day-track']").evaluate((el) => new DOMMatrix(getComputedStyle(el).transform).m41);
 }
@@ -457,6 +474,7 @@ async function runSuite(browserType, baseUrl, label) {
     },
     { placeId }
   );
+  await waitForTripSettled(page);
   const noteStyles = await page
     .waitForFunction(() => {
       const add = document.querySelector(".oc--selected [data-action='add-note']");
@@ -486,27 +504,26 @@ async function runSuite(browserType, baseUrl, label) {
     throw new Error(`${label}: + Notiz ohne eigene Form`);
   }
 
-  const scroll = await page.locator("[data-page='current']").evaluate((el) => {
-    const before = document.scrollingElement.scrollTop;
-    el.scrollTop = 180;
-    return {
-      clientHeight: el.clientHeight,
-      scrollHeight: el.scrollHeight,
-      scrollTop: el.scrollTop,
-      bodyScroll: document.scrollingElement.scrollTop,
-      bodyBefore: before,
-      overflowY: getComputedStyle(el).overflowY,
-    };
-  });
-  if (scroll.clientHeight < 80) {
-    throw new Error(`${label}: Tagesseite ohne Höhe ${JSON.stringify(scroll)}`);
-  }
-  if (scroll.overflowY !== "auto" && scroll.overflowY !== "scroll") {
-    throw new Error(`${label}: vertikales Scrollen nicht auf der Seite ${scroll.overflowY}`);
-  }
-  if (scroll.scrollHeight <= scroll.clientHeight + 8 || scroll.scrollTop < 40) {
-    throw new Error(`${label}: Liste scrollt nicht intern ${JSON.stringify(scroll)}`);
-  }
+  const scroll = await page
+    .waitForFunction(() => {
+      const el = document.querySelector("[data-page='current']");
+      if (!el || el.querySelectorAll(".oc").length < 6) return null;
+      const before = document.scrollingElement.scrollTop;
+      el.scrollTop = 180;
+      const info = {
+        clientHeight: el.clientHeight,
+        scrollHeight: el.scrollHeight,
+        scrollTop: el.scrollTop,
+        bodyScroll: document.scrollingElement.scrollTop,
+        bodyBefore: before,
+        overflowY: getComputedStyle(el).overflowY,
+      };
+      if (info.clientHeight < 80) return null;
+      if (info.overflowY !== "auto" && info.overflowY !== "scroll") return null;
+      if (info.scrollHeight <= info.clientHeight + 8 || info.scrollTop < 40) return null;
+      return info;
+    })
+    .then((handle) => handle.jsonValue());
 
   const dayBefore = await page.locator('[data-testid="trip-content"]').getAttribute("data-active-day");
   const restBefore = await trackX(page);
@@ -519,8 +536,9 @@ async function runSuite(browserType, baseUrl, label) {
   if (Math.abs(vertical.matrix - restBefore) > 4) {
     throw new Error(`${label}: vertikaler Zug hat die Seite verschoben (${vertical.matrix})`);
   }
-  if ((await page.locator('[data-testid="trip-content"]').getAttribute("data-active-day")) !== dayBefore) {
-    throw new Error(`${label}: vertikaler Zug hat den Tag gewechselt`);
+  const dayAfter = await page.locator('[data-testid="trip-content"]').getAttribute("data-active-day");
+  if (dayAfter !== dayBefore) {
+    throw new Error(`${label}: vertikaler Zug hat den Tag gewechselt (${dayBefore} -> ${dayAfter})`);
   }
 
   const follow = await touchDrag(page, "[data-testid='trip-content']", -70, 0, "[data-role='day-track']");
@@ -715,6 +733,7 @@ async function runSuite(browserType, baseUrl, label) {
     { timeout: 15_000 }
   );
 
+  await waitForTripSettled(page);
   const tripIcon = await svgBox(page, ".screen--trip .trip-header .link-btn--back svg");
   const mapHit = await page.locator('[data-action="map"]').evaluate((el) => {
     const r = el.getBoundingClientRect();
