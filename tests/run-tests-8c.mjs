@@ -171,6 +171,33 @@ async function waitForChipSettled(page, day) {
   );
 }
 
+async function waitForGestureDone(page, day) {
+  await page.evaluate(() => {
+    const row = document.querySelector(".day-chips");
+    if (!row) return;
+    delete row.dataset.idleLeft;
+    delete row.dataset.idleAt;
+  });
+  await page.waitForFunction(
+    (iso) => {
+      const content = document.querySelector('[data-testid="trip-content"]');
+      const row = document.querySelector(".day-chips");
+      if (!content || !row) return false;
+      if (content.dataset.activeDay !== iso) return false;
+      if (content.dataset.gesture === "1") return false;
+      if (row.classList.contains("day-chips--follow")) return false;
+      if (row.dataset.idleLeft == null || Math.abs(Number(row.dataset.idleLeft) - row.scrollLeft) > 0.5) {
+        row.dataset.idleLeft = String(row.scrollLeft);
+        row.dataset.idleAt = String(performance.now());
+        return false;
+      }
+      return performance.now() - Number(row.dataset.idleAt) > 160;
+    },
+    day,
+    { timeout: 8_000 }
+  );
+}
+
 async function readChips(page) {
   return page.evaluate(() => {
     const row = document.querySelector(".day-chips");
@@ -316,7 +343,7 @@ async function runSuite(browserType, baseUrl, label) {
   await page.goto(baseUrl);
   await page.waitForSelector('[data-testid="login-screen"]');
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  if (Number(build) !== 66) throw new Error(`${label}: Build ${build}, erwartet 66`);
+  if (Number(build) !== 67) throw new Error(`${label}: Build ${build}, erwartet 67`);
 
   await page.fill('input[name="email"]', "test@example.com");
   await page.click('form[data-step="email"] button[type="submit"]');
@@ -358,7 +385,7 @@ async function runSuite(browserType, baseUrl, label) {
   if (short.duration >= 200 && short.duration <= 340) {
     throw new Error(`${label}: kurzer Wisch startet die Wechsel-Animation (${short.duration})`);
   }
-  await page.waitForTimeout(420);
+  await waitForGestureDone(page, FROM);
   const afterShort = await readChips(page);
   assertMark({ ...afterShort, elapsed: 0 }, FROM, label, "nach Zurückfedern");
   if (Math.abs(afterShort.scrollLeft - beforeShort.scrollLeft) > 1.5) {
@@ -374,7 +401,7 @@ async function runSuite(browserType, baseUrl, label) {
   );
   const atEnd = await page.evaluate(() => window.__touchSwipe(-170));
   assertMark(atEnd, LAST, label, "Wisch am letzten Tag");
-  await page.waitForTimeout(420);
+  await waitForGestureDone(page, LAST);
   const atEndLater = await readChips(page);
   assertMark({ ...atEndLater, elapsed: 0 }, LAST, label, "letzter Tag danach");
 
@@ -385,7 +412,7 @@ async function runSuite(browserType, baseUrl, label) {
   );
   const atStart = await page.evaluate(() => window.__touchSwipe(170));
   assertMark(atStart, FIRST, label, "Wisch am ersten Tag");
-  await page.waitForTimeout(420);
+  await waitForGestureDone(page, FIRST);
   const atStartLater = await readChips(page);
   assertMark({ ...atStartLater, elapsed: 0 }, FIRST, label, "erster Tag danach");
 
@@ -431,15 +458,27 @@ async function runSuite(browserType, baseUrl, label) {
         requestAnimationFrame(tick);
       };
       const started = performance.now();
+      let stableLeft = null;
+      let stableSince = 0;
       const watch = () => {
         if (finished) return;
         const raw = getComputedStyle(track).transitionDuration.split(",")[0].trim();
         const duration = raw.endsWith("ms") ? parseFloat(raw) : raw.endsWith("s") ? parseFloat(raw) * 1000 : 0;
-        if (duration < 20 && performance.now() - started > 40) {
-          queueMicrotask(() => finish("settled"));
-          return;
+        const follow = row.classList.contains("day-chips--follow");
+        const gesture = document.querySelector('[data-testid="trip-content"]')?.dataset.gesture === "1";
+        const idle = duration < 20 && !follow && !gesture && performance.now() - started > 40;
+        if (idle) {
+          if (stableLeft == null || Math.abs(row.scrollLeft - stableLeft) > 0.5) {
+            stableLeft = row.scrollLeft;
+            stableSince = performance.now();
+          } else if (performance.now() - stableSince > 160) {
+            queueMicrotask(() => finish("settled"));
+            return;
+          }
+        } else {
+          stableLeft = null;
         }
-        if (performance.now() - started > 800) finish("timeout");
+        if (performance.now() - started > 2500) finish("timeout");
         else requestAnimationFrame(watch);
       };
       requestAnimationFrame(watch);
@@ -523,7 +562,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 8c tests OK (Build 66)");
+  console.log("Playwright 8c tests OK (Build 67)");
 }
 
 main().catch((err) => {
