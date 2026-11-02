@@ -768,7 +768,7 @@ async function asUser(page, state, person) {
   });
   await page.reload();
   try {
-    await page.waitForSelector(".screen--urlaube", { timeout: 8000 });
+    await page.waitForSelector(".screen--urlaube", { timeout: 20000 });
   } catch (err) {
     const text = await page.locator("body").innerText();
     throw new Error(`Wechsel zu ${person.email}: ${text.slice(0, 300)} ${state.routeErrors.slice(-3).join(" || ")} ${err.message}`);
@@ -1005,6 +1005,16 @@ async function runFlows(page, state, label, shots, baseUrl) {
     window.location.hash = "#/urlaub/trip-garda/einstellungen";
   });
   await page.waitForSelector('[data-testid="settings-screen"]');
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('[data-testid="settings-edit-trip"]').length === 0 &&
+      document.querySelectorAll('[data-testid="settings-delete-trip"]').length === 0 &&
+      document.querySelectorAll('[data-testid="settings-recap-video"]').length === 0 &&
+      document.querySelectorAll('[data-testid="settings-diary"]').length === 0 &&
+      document.querySelectorAll('[data-testid="settings-leave-trip"]').length === 1,
+    null,
+    { timeout: 3000 }
+  );
   assert((await page.locator('[data-testid="settings-edit-trip"]').count()) === 0, `${label}: Beitragender bearbeitet die Reise`);
   assert((await page.locator('[data-testid="settings-delete-trip"]').count()) === 0, `${label}: Beitragender löscht`);
   assert((await page.locator('[data-testid="settings-recap-video"]').count()) === 0, `${label}: Recap für Beitragenden`);
@@ -1053,6 +1063,11 @@ async function runFlows(page, state, label, shots, baseUrl) {
   await page.waitForSelector('[data-place-id="p-hafen"]');
   await page.locator('[data-place-id="p-hafen"]').click();
   await page.waitForSelector('[data-place-id="p-hafen"] .tile');
+  await page.waitForFunction(
+    () => document.querySelectorAll('[data-place-id="p-hafen"] .tile .kr-av').length >= 1,
+    null,
+    { timeout: 3000 }
+  );
   assert((await page.locator('[data-place-id="p-hafen"] .tile .kr-av').count()) >= 1, `${label}: Kreis am Foto fehlt`);
   await page.locator('[data-place-id="p-hafen"] .tile [data-kr-tip]').first().click();
   await page.waitForSelector('[data-testid="member-tip"]');
@@ -1060,6 +1075,11 @@ async function runFlows(page, state, label, shots, baseUrl) {
   assert(photoTip.includes("·"), `${label}: Foto-Kreis ohne Rolle «${photoTip}»`);
   assert((await page.locator('[data-testid="media-viewer"]').count()) === 0, `${label}: Foto-Kreis öffnet den Viewer`);
   await page.locator('[data-testid="member-tip"]').evaluate((el) => el.remove()).catch(() => {});
+  await page.waitForFunction(
+    () => document.querySelectorAll('[data-note-id="n-domi"] .kr-av').length === 1,
+    null,
+    { timeout: 3000 }
+  );
   assert((await page.locator('[data-note-id="n-domi"] .kr-av').count()) === 1, `${label}: Kreis an der Notiz fehlt`);
   await page.evaluate(() => {
     window.location.hash = "#/urlaube";

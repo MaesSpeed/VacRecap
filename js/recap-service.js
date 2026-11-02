@@ -146,24 +146,60 @@ export async function createVideoDraft(tripId, { version = 1, basedOn = null } =
   return { built, row: mapRow(data) };
 }
 
+async function readRecapRow(id) {
+  const { data, error } = await getSupabase().from("trip_recaps").select("*").eq("id", id).maybeSingle();
+  if (error) {
+    const missed = error.code === "PGRST116" || /0 rows/i.test(error.message || "");
+    if (missed) return null;
+    if (isMissingRecapTable(error)) throw new RecapUnavailableError();
+    throw mapApiError(error);
+  }
+  return data || null;
+}
+
+function assertRecapRow(row) {
+  if (!row || row.deleted_at) throw new Error("Der Entwurf ist nicht mehr da.");
+  return row;
+}
+
+function feedbackEntry(recap, text, userId) {
+  return {
+    at: new Date().toISOString(),
+    by: userId,
+    version: recap.version || 1,
+    text,
+    status: "open",
+  };
+}
+
 export async function appendRecapFeedback(recap, text) {
   const body = String(text || "").trim();
   if (!recap?.id || !body) return recap;
   const userId = await getUserId();
-  const next = [
-    ...(Array.isArray(recap.feedback) ? recap.feedback : []),
-    {
-      at: new Date().toISOString(),
-      by: userId,
-      version: recap.version || 1,
-      text: body,
-      status: "open",
-    },
-  ];
-  const data = await unwrap(
-    getSupabase().from("trip_recaps").update({ feedback: next }).eq("id", recap.id).select("*").single()
-  );
-  return mapRow(data);
+  const entry = feedbackEntry(recap, body, userId);
+  let current = assertRecapRow(await readRecapRow(recap.id));
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const feedback = [...(Array.isArray(current.feedback) ? current.feedback : []), entry];
+    let query = getSupabase().from("trip_recaps").update({ feedback }).eq("id", recap.id);
+    if (current.updated_at) query = query.eq("updated_at", current.updated_at);
+    const { data, error } = await query.select("*");
+    if (error) {
+      const missed = error.code === "PGRST116" || /0 rows/i.test(error.message || "");
+      if (missed && attempt === 0) {
+        current = assertRecapRow(await readRecapRow(recap.id));
+        continue;
+      }
+      if (isMissingRecapTable(error)) throw new RecapUnavailableError();
+      throw mapApiError(error);
+    }
+    const rows = Array.isArray(data) ? data : data ? [data] : [];
+    if (rows.length) return mapRow(rows[0]);
+    if (attempt === 0) {
+      current = assertRecapRow(await readRecapRow(recap.id));
+      continue;
+    }
+  }
+  throw new Error("Das hat nicht geklappt. Bitte nochmal versuchen.");
 }
 
 export async function discardRecapDraft(recapId) {

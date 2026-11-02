@@ -171,7 +171,7 @@ async function recognize(page, text) {
 
 async function runFlows(page, state, label) {
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 65, `${label}: Build ${build}`);
+  assert(Number(build) === 66, `${label}: Build ${build}`);
 
   await openTrip(page);
   await page.click('[data-action="settings"]');
@@ -319,7 +319,9 @@ async function runFlows(page, state, label) {
   await page.evaluate(() => document.querySelector('[data-testid="app-toast"]')?.remove());
   await page.fill('[data-testid="diary-feedback-input"]', "Einleitung kürzer");
   await page.click('[data-testid="diary-feedback-send"]');
-  await page.waitForSelector('[data-testid="app-toast"]');
+  await page.waitForFunction(() =>
+    (document.querySelector('[data-testid="app-toast"]')?.textContent || "").includes("Wunsch gespeichert")
+  );
   assert(draft.feedback?.length === 1 && draft.feedback[0].text === "Einleitung kürzer", `${label}: Feedback`);
   assert(draft.feedback[0].status === "open" && draft.feedback[0].by === USER && draft.feedback[0].version === 1, `${label}: Feedback-Felder`);
 
@@ -439,7 +441,9 @@ async function runFlows(page, state, label) {
   await page.evaluate(() => document.querySelector('[data-testid="app-toast"]')?.remove());
   await page.fill('[data-testid="diary-feedback-input"]', "noch ruhiger");
   await page.click('[data-testid="diary-feedback-send"]');
-  await page.waitForSelector('[data-testid="app-toast"]');
+  await page.waitForFunction(() =>
+    (document.querySelector('[data-testid="app-toast"]')?.textContent || "").includes("Wunsch gespeichert")
+  );
   const editorDraft = draftsOf(state)[0];
   assert(editorDraft?.version === 3, `${label}: Mitbearbeiter-Version ${editorDraft?.version}`);
   assert(editorDraft?.feedback?.some((item) => item.text === "noch ruhiger"), `${label}: Mitbearbeiter ohne Feedback`);
@@ -522,7 +526,7 @@ async function runSuite(browserType, baseUrl, label, viewport) {
     await runFlows(page, state, where);
     const errors = realErrors(pageErrors);
     assert(errors.length === 0, `${where}: ${errors.join(" | ")}`);
-    console.log(`Playwright 12a tests OK (${where}, Build 65)`);
+    console.log(`Playwright 12a tests OK (${where}, Build 66)`);
   } finally {
     await browser.close();
   }
@@ -539,4 +543,4 @@ try {
 } finally {
   await new Promise((resolve) => server.close(resolve));
 }
-console.log("Playwright 12a tagebuch tests OK (Build 65)");
+console.log("Playwright 12a tagebuch tests OK (Build 66)");

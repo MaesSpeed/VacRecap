@@ -191,16 +191,47 @@ async function installSupabaseMocks(page, state) {
   await page.route("**/tile.openstreetmap.org/**", (route) => route.abort());
 }
 
-function boxOf(rect) {
-  return { x: rect.x, y: rect.y, w: rect.width, h: rect.height };
+async function svgBox(page, selector) {
+  const handle = await page.waitForFunction(
+    async (sel) => {
+      const read = () => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        if (r.width <= 8 || r.height <= 8 || r.x <= 4) return null;
+        return { x: r.x, y: r.y, w: r.width, h: r.height };
+      };
+      const first = read();
+      if (!first) return null;
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const second = read();
+      if (!second) return null;
+      for (const key of ["x", "y", "w", "h"]) {
+        if (Math.abs(first[key] - second[key]) > 0.5) return null;
+      }
+      return second;
+    },
+    selector,
+    { timeout: 15_000 }
+  );
+  return handle.jsonValue();
 }
 
-async function svgBox(page, selector) {
-  const box = await page.locator(selector).evaluate((el) => {
-    const r = el.getBoundingClientRect();
-    return { x: r.x, y: r.y, w: r.width, h: r.height };
-  });
-  return boxOf(box);
+async function waitForTripSettled(page) {
+  await page.waitForFunction(() => {
+    const header = document.querySelector(".screen--trip .trip-header");
+    const content = document.querySelector('[data-testid="trip-content"]');
+    const day = content?.getAttribute("data-active-day");
+    if (!header || !day) return null;
+    const stamp = `${day}|${document.querySelectorAll(".screen--trip .oc").length}`;
+    const now = performance.now();
+    const prev = window.__tripSettle;
+    if (!prev || prev.header !== header || prev.stamp !== stamp) {
+      window.__tripSettle = { header, stamp, since: now };
+      return null;
+    }
+    return now - prev.since >= 300 ? stamp : null;
+  }, null, { timeout: 20_000 });
 }
 
 async function trackX(page) {
@@ -316,7 +347,7 @@ async function runSuite(browserType, baseUrl, label) {
     throw new Error(`${label}: noteToRow setzt waypoint_id nicht auf null`);
   }
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  if (Number(build) !== 65) throw new Error(`${label}: Build ${build}, erwartet 65`);
+  if (Number(build) !== 66) throw new Error(`${label}: Build ${build}, erwartet 66`);
 
   await page.fill('input[name="email"]', LONG_EMAIL);
   const emailOverflow = await page.evaluate(() => {
@@ -443,25 +474,26 @@ async function runSuite(browserType, baseUrl, label) {
     },
     { placeId }
   );
-  await page.waitForSelector('[data-action="expand-notes"]');
-  await page.waitForSelector(".oc--selected [data-action='add-note']");
-
-  const noteStyles = await page.evaluate(() => {
-    const add = document.querySelector(".oc--selected [data-action='add-note']");
-    const more = document.querySelector(".oc--selected [data-action='expand-notes']");
-    const a = getComputedStyle(add);
-    const m = getComputedStyle(more);
-    return {
-      addClass: add.className,
-      moreClass: more.className,
-      addBorder: parseFloat(a.borderTopWidth),
-      moreBorder: parseFloat(m.borderTopWidth),
-      addBg: a.backgroundColor,
-      moreBg: m.backgroundColor,
-      addRadius: a.borderRadius,
-      moreRadius: m.borderRadius,
-    };
-  });
+  await waitForTripSettled(page);
+  const noteStyles = await page
+    .waitForFunction(() => {
+      const add = document.querySelector(".oc--selected [data-action='add-note']");
+      const more = document.querySelector(".oc--selected [data-action='expand-notes']");
+      if (!add || !more) return null;
+      const a = getComputedStyle(add);
+      const m = getComputedStyle(more);
+      return {
+        addClass: add.className,
+        moreClass: more.className,
+        addBorder: parseFloat(a.borderTopWidth),
+        moreBorder: parseFloat(m.borderTopWidth),
+        addBg: a.backgroundColor,
+        moreBg: m.backgroundColor,
+        addRadius: a.borderRadius,
+        moreRadius: m.borderRadius,
+      };
+    })
+    .then((handle) => handle.jsonValue());
   if (noteStyles.addClass === noteStyles.moreClass) {
     throw new Error(`${label}: + Notiz und +N weitere teilen sich die Klasse`);
   }
@@ -472,27 +504,26 @@ async function runSuite(browserType, baseUrl, label) {
     throw new Error(`${label}: + Notiz ohne eigene Form`);
   }
 
-  const scroll = await page.locator("[data-page='current']").evaluate((el) => {
-    const before = document.scrollingElement.scrollTop;
-    el.scrollTop = 180;
-    return {
-      clientHeight: el.clientHeight,
-      scrollHeight: el.scrollHeight,
-      scrollTop: el.scrollTop,
-      bodyScroll: document.scrollingElement.scrollTop,
-      bodyBefore: before,
-      overflowY: getComputedStyle(el).overflowY,
-    };
-  });
-  if (scroll.clientHeight < 80) {
-    throw new Error(`${label}: Tagesseite ohne Höhe ${JSON.stringify(scroll)}`);
-  }
-  if (scroll.overflowY !== "auto" && scroll.overflowY !== "scroll") {
-    throw new Error(`${label}: vertikales Scrollen nicht auf der Seite ${scroll.overflowY}`);
-  }
-  if (scroll.scrollHeight <= scroll.clientHeight + 8 || scroll.scrollTop < 40) {
-    throw new Error(`${label}: Liste scrollt nicht intern ${JSON.stringify(scroll)}`);
-  }
+  const scroll = await page
+    .waitForFunction(() => {
+      const el = document.querySelector("[data-page='current']");
+      if (!el || el.querySelectorAll(".oc").length < 6) return null;
+      const before = document.scrollingElement.scrollTop;
+      el.scrollTop = 180;
+      const info = {
+        clientHeight: el.clientHeight,
+        scrollHeight: el.scrollHeight,
+        scrollTop: el.scrollTop,
+        bodyScroll: document.scrollingElement.scrollTop,
+        bodyBefore: before,
+        overflowY: getComputedStyle(el).overflowY,
+      };
+      if (info.clientHeight < 80) return null;
+      if (info.overflowY !== "auto" && info.overflowY !== "scroll") return null;
+      if (info.scrollHeight <= info.clientHeight + 8 || info.scrollTop < 40) return null;
+      return info;
+    })
+    .then((handle) => handle.jsonValue());
 
   const dayBefore = await page.locator('[data-testid="trip-content"]').getAttribute("data-active-day");
   const restBefore = await trackX(page);
@@ -505,8 +536,9 @@ async function runSuite(browserType, baseUrl, label) {
   if (Math.abs(vertical.matrix - restBefore) > 4) {
     throw new Error(`${label}: vertikaler Zug hat die Seite verschoben (${vertical.matrix})`);
   }
-  if ((await page.locator('[data-testid="trip-content"]').getAttribute("data-active-day")) !== dayBefore) {
-    throw new Error(`${label}: vertikaler Zug hat den Tag gewechselt`);
+  const dayAfter = await page.locator('[data-testid="trip-content"]').getAttribute("data-active-day");
+  if (dayAfter !== dayBefore) {
+    throw new Error(`${label}: vertikaler Zug hat den Tag gewechselt (${dayBefore} -> ${dayAfter})`);
   }
 
   const follow = await touchDrag(page, "[data-testid='trip-content']", -70, 0, "[data-role='day-track']");
@@ -701,7 +733,8 @@ async function runSuite(browserType, baseUrl, label) {
     { timeout: 15_000 }
   );
 
-  const tripIcon = await svgBox(page, ".trip-header .link-btn--back svg");
+  await waitForTripSettled(page);
+  const tripIcon = await svgBox(page, ".screen--trip .trip-header .link-btn--back svg");
   const mapHit = await page.locator('[data-action="map"]').evaluate((el) => {
     const r = el.getBoundingClientRect();
     const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
@@ -847,7 +880,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 8a tests OK (Build 65)");
+  console.log("Playwright 8a tests OK (Build 66)");
 }
 
 main().catch((err) => {

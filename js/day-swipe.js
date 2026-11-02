@@ -244,6 +244,7 @@ export function installDaySwipe(root, onShift, hooks = {}) {
       track.style.transition = "none";
       track.style.transform = REST;
       onShift(dir);
+      hooks.onRest?.();
       return;
     }
     root.dataset.swipeLock = "1";

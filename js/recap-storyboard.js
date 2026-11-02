@@ -10,6 +10,14 @@ function byTimeThenId(a, b, time) {
   return String(a.id).localeCompare(String(b.id));
 }
 
+/** Fotos, die ins Recap-Material eingehen: hochgeladen, kein Video. */
+export function countMaterialPhotos(photos) {
+  return (photos || []).filter((photo) => {
+    if (!photo?.id || photo.type === "video") return false;
+    return (photo.uploadStatus || "uploaded") === "uploaded";
+  }).length;
+}
+
 /**
  * Baut den Video-Entwurf aus Orten, Fotos und Notizen.
  * places: { id, day, name, ts, soft }

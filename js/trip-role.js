@@ -40,7 +40,7 @@ function failRole(tripId) {
     roleLoadFailed.delete(tripId);
     return { role, confirmed: true };
   }
-  roleCache.set(tripId, "owner");
+  roleCache.delete(tripId);
   roleLoadFailed.add(tripId);
   return { role: "owner", confirmed: false };
 }

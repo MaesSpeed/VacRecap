@@ -63,3 +63,8 @@ create policy trip_recaps_delete on public.trip_recaps for delete to authenticat
 
 -- Rückweg (falls nötig):
 -- drop table if exists public.trip_recaps;
+
+-- Rechte (Stand live, Migration paket_12_trip_recaps_revoke_extra; nur Doku)
+revoke all on public.trip_recaps from anon;
+revoke truncate, references, trigger on public.trip_recaps from authenticated;
+grant select, insert, update, delete on public.trip_recaps to authenticated;

@@ -220,7 +220,7 @@ body {
 
 .card--compact {
   display: grid;
-  grid-template-columns: 66px minmax(0, 1fr) 20px;
+  grid-template-columns: 66px minmax(0, 1fr);
   gap: 12px;
   align-items: center;
   min-height: 89px;
@@ -2154,14 +2154,14 @@ body {
 
 .qa {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   margin-left: auto;
   flex-shrink: 0;
 }
 
 .qa__btn {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   border: 1px solid #c5e4f6;
   background: #eaf4fb;
@@ -4079,6 +4079,12 @@ body {
   cursor: pointer;
 }
 
+.notes-add:has(.credits-list__thumb) {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .free-notes {
   margin: 4px 14px 12px;
   background: #fff;
@@ -5043,6 +5049,10 @@ body:has(.screen--trip-swipe) {
   line-height: 1.35;
 }
 
+.sheet--add-place [data-testid="add-place-parts"] {
+  margin-top: 14px;
+}
+
 .pick-groups {
   display: flex;
   flex-direction: column;
@@ -5183,12 +5193,29 @@ body:has(.screen--trip-swipe) {
   flex: 1;
   min-height: 52px;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  justify-content: center;
-  gap: 0;
+  justify-content: flex-start;
+  gap: 8px;
+  text-align: left;
   line-height: 1.15;
-  padding: 8px 6px;
+  padding: 8px 10px;
+  background: #fff;
+  color: var(--emaille);
+  border: none;
+  box-shadow: none;
+}
+
+.recap-banner__btn-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.recap-banner__btn-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
 }
 
 .recap-banner__btn-title {

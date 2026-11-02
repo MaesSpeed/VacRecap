@@ -1,7 +1,7 @@
 import { normalizePresetId, presetUrl } from "./covers.js";
 import { bindCoverImage, coverStatusLabel, resolveVacationCover } from "./cover-sources.js";
 import { deleteBlob, fetchUploadedPhotosForTrip, getPlacesForVacation, getVacation, putVacation } from "./db.js";
-import { navigate } from "./router.js";
+import { getRoute, navigate } from "./router.js";
 import { clearTripUiState } from "./ui-urlaub-detail.js";
 import { CloudNetworkError, CloudOfflineError } from "./cloud-errors.js";
 import { showToast, showWarnToast } from "./toast.js";
@@ -153,7 +153,13 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
     : () => {};
   appEl._screenCleanup = () => {
     stopPresence();
-    shareApi?.commitInput?.();
+    const next = getRoute();
+    const staying =
+      next.name === "urlaub-form" &&
+      next.mode === (isEdit ? "edit" : "create") &&
+      (next.id || "") === (isEdit ? vacation.id : "");
+    if (staying) shareApi?.commitInput?.();
+    else shareApi?.clearDrafts?.();
   };
 
   function paintCover() {
@@ -205,6 +211,7 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
   paintCover();
 
   appEl.querySelector('[data-action="cancel"]').addEventListener("click", () => {
+    shareApi?.clearDrafts?.();
     const raw = sessionStorage.getItem("vacrecap-form-return");
     sessionStorage.removeItem("vacrecap-form-return");
     if (raw) {
@@ -494,6 +501,7 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
     delete appEl.dataset.formSaving;
     if (stayForShare) return;
 
+    shareApi?.clearDrafts?.();
     sessionStorage.removeItem("vacrecap-form-return");
     const headline = isEdit ? `«${title}» gespeichert` : `Reise «${title}» angelegt`;
     if (saved?.companionsUnavailable) {

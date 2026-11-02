@@ -72,6 +72,12 @@ export function bindShareField(root, { tripId, myUserId }) {
     else draftStore.delete(tripId);
   }
 
+  function clearDrafts() {
+    drafts = [];
+    if (tripId) draftStore.delete(tripId);
+    if (chipsEl?.isConnected) paint();
+  }
+
   function paint() {
     remember();
     chipsEl.innerHTML = drafts
@@ -306,6 +312,7 @@ export function bindShareField(root, { tripId, myUserId }) {
   void refresh();
 
   return {
+    clearDrafts,
     commitInput,
     pendingInvites() {
       commitInput();

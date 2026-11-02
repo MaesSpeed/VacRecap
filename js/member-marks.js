@@ -135,6 +135,7 @@ export function bindCircleTips(root) {
   root.addEventListener("click", (event) => {
     const circle = event.target.closest("[data-kr-tip]");
     if (!circle || !root.contains(circle)) return;
+    if (root.dataset.photoSelect === "1") return;
     event.preventDefault();
     event.stopPropagation();
     showCircleTip(circle);

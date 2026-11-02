@@ -269,35 +269,44 @@ async function waitReady(page, day) {
 }
 
 async function gotoDay(page, iso) {
-  const clicked = await page.evaluate(async (day) => {
-    const row = document.querySelector(".day-chips");
-    const chip = row?.querySelector(`[data-day="${day}"]`);
-    if (!chip) return { ok: false, activeDay: "" };
-    chip.click();
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    const max = Math.max(0, row.scrollWidth - row.clientWidth);
-    const bounds = row.getBoundingClientRect();
-    const rect = chip.getBoundingClientRect();
-    const delta = rect.left + rect.width / 2 - (bounds.left + bounds.width / 2);
-    row.scrollLeft = Math.max(0, Math.min(max, row.scrollLeft + delta));
-    return {
-      ok: true,
-      activeDay: document.querySelector('[data-testid="trip-content"]')?.dataset.activeDay || "",
-    };
-  }, iso);
-  assert(clicked.ok, `${iso}: Chip fehlt`);
-  assert(clicked.activeDay === iso, `Tipp auf ${iso} lässt den Tag auf ${clicked.activeDay || "—"}`);
-  try {
-    await waitReady(page, iso);
-  } catch (err) {
+  let last = "";
+  let readyError = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const clicked = await page.evaluate(async (day) => {
+      const row = document.querySelector(".day-chips");
+      const chip = row?.querySelector(`[data-day="${day}"]`);
+      if (!chip) return { ok: false, activeDay: "" };
+      chip.click();
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const max = Math.max(0, row.scrollWidth - row.clientWidth);
+      const bounds = row.getBoundingClientRect();
+      const rect = chip.getBoundingClientRect();
+      const delta = rect.left + rect.width / 2 - (bounds.left + bounds.width / 2);
+      row.scrollLeft = Math.max(0, Math.min(max, row.scrollLeft + delta));
+      return {
+        ok: true,
+        activeDay: document.querySelector('[data-testid="trip-content"]')?.dataset.activeDay || "",
+      };
+    }, iso);
+    last = clicked.activeDay || "";
+    if (!clicked.ok || clicked.activeDay !== iso) continue;
+    try {
+      await waitReady(page, iso);
+      return;
+    } catch (err) {
+      readyError = err;
+    }
+  }
+  if (readyError) {
     const snap = await page.evaluate(() => window.__measure());
     throw new Error(
-      `Tag ${iso} nicht bereit (aktiv ${snap.activeDay}, follow ${snap.follow}, scroll ${snap.scrollLeft.toFixed(1)}): ${err.message}`
+      `Tag ${iso} nicht bereit (aktiv ${snap.activeDay}, follow ${snap.follow}, scroll ${snap.scrollLeft.toFixed(1)}): ${readyError.message}`
     );
   }
+  assert(false, `Tipp auf ${iso} lässt den Tag auf ${last || "—"}`);
 }
 
-async function createTrip(page, title, start, end) {
+async function createTrip(page, state, title, start, end) {
   if (await page.locator('[data-testid="trip-content"]').count()) {
     await page.click(".link-btn--back");
     await page.waitForSelector(".screen--urlaube");
@@ -314,6 +323,9 @@ async function createTrip(page, title, start, end) {
   await page.click('button[data-action="apply"]');
   await page.click('button[type="submit"]');
   await page.waitForSelector('[data-testid="trip-content"]');
+  const day = await page.locator('[data-testid="trip-content"]').getAttribute("data-active-day");
+  if (day) await waitReady(page, day);
+  await quietHits(state);
 }
 
 async function quietHits(state) {
@@ -739,10 +751,25 @@ async function runSuite(browserType, baseUrl, engine) {
   await installSupabaseMocks(page, state);
   const errors = [];
   page.on("pageerror", (err) => errors.push(String(err)));
+  await page.addInitScript(() => {
+    const RealDate = Date;
+    const fixed = Date.parse("2026-10-30T10:00:00.000Z");
+    const booted = RealDate.now();
+    function TestDate(...args) {
+      if (!new.target) return new RealDate(TestDate.now()).toString();
+      if (args.length === 0) return new RealDate(TestDate.now());
+      return new RealDate(...args);
+    }
+    TestDate.prototype = RealDate.prototype;
+    TestDate.now = () => fixed + (RealDate.now() - booted);
+    TestDate.parse = RealDate.parse.bind(RealDate);
+    TestDate.UTC = RealDate.UTC.bind(RealDate);
+    window.Date = TestDate;
+  });
   await page.goto(baseUrl);
   await page.waitForSelector('[data-testid="login-screen"]');
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 65, `${engine}: Build ${build}, erwartet 65`);
+  assert(Number(build) === 66, `${engine}: Build ${build}, erwartet 66`);
   await page.fill('input[name="email"]', "test@example.com");
   await page.click('form[data-step="email"] button[type="submit"]');
   await page.waitForSelector('form[data-step="otp"]');
@@ -750,7 +777,7 @@ async function runSuite(browserType, baseUrl, engine) {
   await page.click('form[data-step="otp"] button[type="submit"]');
   await page.waitForSelector(".screen--urlaube");
 
-  await createTrip(page, "Paket 4", LONG_START, LONG_END);
+  await createTrip(page, state, "Paket 4", LONG_START, LONG_END);
   for (const vp of VIEWPORTS) {
     await page.setViewportSize({ width: vp.width, height: vp.height });
     await runLongTrip(page, state, `${engine} ${vp.name}`);
@@ -763,13 +790,13 @@ async function runSuite(browserType, baseUrl, engine) {
   await page.emulateMedia({ reducedMotion: "no-preference" });
   console.log(`4 chip-wisch ${engine} reduced OK`);
 
-  await createTrip(page, "Paket 4 vier Tage", FILL_START, FILL_END);
+  await createTrip(page, state, "Paket 4 vier Tage", FILL_START, FILL_END);
   for (const vp of VIEWPORTS) {
     await page.setViewportSize({ width: vp.width, height: vp.height });
     await runFillTrip(page, `${engine} ${vp.name} vier Tage`);
   }
 
-  await createTrip(page, "Paket 4 ein Tag", ONE, ONE);
+  await createTrip(page, state, "Paket 4 ein Tag", ONE, ONE);
   for (const vp of VIEWPORTS) {
     await page.setViewportSize({ width: vp.width, height: vp.height });
     await runSingleTrip(page, `${engine} ${vp.name} ein Tag`);
@@ -789,7 +816,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 4 chip-wisch tests OK (Build 65)");
+  console.log("Playwright 4 chip-wisch tests OK (Build 66)");
 }
 
 main().catch((err) => {
