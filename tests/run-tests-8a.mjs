@@ -191,16 +191,30 @@ async function installSupabaseMocks(page, state) {
   await page.route("**/tile.openstreetmap.org/**", (route) => route.abort());
 }
 
-function boxOf(rect) {
-  return { x: rect.x, y: rect.y, w: rect.width, h: rect.height };
-}
-
 async function svgBox(page, selector) {
-  const box = await page.locator(selector).evaluate((el) => {
-    const r = el.getBoundingClientRect();
-    return { x: r.x, y: r.y, w: r.width, h: r.height };
-  });
-  return boxOf(box);
+  const handle = await page.waitForFunction(
+    async (sel) => {
+      const read = () => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        if (r.width <= 8 || r.height <= 8 || r.x <= 4) return null;
+        return { x: r.x, y: r.y, w: r.width, h: r.height };
+      };
+      const first = read();
+      if (!first) return null;
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const second = read();
+      if (!second) return null;
+      for (const key of ["x", "y", "w", "h"]) {
+        if (Math.abs(first[key] - second[key]) > 0.5) return null;
+      }
+      return second;
+    },
+    selector,
+    { timeout: 15_000 }
+  );
+  return handle.jsonValue();
 }
 
 async function trackX(page) {
@@ -443,25 +457,25 @@ async function runSuite(browserType, baseUrl, label) {
     },
     { placeId }
   );
-  await page.waitForSelector('[data-action="expand-notes"]');
-  await page.waitForSelector(".oc--selected [data-action='add-note']");
-
-  const noteStyles = await page.evaluate(() => {
-    const add = document.querySelector(".oc--selected [data-action='add-note']");
-    const more = document.querySelector(".oc--selected [data-action='expand-notes']");
-    const a = getComputedStyle(add);
-    const m = getComputedStyle(more);
-    return {
-      addClass: add.className,
-      moreClass: more.className,
-      addBorder: parseFloat(a.borderTopWidth),
-      moreBorder: parseFloat(m.borderTopWidth),
-      addBg: a.backgroundColor,
-      moreBg: m.backgroundColor,
-      addRadius: a.borderRadius,
-      moreRadius: m.borderRadius,
-    };
-  });
+  const noteStyles = await page
+    .waitForFunction(() => {
+      const add = document.querySelector(".oc--selected [data-action='add-note']");
+      const more = document.querySelector(".oc--selected [data-action='expand-notes']");
+      if (!add || !more) return null;
+      const a = getComputedStyle(add);
+      const m = getComputedStyle(more);
+      return {
+        addClass: add.className,
+        moreClass: more.className,
+        addBorder: parseFloat(a.borderTopWidth),
+        moreBorder: parseFloat(m.borderTopWidth),
+        addBg: a.backgroundColor,
+        moreBg: m.backgroundColor,
+        addRadius: a.borderRadius,
+        moreRadius: m.borderRadius,
+      };
+    })
+    .then((handle) => handle.jsonValue());
   if (noteStyles.addClass === noteStyles.moreClass) {
     throw new Error(`${label}: + Notiz und +N weitere teilen sich die Klasse`);
   }
@@ -701,11 +715,7 @@ async function runSuite(browserType, baseUrl, label) {
     { timeout: 15_000 }
   );
 
-  await page.waitForFunction(() => {
-    const box = document.querySelector(".trip-header .link-btn--back svg")?.getBoundingClientRect();
-    return box && box.width > 8 && box.x > 4;
-  });
-  const tripIcon = await svgBox(page, ".trip-header .link-btn--back svg");
+  const tripIcon = await svgBox(page, ".screen--trip .trip-header .link-btn--back svg");
   const mapHit = await page.locator('[data-action="map"]').evaluate((el) => {
     const r = el.getBoundingClientRect();
     const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
