@@ -270,7 +270,7 @@ export function openCoverSheet({ vacation, photos = [], places = [], allowDevice
           place,
           vacationId: vacation.id,
           day: place?.day || place?.dayDate || day,
-          ts: processed.takenAt ?? Date.now(),
+          ts: processed.takenAt ?? null,
           originalBlob: processed.blob,
           thumbBlob: processed.thumbBlob,
           width: processed.w,

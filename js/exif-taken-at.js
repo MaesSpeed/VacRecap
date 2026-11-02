@@ -108,9 +108,10 @@ export function parseExifTiff(view, tiffStart) {
         walk(view.getUint32(entry + 8, le), depth + 1);
         continue;
       }
-      if (tag === 0x9003 && type === 2 && comp >= 10 && found.takenAt == null) {
+      if ((tag === 0x9003 || tag === 0x9004 || tag === 0x0132) && type === 2 && comp >= 10) {
         const pos = dataOffset(view, tiffStart, entry, type, comp, le);
-        if (pos != null) found.takenAt = parseExifDateTime(readAscii(view, pos, Math.min(comp, 32)));
+        const parsed = pos == null ? null : parseExifDateTime(readAscii(view, pos, Math.min(comp, 32)));
+        if (parsed != null && (found.takenAt == null || tag === 0x9003)) found.takenAt = parsed;
       }
       if (tag === 0x0001 && type === 2) {
         const pos = dataOffset(view, tiffStart, entry, type, comp, le);

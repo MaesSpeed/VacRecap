@@ -1,3 +1,4 @@
+import { exifOnPlaceDay, placeTsForCapture } from "./capture-time.js";
 import { deletePlace, getMediaForPlace, getNotesForPlace, getPlace, getPlacesForDay, putPlace, updateMediaRow } from "./db.js";
 import {
   coordinatesAreUsable,
@@ -7,7 +8,7 @@ import {
   isLocationUnavailable,
   reverseGeocodeName,
 } from "./geo.js";
-import { updatePlaceName } from "./place-service.js";
+import { pullPlaceTimeEarlier, updatePlaceDetails, updatePlaceName } from "./place-service.js";
 import {
   distanceFitsPlace,
   formatApproxMeters,
@@ -320,10 +321,18 @@ export async function resolvePhotoCaptureTarget({
   vacationId,
   day,
   selectedPlaceId,
-  takenAt = Date.now(),
+  takenAt = null,
   mediaKind = "photo",
 }) {
   const captureDay = resolveCaptureDay(takenAt, day, vacation);
+  async function withPhotoTime(place) {
+    if (!place || !exifOnPlaceDay(takenAt, place.day || place.dayDate || captureDay)) return place;
+    try {
+      return (await pullPlaceTimeEarlier(place, takenAt)) || place;
+    } catch {
+      return place;
+    }
+  }
   const radiusM = await getSamePlaceRadiusM();
   const all = await getPlacesForDay(vacationId, captureDay);
   const hard = all.filter((p) => !p.soft);
@@ -348,6 +357,18 @@ export async function resolvePhotoCaptureTarget({
       day: captureDay,
       selectedPlaceId: selectedOnCaptureDay?.id || (captureDay === day ? selectedPlaceId : null),
     });
+    if (fb.createdOhneOrt) {
+      const ts = placeTsForCapture(captureDay, takenAt, []);
+      if (ts !== fb.place.ts) {
+        try {
+          fb.place = await updatePlaceDetails(fb.place, { name: fb.place.name, ts });
+        } catch {
+          /* Ohne Ort bleibt mit der Tageszeit. */
+        }
+      }
+    } else {
+      fb.place = await withPhotoTime(fb.place);
+    }
     return {
       place: fb.place,
       day: captureDay,
@@ -368,8 +389,9 @@ export async function resolvePhotoCaptureTarget({
   if (selectedOnCaptureDay?.lat != null && selectedOnCaptureDay?.lng != null) {
     const distanceM = haversineMeters(lat, lng, selectedOnCaptureDay.lat, selectedOnCaptureDay.lng);
     if (distanceFitsPlace(distanceM, radiusM, accuracy)) {
+      const place = await withPhotoTime(normalizePlace(selectedOnCaptureDay));
       return {
-        place: normalizePlace(selectedOnCaptureDay),
+        place,
         day: captureDay,
         createdOhneOrt: false,
         createdNew: false,
@@ -388,8 +410,9 @@ export async function resolvePhotoCaptureTarget({
 
   const near = nearestPlaceWithin(hard, lat, lng, radiusM, selectedOnCaptureDay?.id);
   if (near) {
+    const place = await withPhotoTime(normalizePlace(near.place));
     return {
-      place: normalizePlace(near.place),
+      place,
       day: captureDay,
       createdOhneOrt: false,
       createdNew: false,
@@ -418,7 +441,7 @@ export async function resolvePhotoCaptureTarget({
     lat,
     lng,
     accuracy,
-    ts: takenAt || Date.now(),
+    ts: placeTsForCapture(captureDay, takenAt, hard),
   });
   const line = distanceM != null ? `${formatApproxMeters(distanceM)} entfernt` : "aus dem Foto-Standort";
   return {
@@ -454,7 +477,7 @@ export async function resolvePlaceCardCaptureTarget({
   vacationId,
   day,
   placeId,
-  takenAt = Date.now(),
+  takenAt = null,
   mediaKind = "photo",
 }) {
   const all = await getPlacesForDay(vacationId, day);

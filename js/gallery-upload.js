@@ -4,6 +4,8 @@ import { getPlacesForDay, putPlace } from "./db.js";
 import { createPlace } from "./places.js";
 import { readPhotoExif } from "./exif-taken-at.js";
 import { reverseGeocodeName } from "./geo.js";
+import { placeTsForCapture } from "./capture-time.js";
+import { pullPlaceTimeEarlier } from "./place-service.js";
 import { planPhotoGroups, resolveCaptureDay } from "./photo-assign.js";
 import { createCapturePlace, getOrCreateOhneOrtPlace, resolveGalleryPhotoTarget } from "./target-place.js";
 import { getSamePlaceRadiusM } from "./settings-store.js";
@@ -79,15 +81,26 @@ async function materializeGroups(groups, vacationId) {
   const freshIds = [];
   let createdOhne = false;
   for (const group of groups) {
-    if (group.kind === "place" && group.place) continue;
+    if (group.kind === "place" && group.place) {
+      if (group.ts != null) {
+        try {
+          group.place = (await pullPlaceTimeEarlier(group.place, group.ts)) || group.place;
+        } catch {
+          /* Foto bleibt am Ort. */
+        }
+      }
+      continue;
+    }
     if (group.kind === "new") {
+      const known = await getPlacesForDay(vacationId, group.day);
+      const ts = placeTsForCapture(group.day, group.ts, known);
       const named = group.name && !group.name.startsWith("Ort ");
       if (named) {
         group.place = await putPlace(
           createPlace({
             vacationId,
             day: group.day,
-            ts: group.ts || Date.now(),
+            ts,
             lat: group.lat,
             lng: group.lng,
             name: group.name,
@@ -101,7 +114,7 @@ async function materializeGroups(groups, vacationId) {
           day: group.day,
           lat: group.lat,
           lng: group.lng,
-          ts: group.ts || Date.now(),
+          ts,
         });
         group.place = created.place;
         group.name = created.place.name;

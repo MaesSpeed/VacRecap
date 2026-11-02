@@ -318,6 +318,82 @@ async function runSuite(browserType, baseUrl, label) {
       fire("end", x0 + dx, y0);
       return { elapsed: performance.now() - t0, ...window.__chipSnap() };
     };
+
+    window.__touchSwipeSlow = async (dx) => {
+      const el = document.querySelector('[data-testid="trip-content"]');
+      const r = el.getBoundingClientRect();
+      const x0 = r.left + Math.min(r.width / 2, 180);
+      const y0 = r.top + Math.min(120, Math.max(24, r.height / 2));
+      const pause = () => new Promise((resolve) => setTimeout(resolve, 40));
+      let modern = true;
+      try {
+        new Touch({
+          identifier: 1,
+          target: el,
+          clientX: 0,
+          clientY: 0,
+          pageX: 0,
+          pageY: 0,
+          radiusX: 1,
+          radiusY: 1,
+          rotationAngle: 0,
+          force: 0.5,
+        });
+      } catch {
+        modern = false;
+      }
+      const fire = (phase, x, y) => {
+        const type = phase === "start" ? "touchstart" : phase === "move" ? "touchmove" : "touchend";
+        if (modern) {
+          const touch = new Touch({
+            identifier: 1,
+            target: el,
+            clientX: x,
+            clientY: y,
+            pageX: x,
+            pageY: y,
+            radiusX: 2,
+            radiusY: 2,
+            rotationAngle: 0,
+            force: 0.5,
+          });
+          const list = phase === "end" ? [] : [touch];
+          el.dispatchEvent(
+            new TouchEvent(type, {
+              bubbles: true,
+              cancelable: true,
+              touches: list,
+              targetTouches: list,
+              changedTouches: [touch],
+            })
+          );
+          return;
+        }
+        const touch = document.createTouch(window, el, 1, x + window.scrollX, y + window.scrollY, x, y);
+        const list = document.createTouchList(touch);
+        const empty = document.createTouchList();
+        el.dispatchEvent(
+          new TouchEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            touches: phase === "end" ? empty : list,
+            targetTouches: phase === "end" ? empty : list,
+            changedTouches: list,
+          })
+        );
+      };
+      fire("start", x0, y0);
+      const steps = 6;
+      for (let i = 1; i <= steps; i++) {
+        await pause();
+        fire("move", x0 + (dx * i) / steps, y0);
+      }
+      await pause();
+      const t0 = performance.now();
+      fire("end", x0 + dx, y0);
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      return { elapsed: performance.now() - t0, ...window.__chipSnap() };
+    };
   });
 
   const state = createMockSupabaseState();
@@ -343,7 +419,7 @@ async function runSuite(browserType, baseUrl, label) {
   await page.goto(baseUrl);
   await page.waitForSelector('[data-testid="login-screen"]');
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  if (Number(build) !== 67) throw new Error(`${label}: Build ${build}, erwartet 67`);
+  if (Number(build) !== 68) throw new Error(`${label}: Build ${build}, erwartet 68`);
 
   await page.fill('input[name="email"]', "test@example.com");
   await page.click('form[data-step="email"] button[type="submit"]');
@@ -380,12 +456,13 @@ async function runSuite(browserType, baseUrl, label) {
   assertMark({ ...tapped, elapsed: 0 }, FROM, label, "Tipp");
 
   const beforeShort = await readChips(page);
-  const short = await page.evaluate(() => window.__touchSwipe(-40));
-  assertMark(short, FROM, label, "kurzer Wisch");
+  const short = await page.evaluate(() => window.__touchSwipeSlow(-40));
   if (short.duration >= 200 && short.duration <= 340) {
     throw new Error(`${label}: kurzer Wisch startet die Wechsel-Animation (${short.duration})`);
   }
   await waitForGestureDone(page, FROM);
+  const settledShort = await readChips(page);
+  assertMark({ ...settledShort, elapsed: 0 }, FROM, label, "kurzer Wisch");
   const afterShort = await readChips(page);
   assertMark({ ...afterShort, elapsed: 0 }, FROM, label, "nach Zurückfedern");
   if (Math.abs(afterShort.scrollLeft - beforeShort.scrollLeft) > 1.5) {
@@ -562,7 +639,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 8c tests OK (Build 67)");
+  console.log("Playwright 8c tests OK (Build 68)");
 }
 
 main().catch((err) => {

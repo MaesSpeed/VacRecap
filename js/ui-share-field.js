@@ -28,6 +28,7 @@ export function shareFieldHtml() {
       <span class="field__label">Freigeben <span class="fg-owner">nur für dich als Besitzer</span></span>
       <p class="cover-save-hint">Personen per E-Mail einladen. Mehrere Adressen mit Komma oder Enter trennen.</p>
       <input type="text" class="fg-in" data-testid="share-email-input" placeholder="+ E-Mail-Adresse" autocomplete="off" enterkeyhint="done" inputmode="email" />
+      <input type="text" class="fg-in" data-testid="share-name-input" placeholder="Name" maxlength="60" autocomplete="name" />
       <div class="chip-row chip-row--names" data-role="share-chips"></div>
       <div data-role="share-errors"></div>
       <div class="fg-mail" data-role="share-roles"></div>
@@ -58,6 +59,7 @@ function resultCopy(results) {
 
 export function bindShareField(root, { tripId, myUserId }) {
   const input = root.querySelector('[data-testid="share-email-input"]');
+  const nameInput = root.querySelector('[data-testid="share-name-input"]');
   const chipsEl = root.querySelector('[data-role="share-chips"]');
   const errorsEl = root.querySelector('[data-role="share-errors"]');
   const rolesEl = root.querySelector('[data-role="share-roles"]');
@@ -83,7 +85,9 @@ export function bindShareField(root, { tripId, myUserId }) {
     chipsEl.innerHTML = drafts
       .map((draft, index) => {
         const bad = draft.invalid || draft.error;
-        return `<button type="button" class="chip chip--filled${bad ? " chip--bad" : ""}" data-remove-mail="${index}" data-testid="share-chip">${escapeHtml(draft.email)} <span aria-hidden="true">×</span></button>`;
+        const label = draft.name || draft.email;
+        const tip = draft.name ? ` title="${escapeHtml(draft.email)}"` : "";
+        return `<button type="button" class="chip chip--filled${bad ? " chip--bad" : ""}" data-remove-mail="${index}" data-testid="share-chip"${tip}><span data-chip-label>${escapeHtml(label)}</span> <span aria-hidden="true">×</span></button>`;
       })
       .join("");
     root.querySelector('[data-testid="share-section"]')?.setAttribute("data-drafts", String(drafts.length));
@@ -94,9 +98,15 @@ export function bindShareField(root, { tripId, myUserId }) {
     const cards = drafts.filter((draft) => !draft.invalid);
     rolesEl.innerHTML = cards
       .map((draft) => {
-        const letter = personLetter({ email: draft.email });
+        const letter = personLetter({ display_name: draft.name, email: draft.email });
+        const title = draft.name || draft.email;
+        const sub = draft.name ? draft.email : "Rolle wählen";
         return `<div class="settings-card"><div class="settings-item settings-item--stack">
-          <div class="settings-item__row"><span class="fg-av fg-av--mail">${escapeHtml(letter)}</span><div class="settings-item__text"><span class="settings-item__title">${escapeHtml(draft.email)}</span><span class="settings-item__sub">Rolle wählen</span></div></div>
+          <div class="settings-item__row"><span class="fg-av fg-av--mail">${escapeHtml(letter)}</span><div class="settings-item__text"><span class="settings-item__title">${escapeHtml(title)}</span><span class="settings-item__sub">${escapeHtml(sub)}</span></div></div>
+          <label class="field">
+            <span class="field__label">Name</span>
+            <input type="text" class="fg-in" maxlength="60" data-share-name data-testid="share-draft-name" data-mail="${escapeHtml(draft.email)}" value="${escapeHtml(draft.name || "")}" placeholder="Name, optional" />
+          </label>
           <div class="settings-segments" data-mail="${escapeHtml(draft.email)}">
             <button type="button" class="settings-segment fg-seg${draft.role === "viewer" ? " settings-segment--active" : ""}" data-share-role="viewer">Beitragender</button>
             <button type="button" class="settings-segment fg-seg${draft.role === "editor" ? " settings-segment--active" : ""}" data-share-role="editor">Mitbearbeiter</button>
@@ -131,12 +141,17 @@ export function bindShareField(root, { tripId, myUserId }) {
     accessEl.innerHTML = rows
       .map((person) => {
         const invite = person.person_kind === "invite";
-        const letter = personLetter(invite ? { email: person.email || person.display_name } : person);
+        const letter = personLetter(person);
         const color = colors.get(person.user_id || person.invite_id) || person.avatar_color || "#5D6D7E";
         const avatar = invite
           ? `<span class="fg-av fg-av--mail">${escapeHtml(letter)}</span>`
           : `<span class="fg-av" style="--avatar-bg:${escapeHtml(color)}">${escapeHtml(letter)}</span>`;
-        const title = invite ? person.email || person.display_name || "" : person.display_name || "";
+        const named = String(person.display_name || "").trim();
+        const title = named || person.email || "";
+        const mailTip =
+          invite && named && person.email && named.toLowerCase() !== String(person.email).toLowerCase()
+            ? person.email
+            : "";
         const role = ROLE_LABEL[person.role] || "";
         const you = person.role === "owner" && person.user_id && person.user_id === myUserId ? " · Du" : "";
         const status =
@@ -149,24 +164,41 @@ export function bindShareField(root, { tripId, myUserId }) {
           person.role === "owner"
             ? ""
             : `<button type="button" class="fg-more" data-testid="share-more" data-user-id="${escapeHtml(person.user_id || "")}" data-invite-id="${escapeHtml(person.invite_id || "")}" data-email="${escapeHtml(person.email || "")}" data-name="${escapeHtml(title)}" data-role-now="${escapeHtml(person.role || "")}" data-status="${escapeHtml(person.status || "")}" aria-label="Mehr">${DOTS}</button>`;
-        return `<div class="settings-item" data-testid="share-access-row"><span>${avatar}</span><div class="settings-item__text"><span class="settings-item__title">${escapeHtml(title)}</span><span class="settings-item__sub fg-sub">${escapeHtml(role)}${you}${status}</span></div>${menu}</div>`;
+        return `<div class="settings-item" data-testid="share-access-row"${mailTip ? ` title="${escapeHtml(mailTip)}"` : ""}><span>${avatar}</span><div class="settings-item__text"><span class="settings-item__title">${escapeHtml(title)}</span><span class="settings-item__sub fg-sub">${escapeHtml(mailTip ? `${mailTip} · ` : "")}${escapeHtml(role)}${you}${status}</span></div>${menu}</div>`;
       })
       .join("");
   }
 
+  function clipName(value) {
+    return Array.from(String(value || "").trim()).slice(0, 60).join("");
+  }
+
+  function takeName() {
+    const last = drafts[drafts.length - 1];
+    if (last?.nameFromField) {
+      if (nameInput) nameInput.value = "";
+      last.nameFromField = false;
+      return "";
+    }
+    const name = clipName(nameInput?.value);
+    if (nameInput) nameInput.value = "";
+    return name;
+  }
+
   function addEmails(raw) {
-    let changed = false;
-    for (const email of parseEmails(raw)) {
-      if (drafts.some((draft) => draft.email === email)) continue;
+    const fresh = parseEmails(raw).filter((email) => !drafts.some((draft) => draft.email === email));
+    if (!fresh.length) return;
+    const shared = fresh.length === 1 ? takeName() : "";
+    for (const email of fresh) {
       drafts.push({
         email,
+        name: shared,
         role: "viewer",
         invalid: !EMAIL_RE.test(email),
         error: EMAIL_RE.test(email) ? "" : "Keine gültige E-Mail-Adresse",
       });
-      changed = true;
     }
-    if (changed) paint();
+    paint();
   }
 
   function commitInput() {
@@ -182,7 +214,6 @@ export function bindShareField(root, { tripId, myUserId }) {
     event.preventDefault();
     commitInput();
   });
-  input.addEventListener("blur", () => commitInput());
   input.addEventListener("paste", (event) => {
     const text = event.clipboardData?.getData("text") || "";
     if (!/[,;\s]/.test(text)) return;
@@ -191,11 +222,54 @@ export function bindShareField(root, { tripId, myUserId }) {
     input.value = "";
   });
 
+  nameInput?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    commitInput();
+  });
+  nameInput?.addEventListener("input", () => {
+    const last = drafts[drafts.length - 1];
+    if (!last || last.invalid || !last.nameFromField && last.name) return;
+    last.name = clipName(nameInput.value);
+    last.nameFromField = true;
+    const index = drafts.length - 1;
+    const chip = chipsEl.querySelector(`[data-remove-mail="${index}"]`);
+    const label = chip?.querySelector("[data-chip-label]");
+    if (label) label.textContent = last.name || last.email;
+    if (chip) chip.title = last.name ? last.email : "";
+  });
+  nameInput?.addEventListener("blur", () => {
+    const last = drafts[drafts.length - 1];
+    if (!last?.nameFromField) return;
+    nameInput.value = "";
+    last.nameFromField = false;
+  });
+
   chipsEl.addEventListener("click", (event) => {
     const btn = event.target.closest("[data-remove-mail]");
     if (!btn) return;
     drafts.splice(Number(btn.dataset.removeMail), 1);
     paint();
+  });
+
+  rolesEl.addEventListener("input", (event) => {
+    const field = event.target.closest("[data-share-name]");
+    if (!field) return;
+    const draft = drafts.find((item) => item.email === field.dataset.mail);
+    if (!draft) return;
+    draft.name = clipName(field.value);
+    const index = drafts.indexOf(draft);
+    const chip = chipsEl.querySelector(`[data-remove-mail="${index}"]`);
+    const label = chip?.querySelector("[data-chip-label]");
+    if (label) label.textContent = draft.name || draft.email;
+    if (chip) chip.title = draft.name ? draft.email : "";
+    const card = field.closest(".settings-item");
+    const title = card?.querySelector(".settings-item__title");
+    const sub = card?.querySelector(".settings-item__sub");
+    const avatar = card?.querySelector(".fg-av");
+    if (title) title.textContent = draft.name || draft.email;
+    if (sub) sub.textContent = draft.name ? draft.email : "Rolle wählen";
+    if (avatar) avatar.textContent = personLetter({ display_name: draft.name, email: draft.email });
   });
 
   rolesEl.addEventListener("click", (event) => {
@@ -279,7 +353,13 @@ export function bindShareField(root, { tripId, myUserId }) {
         return;
       }
       try {
-        await inviteToTrip(tripId, [{ email: more.dataset.email, role: role === "editor" ? "editor" : "viewer" }]);
+        await inviteToTrip(tripId, [
+          {
+            email: more.dataset.email,
+            role: role === "editor" ? "editor" : "viewer",
+            name: clipName(more.dataset.name && more.dataset.name !== more.dataset.email ? more.dataset.name : ""),
+          },
+        ]);
         await refresh();
         showToast("Einladung gespeichert");
       } catch (err) {
@@ -316,7 +396,9 @@ export function bindShareField(root, { tripId, myUserId }) {
     commitInput,
     pendingInvites() {
       commitInput();
-      return drafts.filter((draft) => !draft.invalid && !draft.error).map((draft) => ({ email: draft.email, role: draft.role }));
+      return drafts
+        .filter((draft) => !draft.invalid && !draft.error)
+        .map((draft) => ({ email: draft.email, role: draft.role, name: clipName(draft.name) }));
     },
     hasDrafts() {
       return drafts.length > 0;
@@ -332,7 +414,7 @@ export function bindShareField(root, { tripId, myUserId }) {
       try {
         const results = await inviteToTrip(
           tripId,
-          sendable.map((draft) => ({ email: draft.email, role: draft.role }))
+          sendable.map((draft) => ({ email: draft.email, role: draft.role, name: clipName(draft.name) }))
         );
         const byEmail = new Map(results.map((row) => [String(row.email || "").toLowerCase(), row]));
         const next = [];

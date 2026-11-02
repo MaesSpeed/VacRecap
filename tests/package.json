@@ -3,9 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node run-tests-6a.mjs && node run-tests-7a.mjs && node run-tests-7b.mjs && node run-tests-8a.mjs && node run-tests-8b.mjs && node run-tests-8c.mjs && node run-tests-8d.mjs && node run-tests-9a.mjs && node run-tests-9b.mjs && node run-tests-9b-fotonotiz.mjs && node run-tests-9c.mjs && node run-tests-11.mjs && node run-tests-2-wer-ist-dabei.mjs && node run-tests-3-ort-nachtragen.mjs && node run-tests-4-chip-wisch.mjs && node run-tests-12b-recap-video.mjs && node run-tests-12a-tagebuch.mjs && node run-tests-7-karten-symbole.mjs && node run-tests-64-ort-sheets.mjs && node run-tests-8-freigabe.mjs && node run-tests-9-sammelpaket.mjs && node run-tests-10-tagleiste.mjs"
+    "test": "node run-tests-6a.mjs && node run-tests-7a.mjs && node run-tests-7b.mjs && node run-tests-8a.mjs && node run-tests-8b.mjs && node run-tests-8c.mjs && node run-tests-8d.mjs && node run-tests-9a.mjs && node run-tests-9b.mjs && node run-tests-9b-fotonotiz.mjs && node run-tests-9c.mjs && node run-tests-11.mjs && node run-tests-2-wer-ist-dabei.mjs && node run-tests-3-ort-nachtragen.mjs && node run-tests-4-chip-wisch.mjs && node run-tests-12b-recap-video.mjs && node run-tests-12a-tagebuch.mjs && node run-tests-7-karten-symbole.mjs && node run-tests-64-ort-sheets.mjs && node run-tests-8-freigabe.mjs && node run-tests-9-sammelpaket.mjs && node run-tests-10-tagleiste.mjs && node run-tests-11-ortszeit-namen.mjs"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.2.17",
     "@playwright/test": "^1.49.0",
     "fflate": "^0.8.2",
     "playwright": "^1.49.0"

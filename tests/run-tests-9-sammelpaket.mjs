@@ -273,24 +273,32 @@ async function shot(page, name) {
 }
 
 async function clickDay(page, iso) {
-  let last = "";
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    await page.waitForSelector(`.day-chips [data-day="${iso}"]`);
+  await page.waitForSelector(`.day-chips [data-day="${iso}"]`);
+  await page.evaluate((day) => {
+    document.querySelector(`.day-chips [data-day="${day}"]`)?.click();
+  }, iso);
+  try {
+    await page.waitForFunction(
+      (day) => document.querySelector('[data-testid="trip-content"]')?.dataset.activeDay === day,
+      iso,
+      { timeout: 5000 }
+    );
+    return;
+  } catch {
+    const last = await page.evaluate(() => document.querySelector('[data-testid="trip-content"]')?.dataset.activeDay || "");
+    console.error(`clickDay: erster Tipp auf ${iso} wirkte nicht (aktiv «${last || "—"}»), zweiter Versuch`);
     await page.evaluate((day) => {
       document.querySelector(`.day-chips [data-day="${day}"]`)?.click();
     }, iso);
-    try {
-      await page.waitForFunction(
+    await page
+      .waitForFunction(
         (day) => document.querySelector('[data-testid="trip-content"]')?.dataset.activeDay === day,
         iso,
-        { timeout: 2500 }
-      );
-      return;
-    } catch {
-      last = await page.evaluate(() => document.querySelector('[data-testid="trip-content"]')?.dataset.activeDay || "");
-    }
+        { timeout: 5000 }
+      )
+      .catch(() => {});
+    throw new Error(`clickDay: erster Tipp auf ${iso} wirkte nicht (aktiv «${last || "—"}»)`);
   }
-  throw new Error(`Tag ${iso} bleibt «${last || "—"}»`);
 }
 
 async function openTrip(page, id = TRIP) {
@@ -942,7 +950,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 9 Sammelpaket OK (Build 67)");
+  console.log("Playwright 9 Sammelpaket OK (Build 68)");
 }
 
 main().catch((err) => {

@@ -10,6 +10,7 @@ import { getUserId } from "./auth-service.js";
 import { fetchUploadedPhotosForTrip, getFreeNotesForDay, getPlacesForDay, getPlacesForVacation, getVacation } from "./db.js";
 import { ICON_BACK_CHEVRON, ICON_GEAR, ICON_MAP } from "./icons.js";
 import { fallbackPlaceName, formatTimeFromTs } from "./geo.js";
+import { placeTsForCapture } from "./capture-time.js";
 import { readPhotoTakenAt } from "./exif-taken-at.js";
 import { rememberPlaceFromGps, trySoftPointOnOpen } from "./place-service.js";
 import { newestHardPlace } from "./places.js";
@@ -381,11 +382,21 @@ export async function renderUrlaubDetail(appEl, id) {
       .map((iso, i) => {
         const active = iso === state.activeDay;
         const role = dayRoleLabel(i + 1, total);
+        const dateLine = dayChipDateLine(iso);
         return `
         <button type="button" role="tab" aria-selected="${active}"
           class="day-chip${active ? " day-chip--active" : ""}" data-day="${iso}">
-          <span class="day-chip__date">${dayChipDateLine(iso)}</span>
+          <span class="day-chip__plate" aria-hidden="true"></span>
+          <span class="day-chip__date">${dateLine}</span>
           <span class="day-chip__role">${role}</span>
+          <span class="day-chip__ink" aria-hidden="true">
+            <span class="day-chip__date">${dateLine}</span>
+            <span class="day-chip__role">${role}</span>
+          </span>
+          <span class="day-chip__ghost" aria-hidden="true">
+            <span class="day-chip__date">${dateLine}</span>
+            <span class="day-chip__role">${role}</span>
+          </span>
         </button>`;
       })
       .join("");
@@ -436,34 +447,69 @@ export async function renderUrlaubDetail(appEl, id) {
       btn.style.background = "";
       btn.style.borderColor = "";
       btn.style.boxShadow = "";
-      const date = btn.querySelector(".day-chip__date");
-      const role = btn.querySelector(".day-chip__role");
-      if (date) date.style.color = "";
-      if (role) role.style.color = "";
+      const ghost = btn.querySelector(".day-chip__ghost");
+      const ink = btn.querySelector(".day-chip__ink");
+      if (ghost) ghost.style.clipPath = "";
+      if (ink) {
+        ink.style.clipPath = "";
+        ink.style.maskImage = "";
+        ink.style.webkitMaskImage = "";
+      }
     }
+  }
+
+  function punchClip(width, height, holeL, holeR) {
+    if (holeR - holeL < 0.5) return "";
+    return `polygon(evenodd, 0px 0px, ${width}px 0px, ${width}px ${height}px, 0px ${height}px, 0px 0px, ${holeL}px 0px, ${holeL}px ${height}px, ${holeR}px ${height}px, ${holeR}px 0px, ${holeL}px 0px)`;
+  }
+
+  function markContentBox(box) {
+    const host = markEl()?.parentElement?.getBoundingClientRect();
+    const scroller = chipsEl.getBoundingClientRect();
+    if (!host) return { left: box.left, width: box.width };
+    let x = scroller.left - host.left + box.left - chipsEl.scrollLeft;
+    const maxX = Math.max(0, host.width - box.width);
+    if (x < 0) x = 0;
+    else if (x > maxX) x = maxX;
+    const left = chipsEl.scrollLeft + x - (scroller.left - host.left);
+    return { left, width: box.width };
   }
 
   function applyMarkTint(box) {
     if (!box) return;
-    const markCenter = box.left + box.width / 2;
+    const placed = markContentBox(box);
     for (const btn of chipsEl.querySelectorAll(".day-chip")) {
-      const center = btn.offsetLeft + btn.offsetWidth / 2;
-      const span = (btn.offsetWidth + box.width) / 2 || 1;
-      const m = Math.max(0, Math.min(1, 1 - Math.abs(markCenter - center) / span));
-      const date = btn.querySelector(".day-chip__date");
-      const role = btn.querySelector(".day-chip__role");
-      const covered = m >= 0.5;
-      btn.style.background = covered ? "transparent" : "#fff";
-      btn.style.borderColor = covered ? "transparent" : "";
-      btn.style.boxShadow = "none";
-      if (date) date.style.color = covered ? "#fff" : "";
-      if (role) role.style.color = covered ? "#d6e4f7" : "";
+      const ghost = btn.querySelector(".day-chip__ghost");
+      const ink = btn.querySelector(".day-chip__ink");
+      const left = btn.offsetLeft;
+      const width = btn.offsetWidth || 1;
+      const height = btn.offsetHeight || 1;
+      const overlapL = placed.left - left;
+      const overlapR = overlapL + placed.width;
+      const clipL = Math.max(0, overlapL);
+      const clipR = Math.max(0, width - overlapR);
+      if (ghost) {
+        ghost.style.clipPath =
+          clipL + clipR >= width - 0.5 ? "inset(50%)" : `inset(0px ${clipR}px 0px ${clipL}px)`;
+      }
+      if (ink) {
+        const holeR = width - clipR;
+        const mask = `linear-gradient(90deg, #000 0px, #000 ${clipL}px, transparent ${clipL}px, transparent ${holeR}px, #000 ${holeR}px, #000 ${width}px)`;
+        ink.style.maskImage = mask;
+        ink.style.webkitMaskImage = mask;
+      }
     }
   }
 
   function setChipFollow(on) {
     chipsEl.classList.toggle("day-chips--follow", on);
     chipsEl.parentElement?.classList.toggle("day-chips-wrap--follow", on);
+    chipsEl.style.zIndex = on ? "auto" : "";
+    const mark = markEl();
+    if (mark) {
+      mark.style.zIndex = on ? "2" : "";
+      mark.style.opacity = on ? "1" : "";
+    }
   }
 
   function endFollowVisual() {
@@ -682,7 +728,7 @@ export async function renderUrlaubDetail(appEl, id) {
     if (!chip || chipFollowDay === state.activeDay) return;
     if (Math.abs(chipsEl.scrollLeft - chipScrollTarget(chipsEl, chip)) <= CHIP_CENTER_EPS) return;
     requestAnimationFrame(() => {
-      if (chipFollowDay) return;
+      if (chipFollowDay || chipPhase !== "idle") return;
       const live = chipsEl.querySelector(`[data-day="${state.activeDay}"]`);
       if (!live || !live.isConnected) return;
       if (Math.abs(chipsEl.scrollLeft - chipScrollTarget(chipsEl, live)) <= CHIP_CENTER_EPS) return;
@@ -1208,7 +1254,7 @@ export async function renderUrlaubDetail(appEl, id) {
     const places = (await getPlacesForDay(id, captureDay)).filter((p) => !p.soft);
     const options = [];
     if (r.position?.latitude != null) {
-      const ts = Date.now();
+      const ts = placeTsForCapture(captureDay, null, places);
       options.push({
         key: "new",
         kind: "new",
@@ -1246,7 +1292,7 @@ export async function renderUrlaubDetail(appEl, id) {
         lat: r.position.latitude,
         lng: r.position.longitude,
         accuracy: r.position.accuracy,
-        ts: choice.ts || Date.now(),
+        ts: choice.ts || placeTsForCapture(captureDay, null, places),
       });
       next = created.place;
       state.freshPlaceIds.add(next.id);
@@ -1330,7 +1376,7 @@ export async function renderUrlaubDetail(appEl, id) {
 
   async function resolveCameraTarget(files) {
     const selectedPlaceId = captureTargetPlaceId || state.selectedByDay[state.activeDay];
-    const takenAt = (await readPhotoTakenAt(files?.[0])) ?? Date.now();
+    const takenAt = (await readPhotoTakenAt(files?.[0])) ?? null;
     const r = await resolvePhotoCaptureTarget({
       vacation,
       vacationId: id,
@@ -2008,7 +2054,17 @@ export async function renderUrlaubDetail(appEl, id) {
   function bindChipBarDesktop() {
     appEl.querySelector("[data-action='chips-prev']")?.addEventListener("click", () => scrollChipsStep(-1));
     appEl.querySelector("[data-action='chips-next']")?.addEventListener("click", () => scrollChipsStep(1));
-    chipsEl.addEventListener("scroll", () => syncChipArrows(), { passive: true });
+    chipsEl.addEventListener(
+      "scroll",
+      () => {
+        syncChipArrows();
+        if (chipPhase !== "idle" && chipMarkBox) {
+          placeMark(chipMarkBox);
+          applyMarkTint(chipMarkBox);
+        }
+      },
+      { passive: true }
+    );
     const onResize = () => syncChipArrows();
     window.addEventListener("resize", onResize);
     const chipResize = typeof ResizeObserver === "function" ? new ResizeObserver(onResize) : null;

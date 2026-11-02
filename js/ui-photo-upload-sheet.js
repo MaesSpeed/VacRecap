@@ -7,6 +7,7 @@ import {
 import { updateMediaRow } from "./db.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { processPhotoForCloud } from "./media-process.js";
+import { pullPlaceTimeEarlier } from "./place-service.js";
 import { deletePlaceIfEmpty } from "./target-place.js";
 import { canAddOwn, getMyTripRole } from "./trip-role.js";
 import { showToast, showWarnToast } from "./toast.js";
@@ -249,6 +250,25 @@ export function openPhotoUploadSheet({
       bindActions();
       const processed = await processPhotoForCloud(item.file);
       item.processed = processed;
+      if (processed.takenAt != null && usedPlace) {
+        const next = await pullPlaceTimeEarlier(usedPlace, processed.takenAt);
+        if (next) {
+          const stamp = { ts: next.ts, remoteUpdatedAt: next.remoteUpdatedAt };
+          usedPlace.ts = stamp.ts;
+          usedPlace.remoteUpdatedAt = stamp.remoteUpdatedAt;
+          for (const other of items) {
+            if (other.place?.id === next.id) {
+              other.place.ts = stamp.ts;
+              other.place.remoteUpdatedAt = stamp.remoteUpdatedAt;
+            }
+          }
+          if (currentPlace?.id === next.id) {
+            currentPlace.ts = stamp.ts;
+            currentPlace.remoteUpdatedAt = stamp.remoteUpdatedAt;
+          }
+          item.place = usedPlace;
+        }
+      }
       item.status = "uploading";
       render();
       bindActions();
@@ -263,7 +283,7 @@ export function openPhotoUploadSheet({
           place: usedPlace,
           vacationId,
           day: item.day || day,
-          ts: processed.takenAt ?? Date.now(),
+          ts: processed.takenAt ?? null,
           originalBlob: processed.blob,
           thumbBlob: processed.thumbBlob,
           width: processed.w,
