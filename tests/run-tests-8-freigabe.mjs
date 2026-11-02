@@ -1005,6 +1005,16 @@ async function runFlows(page, state, label, shots, baseUrl) {
     window.location.hash = "#/urlaub/trip-garda/einstellungen";
   });
   await page.waitForSelector('[data-testid="settings-screen"]');
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('[data-testid="settings-edit-trip"]').length === 0 &&
+      document.querySelectorAll('[data-testid="settings-delete-trip"]').length === 0 &&
+      document.querySelectorAll('[data-testid="settings-recap-video"]').length === 0 &&
+      document.querySelectorAll('[data-testid="settings-diary"]').length === 0 &&
+      document.querySelectorAll('[data-testid="settings-leave-trip"]').length === 1,
+    null,
+    { timeout: 3000 }
+  );
   assert((await page.locator('[data-testid="settings-edit-trip"]').count()) === 0, `${label}: Beitragender bearbeitet die Reise`);
   assert((await page.locator('[data-testid="settings-delete-trip"]').count()) === 0, `${label}: Beitragender löscht`);
   assert((await page.locator('[data-testid="settings-recap-video"]').count()) === 0, `${label}: Recap für Beitragenden`);

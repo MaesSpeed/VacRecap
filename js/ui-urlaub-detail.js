@@ -1976,6 +1976,27 @@ export async function renderUrlaubDetail(appEl, id) {
     }
   });
 
+  chipsEl.addEventListener("click", (e) => {
+    const chip = e.target.closest(".day-chip");
+    if (!chip?.dataset.day) return;
+    const dayIso = chip.dataset.day;
+    const settling = contentEl.dataset.swipeLock === "1";
+    if (settling) cancelDaySwipeSettle(contentEl);
+    const moving = chipPhase !== "idle";
+    if (moving) {
+      chipScrollToken += 1;
+      chipFollowDay = null;
+      endFollowVisual();
+    }
+    if (settling && dayIso === state.activeDay) {
+      applyChipActive(state.activeDay);
+      const live = chipsEl.querySelector(`[data-day="${state.activeDay}"]`);
+      if (live) chipsEl.scrollLeft = chipScrollTarget(chipsEl, live);
+      return;
+    }
+    setActiveDay(dayIso);
+  });
+
   renderChips();
   await refreshDayList();
   if (appEl?.dataset?.appRenderGen !== mountGen) return;
@@ -2022,27 +2043,6 @@ export async function renderUrlaubDetail(appEl, id) {
       if (state.captureBusy || isTripFooterBlocked()) return;
       navigate({ name: "urlaub-mediathek", id });
     },
-  });
-
-  chipsEl.addEventListener("click", (e) => {
-    const chip = e.target.closest(".day-chip");
-    if (!chip?.dataset.day) return;
-    const dayIso = chip.dataset.day;
-    const settling = contentEl.dataset.swipeLock === "1";
-    if (settling) cancelDaySwipeSettle(contentEl);
-    const moving = chipPhase !== "idle";
-    if (moving) {
-      chipScrollToken += 1;
-      chipFollowDay = null;
-      endFollowVisual();
-    }
-    if (settling && dayIso === state.activeDay) {
-      applyChipActive(state.activeDay);
-      const live = chipsEl.querySelector(`[data-day="${state.activeDay}"]`);
-      if (live) chipsEl.scrollLeft = chipScrollTarget(chipsEl, live);
-      return;
-    }
-    setActiveDay(dayIso);
   });
 
 

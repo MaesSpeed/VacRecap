@@ -1,4 +1,6 @@
 import { readdir, readFile, mkdir } from "node:fs/promises";
+import { mkdirSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, devices, webkit } from "playwright";
@@ -14,7 +16,25 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
 const SUPABASE_HOST = "hgboqdovlfeuqfhfeykn.supabase.co";
-const SHOTS = "/opt/cursor/artifacts/screenshots";
+
+function resolveShotDir() {
+  const candidates = [
+    process.env.VACRECAP_SHOTS,
+    path.join(__dirname, "artifacts"),
+    path.join(os.tmpdir(), "vacrecap-paket9"),
+  ].filter(Boolean);
+  for (const dir of candidates) {
+    try {
+      mkdirSync(dir, { recursive: true });
+      return dir;
+    } catch {
+      /* nächster Kandidat */
+    }
+  }
+  return os.tmpdir();
+}
+
+const SHOTS = resolveShotDir();
 const VIEWPORTS = [
   { width: 375, height: 667, name: "375x667" },
   { width: 360, height: 740, name: "360x740" },
@@ -58,9 +78,30 @@ async function assertTone() {
   const hits = [];
   for (const file of files) hits.push(...toneHits(file, await readFile(file, "utf8")));
   assert(!hits.length, hits.slice(0, 6).join(" | "));
+  assert(toneHits("probe.js", "Bitte deine Fotos prüfen").length === 0, "du-Form");
   assert(toneHits("probe.js", "Bitte Ihre Fotos prüfen").length === 1, "Ihre wird nicht erkannt");
   assert(toneHits("probe.js", 'label: "Freund:in"').length === 1, "Freund:in wird nicht erkannt");
   assert(!toneHits(path.join(root, "js", "vacation.js"), '  { id: "partner", label: "Partner:in" },').length, "Partner:in");
+  const sql = await readFile(path.join(root, "docs/supabase/paket-9-avatar-farbe.sql"), "utf8");
+  const fn = sql.slice(sql.indexOf("select case"), sql.indexOf("else (array"));
+  const prefix = fn.indexOf("~ '^dom'");
+  const separated = fn.indexOf("~ '(^|[._ -])dom'");
+  assert(prefix >= 0 && separated > prefix, "Namensanfang vor Trenner");
+  const color = (name) => {
+    const n = String(name || "").toLowerCase();
+    if (/^dom/.test(n)) return "#0066b3";
+    if (/^sabine/.test(n)) return "#D64541";
+    if (/^anna/.test(n)) return "#1F9D57";
+    if (/(^|[._ -])dom/.test(n)) return "#0066b3";
+    if (/(^|[._ -])sabine/.test(n)) return "#D64541";
+    if (/(^|[._ -])anna/.test(n)) return "#1F9D57";
+    return "palette";
+  };
+  assert(color("roeder.domi") === "#0066b3", "roeder.domi");
+  assert(color("Anna Domke") === "#1F9D57", "Anna Domke");
+  assert(color("Sabine Dombrowski") === "#D64541", "Sabine Dombrowski");
+  assert(color("iammrspeed") === "palette", "iammrspeed");
+  assert(color("Dom") === "#0066b3" && color("Sabine") === "#D64541", "Namensanfang");
   console.log("Ton-Test grün (Ihre und Freund:in wären rot)");
 }
 
@@ -232,8 +273,24 @@ async function shot(page, name) {
 }
 
 async function clickDay(page, iso) {
-  await page.waitForSelector(`[data-day="${iso}"]`);
-  await page.evaluate((day) => document.querySelector(`[data-day="${day}"]`)?.click(), iso);
+  let last = "";
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    await page.waitForSelector(`.day-chips [data-day="${iso}"]`);
+    await page.evaluate((day) => {
+      document.querySelector(`.day-chips [data-day="${day}"]`)?.click();
+    }, iso);
+    try {
+      await page.waitForFunction(
+        (day) => document.querySelector('[data-testid="trip-content"]')?.dataset.activeDay === day,
+        iso,
+        { timeout: 2500 }
+      );
+      return;
+    } catch {
+      last = await page.evaluate(() => document.querySelector('[data-testid="trip-content"]')?.dataset.activeDay || "");
+    }
+  }
+  throw new Error(`Tag ${iso} bleibt «${last || "—"}»`);
 }
 
 async function openTrip(page, id = TRIP) {
@@ -722,6 +779,15 @@ async function behaviorPass(page, state, label, { shots }) {
   await page.waitForFunction(() => (document.querySelector('[data-testid="app-toast"]')?.textContent || "").includes("Wunsch"));
   const feedback = state.recaps.find((row) => row.id === draft.id).feedback.map((item) => item.text);
   assert(feedback.includes("VON-ANDERS") && feedback.includes("VON-MIR"), `${label}: Feedback ${feedback.join(",")}`);
+  await page.evaluate(() => document.querySelector('[data-testid="app-toast"]')?.remove());
+  const keptDraft = state.recaps.find((row) => row.id === draft.id);
+  state.recaps = state.recaps.filter((row) => row.id !== draft.id);
+  await page.fill('[data-testid="recap-feedback-input"]', "WEG");
+  await page.click('[data-testid="recap-feedback-send"]');
+  await page.waitForFunction(() => (document.querySelector('[data-testid="app-toast"]')?.textContent || "").includes("nicht mehr da"));
+  const lost = await page.locator('[data-testid="app-toast"]').innerText();
+  assert(!/gespeichert/i.test(lost), `${label}: gelöschter Entwurf gilt als gespeichert «${lost}»`);
+  state.recaps.push(keptDraft);
 
   state.signFails = 99;
   await page.reload();

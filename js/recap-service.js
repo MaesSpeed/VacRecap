@@ -147,8 +147,19 @@ export async function createVideoDraft(tripId, { version = 1, basedOn = null } =
 }
 
 async function readRecapRow(id) {
-  const data = await unwrap(getSupabase().from("trip_recaps").select("*").eq("id", id).maybeSingle());
+  const { data, error } = await getSupabase().from("trip_recaps").select("*").eq("id", id).maybeSingle();
+  if (error) {
+    const missed = error.code === "PGRST116" || /0 rows/i.test(error.message || "");
+    if (missed) return null;
+    if (isMissingRecapTable(error)) throw new RecapUnavailableError();
+    throw mapApiError(error);
+  }
   return data || null;
+}
+
+function assertRecapRow(row) {
+  if (!row || row.deleted_at) throw new Error("Der Entwurf ist nicht mehr da.");
+  return row;
 }
 
 function feedbackEntry(recap, text, userId) {
@@ -166,9 +177,8 @@ export async function appendRecapFeedback(recap, text) {
   if (!recap?.id || !body) return recap;
   const userId = await getUserId();
   const entry = feedbackEntry(recap, body, userId);
-  let current = await readRecapRow(recap.id);
+  let current = assertRecapRow(await readRecapRow(recap.id));
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    if (!current) return recap;
     const feedback = [...(Array.isArray(current.feedback) ? current.feedback : []), entry];
     let query = getSupabase().from("trip_recaps").update({ feedback }).eq("id", recap.id);
     if (current.updated_at) query = query.eq("updated_at", current.updated_at);
@@ -176,7 +186,7 @@ export async function appendRecapFeedback(recap, text) {
     if (error) {
       const missed = error.code === "PGRST116" || /0 rows/i.test(error.message || "");
       if (missed && attempt === 0) {
-        current = await readRecapRow(recap.id);
+        current = assertRecapRow(await readRecapRow(recap.id));
         continue;
       }
       if (isMissingRecapTable(error)) throw new RecapUnavailableError();
@@ -185,11 +195,11 @@ export async function appendRecapFeedback(recap, text) {
     const rows = Array.isArray(data) ? data : data ? [data] : [];
     if (rows.length) return mapRow(rows[0]);
     if (attempt === 0) {
-      current = await readRecapRow(recap.id);
+      current = assertRecapRow(await readRecapRow(recap.id));
       continue;
     }
   }
-  return mapRow(current);
+  throw new Error("Das hat nicht geklappt. Bitte nochmal versuchen.");
 }
 
 export async function discardRecapDraft(recapId) {

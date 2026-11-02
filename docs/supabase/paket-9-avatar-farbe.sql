@@ -10,6 +10,9 @@ immutable
 set search_path = ''
 as $$
   select case
+    when lower(coalesce(p_name, '')) ~ '^dom'    then '#0066b3'
+    when lower(coalesce(p_name, '')) ~ '^sabine' then '#D64541'
+    when lower(coalesce(p_name, '')) ~ '^anna'   then '#1F9D57'
     when lower(coalesce(p_name, '')) ~ '(^|[._ -])dom'    then '#0066b3'
     when lower(coalesce(p_name, '')) ~ '(^|[._ -])sabine' then '#D64541'
     when lower(coalesce(p_name, '')) ~ '(^|[._ -])anna'   then '#1F9D57'
