@@ -7,6 +7,7 @@ import {
   reverseGeocodeName,
 } from "./geo.js";
 import { exifOnPlaceDay } from "./capture-time.js";
+import { StaleWriteError } from "./cloud-errors.js";
 import { deletePlace, getPlacesForDay, putPlace } from "./db.js";
 import { createPlace, findPlaceWithinMeters, normalizePlace } from "./places.js";
 import { getSamePlaceRadiusM } from "./settings-store.js";
@@ -206,7 +207,10 @@ export async function updatePlaceDetails(place, { name, ts } = {}) {
     updatedAt: Date.now(),
   });
   updated.forceSave = Boolean(place.forceSave);
-  await putPlace(updated);
+  const saved = await putPlace(updated);
+  if (saved?.remoteUpdatedAt) updated.remoteUpdatedAt = saved.remoteUpdatedAt;
+  if (Number.isFinite(Number(saved?.ts))) updated.ts = saved.ts;
+  if (saved?.updatedAt) updated.updatedAt = saved.updatedAt;
   return updated;
 }
 
@@ -214,14 +218,59 @@ export async function updatePlaceName(place, name) {
   return updatePlaceDetails(place, { name, ts: place?.ts });
 }
 
-/** Frühere EXIF-Zeit am selben Tag zieht die Ortszeit vor. Ohne eigene Zeit: keine Änderung. */
+function adoptPulledPlace(place, next) {
+  if (!place || !next) return place;
+  place.ts = next.ts;
+  place.remoteUpdatedAt = next.remoteUpdatedAt;
+  place.updatedAt = next.updatedAt;
+  if (next.name) {
+    place.name = next.name;
+    place.title = next.title || next.name;
+  }
+  return place;
+}
+
+function adoptFreshStamp(place, fresh) {
+  if (!fresh) return;
+  if (fresh.updated_at) place.remoteUpdatedAt = fresh.updated_at;
+  const ts = Date.parse(fresh.visited_at || "");
+  if (Number.isFinite(ts)) place.ts = ts;
+  if (fresh.title) {
+    place.name = fresh.title;
+    place.title = fresh.title;
+  }
+}
+
+/**
+ * Frühere EXIF-Zeit am selben Tag zieht die Ortszeit vor.
+ * Der zurückgegebene Ort trägt den neuen remoteUpdatedAt, damit das nächste Foto nicht als veraltet gilt.
+ */
 export async function pullPlaceTimeEarlier(place, takenAt) {
   if (!place?.id) return place;
   const ts = Number(takenAt);
   if (!Number.isFinite(ts) || !(ts < Number(place.ts))) return place;
   const day = place.day || place.dayDate || "";
   if (!exifOnPlaceDay(ts, day)) return place;
-  return updatePlaceDetails(place, { name: place.name, ts });
+  try {
+    const next = await updatePlaceDetails(place, { name: place.name, ts });
+    return adoptPulledPlace(place, next);
+  } catch (err) {
+    if (err instanceof StaleWriteError && err.fresh) {
+      adoptFreshStamp(place, err.fresh);
+      if (Number.isFinite(ts) && ts < Number(place.ts) && exifOnPlaceDay(ts, place.day || day)) {
+        try {
+          const next = await updatePlaceDetails(place, { name: place.name, ts });
+          return adoptPulledPlace(place, next);
+        } catch {
+          showWarnToast("Die Uhrzeit des Orts konnte nicht gespeichert werden.");
+          return place;
+        }
+      }
+      return place;
+    }
+    showWarnToast("Die Uhrzeit des Orts konnte nicht gespeichert werden.");
+    return place;
+  }
 }
 
 export function softPointLabel(place) {

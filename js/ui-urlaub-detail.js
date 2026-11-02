@@ -389,6 +389,10 @@ export async function renderUrlaubDetail(appEl, id) {
           <span class="day-chip__plate" aria-hidden="true"></span>
           <span class="day-chip__date">${dateLine}</span>
           <span class="day-chip__role">${role}</span>
+          <span class="day-chip__ink" aria-hidden="true">
+            <span class="day-chip__date">${dateLine}</span>
+            <span class="day-chip__role">${role}</span>
+          </span>
           <span class="day-chip__ghost" aria-hidden="true">
             <span class="day-chip__date">${dateLine}</span>
             <span class="day-chip__role">${role}</span>
@@ -444,23 +448,56 @@ export async function renderUrlaubDetail(appEl, id) {
       btn.style.borderColor = "";
       btn.style.boxShadow = "";
       const ghost = btn.querySelector(".day-chip__ghost");
+      const ink = btn.querySelector(".day-chip__ink");
       if (ghost) ghost.style.clipPath = "";
+      if (ink) {
+        ink.style.clipPath = "";
+        ink.style.maskImage = "";
+        ink.style.webkitMaskImage = "";
+      }
     }
+  }
+
+  function punchClip(width, height, holeL, holeR) {
+    if (holeR - holeL < 0.5) return "";
+    return `polygon(evenodd, 0px 0px, ${width}px 0px, ${width}px ${height}px, 0px ${height}px, 0px 0px, ${holeL}px 0px, ${holeL}px ${height}px, ${holeR}px ${height}px, ${holeR}px 0px, ${holeL}px 0px)`;
+  }
+
+  function markContentBox(box) {
+    const host = markEl()?.parentElement?.getBoundingClientRect();
+    const scroller = chipsEl.getBoundingClientRect();
+    if (!host) return { left: box.left, width: box.width };
+    let x = scroller.left - host.left + box.left - chipsEl.scrollLeft;
+    const maxX = Math.max(0, host.width - box.width);
+    if (x < 0) x = 0;
+    else if (x > maxX) x = maxX;
+    const left = chipsEl.scrollLeft + x - (scroller.left - host.left);
+    return { left, width: box.width };
   }
 
   function applyMarkTint(box) {
     if (!box) return;
+    const placed = markContentBox(box);
     for (const btn of chipsEl.querySelectorAll(".day-chip")) {
       const ghost = btn.querySelector(".day-chip__ghost");
-      if (!ghost) continue;
+      const ink = btn.querySelector(".day-chip__ink");
       const left = btn.offsetLeft;
       const width = btn.offsetWidth || 1;
-      const overlapL = box.left - left;
-      const overlapR = overlapL + box.width;
+      const height = btn.offsetHeight || 1;
+      const overlapL = placed.left - left;
+      const overlapR = overlapL + placed.width;
       const clipL = Math.max(0, overlapL);
       const clipR = Math.max(0, width - overlapR);
-      ghost.style.clipPath =
-        clipL + clipR >= width - 0.5 ? "inset(50%)" : `inset(0px ${clipR}px 0px ${clipL}px)`;
+      if (ghost) {
+        ghost.style.clipPath =
+          clipL + clipR >= width - 0.5 ? "inset(50%)" : `inset(0px ${clipR}px 0px ${clipL}px)`;
+      }
+      if (ink) {
+        const holeR = width - clipR;
+        const mask = `linear-gradient(90deg, #000 0px, #000 ${clipL}px, transparent ${clipL}px, transparent ${holeR}px, #000 ${holeR}px, #000 ${width}px)`;
+        ink.style.maskImage = mask;
+        ink.style.webkitMaskImage = mask;
+      }
     }
   }
 
@@ -691,7 +728,7 @@ export async function renderUrlaubDetail(appEl, id) {
     if (!chip || chipFollowDay === state.activeDay) return;
     if (Math.abs(chipsEl.scrollLeft - chipScrollTarget(chipsEl, chip)) <= CHIP_CENTER_EPS) return;
     requestAnimationFrame(() => {
-      if (chipFollowDay) return;
+      if (chipFollowDay || chipPhase !== "idle") return;
       const live = chipsEl.querySelector(`[data-day="${state.activeDay}"]`);
       if (!live || !live.isConnected) return;
       if (Math.abs(chipsEl.scrollLeft - chipScrollTarget(chipsEl, live)) <= CHIP_CENTER_EPS) return;
@@ -2017,7 +2054,17 @@ export async function renderUrlaubDetail(appEl, id) {
   function bindChipBarDesktop() {
     appEl.querySelector("[data-action='chips-prev']")?.addEventListener("click", () => scrollChipsStep(-1));
     appEl.querySelector("[data-action='chips-next']")?.addEventListener("click", () => scrollChipsStep(1));
-    chipsEl.addEventListener("scroll", () => syncChipArrows(), { passive: true });
+    chipsEl.addEventListener(
+      "scroll",
+      () => {
+        syncChipArrows();
+        if (chipPhase !== "idle" && chipMarkBox) {
+          placeMark(chipMarkBox);
+          applyMarkTint(chipMarkBox);
+        }
+      },
+      { passive: true }
+    );
     const onResize = () => syncChipArrows();
     window.addEventListener("resize", onResize);
     const chipResize = typeof ResizeObserver === "function" ? new ResizeObserver(onResize) : null;

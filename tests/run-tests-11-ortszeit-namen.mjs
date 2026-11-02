@@ -673,21 +673,81 @@ async function assertFollowContrast(page, label) {
     if (b > r + 15 && b > 50) blue += 1;
   }
   assert(blue > 0, `${label}: Markierung liegt unter dem Chip (${mark.covered})`);
-  let minL = 1;
-  let maxL = 0;
-  for (let y = 2; y < mark.height * 0.62; y += 2) {
-    for (let x = 4; x < mark.width - 4; x += 2) {
-      const px = Math.round((mark.left + x) * scaleX);
-      const py = Math.round((mark.top + y) * scaleY);
-      if (px < 0 || py < 0 || px >= png.width || py >= png.height) continue;
-      const i = (py * png.width + px) * 4;
-      const L = lum(png.data[i], png.data[i + 1], png.data[i + 2]);
-      if (L < minL) minL = L;
-      if (L > maxL) maxL = L;
+  const dates = await page.evaluate(() => {
+    const host = document.querySelector(".day-chips-wrap").getBoundingClientRect();
+    const mark = document.querySelector('[data-testid="day-chip-mark"]').getBoundingClientRect();
+    return {
+      mark: { left: mark.left - host.left, top: mark.top - host.top, right: mark.right - host.left, bottom: mark.bottom - host.top },
+      texts: [...document.querySelectorAll(".day-chip > .day-chip__date")].map((el) => {
+        const r = el.getBoundingClientRect();
+        return { left: r.left - host.left, top: r.top - host.top, right: r.right - host.left, bottom: r.bottom - host.top };
+      }),
+    };
+  });
+  function at(x, y) {
+    const px = Math.round(x * scaleX);
+    const py = Math.round(y * scaleY);
+    if (px < 0 || py < 0 || px >= png.width || py >= png.height) return null;
+    const i = (py * png.width + px) * 4;
+    return [png.data[i], png.data[i + 1], png.data[i + 2]];
+  }
+  function insideMark(x, y) {
+    return x >= dates.mark.left + 2 && x < dates.mark.right - 2 && y >= dates.mark.top + 2 && y < dates.mark.bottom - 2;
+  }
+  let markBlue = null;
+  for (let x = dates.mark.left + 4; x < dates.mark.right - 4; x += 2) {
+    const sample = at(x, dates.mark.top + 6);
+    if (!sample || !(sample[2] > sample[0] + 25 && sample[2] > 80)) continue;
+    if (!markBlue || lum(...sample) < lum(...markBlue)) markBlue = sample;
+  }
+  let ink = 0;
+  for (const text of dates.texts) {
+    const visL = Math.max(text.left, 0);
+    const visR = Math.min(text.right, box.width);
+    const visT = Math.max(text.top, 0);
+    const visB = Math.min(text.bottom, box.height);
+    if (visR - visL < 8 || visB - visT < 4) continue;
+    const outsideLeft = Math.max(0, Math.min(visR, dates.mark.left) - visL);
+    const outsideRight = Math.max(0, visR - Math.max(visL, dates.mark.right));
+    let outsideNavy = 0;
+    for (let y = visT + 1; y < visB - 1; y += 1) {
+      for (let x = visL + 1; x < visR - 1; x += 1) {
+        const rgb = at(x, y);
+        if (!rgb) continue;
+        const L = lum(...rgb);
+        const onMark = insideMark(x, y);
+        const navy = rgb[2] < 120 && rgb[0] < 50 && L < 0.2;
+        if (onMark && navy && markBlue) {
+          let onBlue = false;
+          for (let dx = 2; dx <= 6 && !onBlue; dx += 2) {
+            for (const sx of [x - dx, x + dx]) {
+              const near = at(sx, y);
+              if (near && near[2] > near[0] + 25 && near[2] > 80 && lum(...near) < 0.3) onBlue = true;
+            }
+          }
+          if (!onBlue) continue;
+          const ratio = (Math.max(L, lum(...markBlue)) + 0.05) / (Math.min(L, lum(...markBlue)) + 0.05);
+          assert(ratio >= 4.5, `${label}: dunkle Schrift auf der Markierung, Kontrast ${ratio.toFixed(2)}`);
+        }
+        if (onMark && L > 0.8 && markBlue) {
+          const ratio = (Math.max(L, lum(...markBlue)) + 0.05) / (Math.min(L, lum(...markBlue)) + 0.05);
+          assert(ratio >= 4.5, `${label}: Schrift auf der Markierung, Kontrast ${ratio.toFixed(2)}`);
+          ink += 1;
+        }
+        if (!onMark && navy) {
+          outsideNavy += 1;
+          ink += 1;
+        }
+      }
+    }
+    if ((outsideLeft >= 10 || outsideRight >= 10) && outsideNavy === 0) {
+      assert(
+        false,
+        `${label}: weiße Schrift auf weißem Chip`
+      );
     }
   }
-  const ratio = (maxL + 0.05) / (minL + 0.05);
-  assert(ratio >= 3, `${label}: Kontrast ${ratio.toFixed(2)} in der Markierung`);
+  assert(ink > 0, `${label}: keine lesbare Schrift an der Markierung`);
 }
 
 async function runSuite(browserType, baseUrl, label) {
@@ -774,6 +834,42 @@ async function runSuite(browserType, baseUrl, label) {
   assert(state.waypoints.find((row) => row.id === laterId).visited_at === stayed, `${label}: Foto ohne EXIF ändert die Ortszeit`);
   await closeUpload(page);
 
+  await openDay(page, "2026-10-29");
+  const multiId = crypto.randomUUID();
+  state.waypoints.push({
+    id: multiId,
+    trip_id: state.trips.find((row) => row.title === "Gardasee").id,
+    day: "2026-10-29",
+    title: "Galerie",
+    visited_at: "2026-10-29T18:00:00.000Z",
+    is_soft: false,
+    source: "manual",
+    created_by: USER,
+    created_at: new Date(CLOCK).toISOString(),
+    updated_at: "2026-10-29T18:00:00.000Z",
+    updated_by: USER,
+    deleted_at: null,
+  });
+  await page.reload();
+  await page.waitForSelector('[data-testid="trip-content"]');
+  await openDay(page, "2026-10-29");
+  await page.locator(`.oc[data-place-id="${multiId}"]`).click();
+  await page.locator('[data-testid="gallery-input"]').setInputFiles([
+    { name: "g17.jpg", mimeType: "image/jpeg", buffer: jpegWithExif(baseJpeg, "2026:10:29 17:00:00") },
+    { name: "g16.jpg", mimeType: "image/jpeg", buffer: jpegWithExif(baseJpeg, "2026:10:29 16:00:00") },
+    { name: "g15.jpg", mimeType: "image/jpeg", buffer: jpegWithExif(baseJpeg, "2026:10:29 15:00:00") },
+  ]);
+  const multiStart = Date.now();
+  while (
+    !String(state.waypoints.find((row) => row.id === multiId)?.visited_at || "").includes("T15:00") &&
+    Date.now() - multiStart < 10000
+  ) {
+    await new Promise((r) => setTimeout(r, 40));
+  }
+  const multiAt = state.waypoints.find((row) => row.id === multiId)?.visited_at;
+  assert(String(multiAt).includes("T15:00"), `${label}: frühestes von drei Fotos ist ${multiAt}`);
+  await closeUpload(page);
+
   await openDay(page, DAY);
   const tripId = state.trips.find((row) => row.title === "Gardasee").id;
   const placeA = crypto.randomUUID();
@@ -798,7 +894,7 @@ async function runSuite(browserType, baseUrl, label) {
       trip_id: tripId,
       day: DAY,
       title: "B",
-      visited_at: "2026-10-27T19:00:00.000Z",
+      visited_at: "2026-10-27T19:41:46.000Z",
       is_soft: false,
       source: "manual",
       created_by: USER,
@@ -820,6 +916,14 @@ async function runSuite(browserType, baseUrl, label) {
   const orderBefore = await page.locator(".oc:not(.oc--skeleton) .oc__title").allTextContents();
   assert(orderBefore.findIndex((name) => name.includes("B")) < orderBefore.findIndex((name) => name.includes("A")), `${label}: Reihenfolge ${orderBefore.join("|")} waypoints=${state.waypoints.map((row) => row.title + "@" + row.day).join(",")}`);
   if (label === "chromium") await shot(page, "n2-liste-vorher");
+  await page.locator(`.oc[data-place-id="${placeB}"]`).click();
+  await page.locator(`[data-place-id="${placeB}"] [data-action="edit-place"]`).click();
+  await page.waitForSelector('[data-testid="edit-place-time"]');
+  await page.locator('[data-role="name"]').fill("B zwei");
+  await page.locator('.sheet--place-edit [data-action="save"]').click();
+  await page.waitForFunction(() => document.querySelector(".oc__title")?.textContent?.includes("B zwei"));
+  const keptSeconds = state.waypoints.find((row) => row.id === placeB)?.visited_at;
+  assert(keptSeconds === "2026-10-27T19:41:46.000Z", `${label}: Sekunde verloren ${keptSeconds}`);
   await page.locator(`.oc[data-place-id="${placeA}"]`).click();
   await page.locator(`[data-place-id="${placeA}"] [data-action="edit-place"]`).click();
   await page.waitForSelector('[data-testid="edit-place-time"]');
@@ -867,6 +971,45 @@ async function runSuite(browserType, baseUrl, label) {
   await page.click('[data-action="settings"]');
   await page.click('[data-testid="settings-edit-trip"]');
   await page.waitForSelector('[data-testid="share-name-input"]');
+  await page.fill('[data-testid="share-email-input"]', "zuerst@example.com");
+  await page.locator('[data-testid="share-name-input"]').click();
+  assert((await page.locator('[data-testid="share-chip"]').count()) === 0, `${label}: Chip entsteht schon beim Wechsel ins Namensfeld`);
+  await page.fill('[data-testid="share-name-input"]', "Zuerst");
+  await page.locator('[data-testid="share-name-input"]').press("Enter");
+  await page.waitForSelector('[data-testid="share-chip"]');
+  assert((await page.locator('[data-testid="share-chip"]').innerText()).includes("Zuerst"), `${label}: Name nach der E-Mail fehlt`);
+  await page.fill('[data-testid="share-email-input"]', "danach@example.com");
+  await page.locator('[data-testid="share-email-input"]').press("Enter");
+  let chipTexts = await page.locator('[data-testid="share-chip"]').allInnerTexts();
+  assert(chipTexts.length === 2, `${label}: zwei Chips ${chipTexts.join(" | ")}`);
+  assert(chipTexts[0].includes("Zuerst"), `${label}: erster Chip verliert den Namen`);
+  assert(!chipTexts[1].includes("Zuerst"), `${label}: Name landet auf der nächsten Adresse (${chipTexts[1]})`);
+  while ((await page.locator('[data-testid="share-chip"]').count()) > 0) {
+    await page.locator('[data-testid="share-chip"]').first().click();
+  }
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid="share-chip"]').length === 0);
+  await page.fill('[data-testid="share-email-input"]', "offen@example.com");
+  await page.locator('[data-testid="share-email-input"]').press("Enter");
+  await page.waitForSelector('[data-testid="share-chip"]');
+  assert(
+    (await page.locator('[data-testid="share-chip"]').innerText()).includes("offen@example.com"),
+    `${label}: Chip ohne Namen zeigt die Adresse`
+  );
+  await page.fill('[data-testid="share-name-input"]', "Haenger");
+  assert((await page.locator('[data-testid="share-chip"]').innerText()).includes("Haenger"), `${label}: Name kommt nicht mehr am Chip an`);
+  await page.fill('[data-testid="share-email-input"]', "andere@example.com");
+  assert((await page.locator('[data-testid="share-name-input"]').inputValue()) === "", `${label}: liegengebliebener Name im Feld`);
+  await page.locator('[data-testid="share-email-input"]').press("Enter");
+  chipTexts = await page.locator('[data-testid="share-chip"]').allInnerTexts();
+  assert(chipTexts[0].includes("Haenger"), `${label}: Name hängt nicht am ersten Chip (${chipTexts[0]})`);
+  assert(
+    chipTexts[1]?.includes("andere@example.com") && !chipTexts[1].includes("Haenger"),
+    `${label}: Name landet auf der nächsten Adresse (${chipTexts[1]})`
+  );
+  while ((await page.locator('[data-testid="share-chip"]').count()) > 0) {
+    await page.locator('[data-testid="share-chip"]').first().click();
+  }
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid="share-chip"]').length === 0);
   await page.fill('[data-testid="share-name-input"]', "Papa");
   await page.fill('[data-testid="share-email-input"]', "papa@example.com");
   await page.locator('[data-testid="share-email-input"]').press("Enter");
@@ -1125,14 +1268,14 @@ async function runSuite(browserType, baseUrl, label) {
     await createTrip(spage, "Wisch", START, END, 7);
     await openDay(spage, DAY);
     await holdSwipe(spage, -0.3);
-    await assertFollowContrast(spage, "webkit 30%");
     await spage.locator(".day-nav").screenshot({ path: path.join(SHOTS, "u4-30.png") });
+    await assertFollowContrast(spage, "webkit 30%");
     await releaseSwipe(spage);
     await spage.waitForFunction(() => !document.querySelector(".day-chips")?.classList.contains("day-chips--follow"));
     await openDay(spage, DAY);
     await holdSwipe(spage, -0.6);
-    await assertFollowContrast(spage, "webkit 60%");
     await spage.locator(".day-nav").screenshot({ path: path.join(SHOTS, "u4-60.png") });
+    await assertFollowContrast(spage, "webkit 60%");
     await releaseSwipe(spage);
     await swipe.close();
   }
@@ -1183,6 +1326,9 @@ async function testNamesSql() {
     insert into public.trip_members (trip_id, user_id, role) values ('${trip}', '${owner}', 'owner');
   `);
   await db.query(`select * from public.invite_to_trip('${trip}', '[{"email":"papa@example.com","role":"viewer","name":"Papa"}]'::jsonb)`);
+  await db.query(`select * from public.invite_to_trip('${trip}', '[{"email":"papa@example.com","role":"viewer","name":""}]'::jsonb)`);
+  const keptInvite = (await db.query(`select display_name from public.trip_invites where email = 'papa@example.com'`)).rows[0].display_name;
+  assert(keptInvite === "Papa", `erneutes Einladen ohne Namen löscht «${keptInvite}»`);
   await db.exec(`update auth.session set uid = '${papa}', email = 'papa@example.com'`);
   const id = (await db.query(`select id from public.trip_invites where email = 'papa@example.com'`)).rows[0].id;
   await db.query(`select public.accept_trip_invite_by_id('${id}')`);
@@ -1197,8 +1343,9 @@ async function testNamesSql() {
   assert(keptName === "Bestehend", `vorhandener Name wurde zu «${keptName}»`);
   await db.exec(`update auth.session set uid = '${owner}', email = 'owner@example.com'`);
   await db.query(`select * from public.invite_to_trip('${trip}', '[{"email":"offen@example.com","role":"viewer","name":"Offen"}]'::jsonb)`);
+  await db.exec(`update public.profiles set display_name = '' where id = '${open}'`);
   const listed = (await db.query(`select display_name from public.list_trip_people('${trip}') where email = 'offen@example.com'`)).rows[0];
-  assert(listed?.display_name === "Offen", `Liste ${listed?.display_name}`);
+  assert(listed?.display_name === "Offen", `leerer Profilname verdeckt die Einladung (${listed?.display_name})`);
   console.log("11 SQL paket-11-namen zweimal in PGlite OK");
 }
 

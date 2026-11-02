@@ -75,7 +75,10 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
   const input = overlay.querySelector('[data-role="name"]');
   const timeInput = overlay.querySelector('[data-testid="edit-place-time"]');
   const saveBtn = overlay.querySelector('[data-action="save"]');
-  const chosenTs = () => timestampForDayTime(place.day, timeInput.value);
+  const chosenTs = () => {
+    if (timeInput.value === initialTime) return place.ts;
+    return timestampForDayTime(place.day, timeInput.value);
+  };
   const syncSave = () => {
     const name = input.value.trim();
     const ts = chosenTs();

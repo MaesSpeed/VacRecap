@@ -3,6 +3,9 @@
 -- Idempotent. Die App läuft ohne diese Änderung weiter: die alte RPC ignoriert «name»,
 -- Einladungen zeigen dann wie bisher die E-Mail-Adresse.
 -- Grundlage: docs/supabase/paket-8-freigabe.sql (invite_to_trip, accept_trip_invite*, list_trip_people).
+-- Signaturen unverändert gegenüber Paket 8.
+
+begin;
 
 alter table public.trip_invites add column if not exists display_name text;
 
@@ -71,7 +74,7 @@ begin
        set role = v_role,
            invited_user_id = v_target,
            expires_at = now() + interval '14 days',
-           display_name = v_name
+           display_name = coalesce(v_name, i.display_name)
      where i.trip_id = p_trip_id and lower(i.email) = v_email
        and i.accepted_at is null and i.declined_at is null and i.revoked_at is null
     returning i.id into v_inv;
@@ -175,7 +178,7 @@ begin
   v_owner := private.has_trip_role(p_trip_id, array['owner']);
 
   return query
-  select 'member'::text, m.user_id, null::uuid, p.display_name, p.avatar_color,
+  select 'member'::text, m.user_id, null::uuid, nullif(btrim(p.display_name), ''), p.avatar_color,
          m.role, 'aktiv'::text,
          case when v_owner then (select u.email::text from auth.users u where u.id = m.user_id) end,
          m.created_at, null::timestamptz
@@ -186,7 +189,7 @@ begin
   if v_owner then
     return query
     select 'invite'::text, i.invited_user_id, i.id,
-           coalesce(p.display_name, i.display_name), p.avatar_color,
+           coalesce(nullif(btrim(p.display_name), ''), i.display_name), p.avatar_color,
            i.role, case when i.expires_at > now() then 'eingeladen' else 'abgelaufen' end,
            i.email, i.created_at, i.expires_at
     from public.trip_invites i
@@ -196,7 +199,7 @@ begin
   end if;
 
   return query
-  select 'former'::text, a.uid, null::uuid, p.display_name, p.avatar_color,
+  select 'former'::text, a.uid, null::uuid, nullif(btrim(p.display_name), ''), p.avatar_color,
          null::text, 'ehemalig'::text, null::text, null::timestamptz, null::timestamptz
   from (
     select w.created_by as uid from public.waypoints w where w.trip_id = p_trip_id
@@ -207,3 +210,5 @@ begin
   where not exists (select 1 from public.trip_members m where m.trip_id = p_trip_id and m.user_id = a.uid);
 end;
 $$;
+
+commit;

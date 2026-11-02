@@ -251,14 +251,22 @@ export function openPhotoUploadSheet({
       const processed = await processPhotoForCloud(item.file);
       item.processed = processed;
       if (processed.takenAt != null && usedPlace) {
-        try {
-          const next = await pullPlaceTimeEarlier(usedPlace, processed.takenAt);
-          if (next) {
-            usedPlace.ts = next.ts;
-            item.place = next;
+        const next = await pullPlaceTimeEarlier(usedPlace, processed.takenAt);
+        if (next) {
+          const stamp = { ts: next.ts, remoteUpdatedAt: next.remoteUpdatedAt };
+          usedPlace.ts = stamp.ts;
+          usedPlace.remoteUpdatedAt = stamp.remoteUpdatedAt;
+          for (const other of items) {
+            if (other.place?.id === next.id) {
+              other.place.ts = stamp.ts;
+              other.place.remoteUpdatedAt = stamp.remoteUpdatedAt;
+            }
           }
-        } catch {
-          /* Upload läuft weiter. Die Ortszeit bleibt, bis sie sich speichern lässt. */
+          if (currentPlace?.id === next.id) {
+            currentPlace.ts = stamp.ts;
+            currentPlace.remoteUpdatedAt = stamp.remoteUpdatedAt;
+          }
+          item.place = usedPlace;
         }
       }
       item.status = "uploading";

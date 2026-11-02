@@ -23,11 +23,10 @@ export async function savePhotoForPlace({
   const processed = await processPhotoForCloud(file);
   const ownTime = processed.takenAt ?? null;
   if (ownTime != null && place) {
-    try {
-      const next = await pullPlaceTimeEarlier(place, ownTime);
-      if (next) place.ts = next.ts;
-    } catch {
-      /* Das Foto bleibt. Die Ortszeit folgt, sobald der Ort wieder gespeichert werden kann. */
+    const next = await pullPlaceTimeEarlier(place, ownTime);
+    if (next) {
+      place.ts = next.ts;
+      place.remoteUpdatedAt = next.remoteUpdatedAt;
     }
   }
   try {

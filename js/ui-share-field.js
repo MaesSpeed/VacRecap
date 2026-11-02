@@ -174,6 +174,12 @@ export function bindShareField(root, { tripId, myUserId }) {
   }
 
   function takeName() {
+    const last = drafts[drafts.length - 1];
+    if (last?.nameFromField) {
+      if (nameInput) nameInput.value = "";
+      last.nameFromField = false;
+      return "";
+    }
     const name = clipName(nameInput?.value);
     if (nameInput) nameInput.value = "";
     return name;
@@ -208,13 +214,35 @@ export function bindShareField(root, { tripId, myUserId }) {
     event.preventDefault();
     commitInput();
   });
-  input.addEventListener("blur", () => commitInput());
   input.addEventListener("paste", (event) => {
     const text = event.clipboardData?.getData("text") || "";
     if (!/[,;\s]/.test(text)) return;
     event.preventDefault();
     addEmails(text);
     input.value = "";
+  });
+
+  nameInput?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    commitInput();
+  });
+  nameInput?.addEventListener("input", () => {
+    const last = drafts[drafts.length - 1];
+    if (!last || last.invalid || !last.nameFromField && last.name) return;
+    last.name = clipName(nameInput.value);
+    last.nameFromField = true;
+    const index = drafts.length - 1;
+    const chip = chipsEl.querySelector(`[data-remove-mail="${index}"]`);
+    const label = chip?.querySelector("[data-chip-label]");
+    if (label) label.textContent = last.name || last.email;
+    if (chip) chip.title = last.name ? last.email : "";
+  });
+  nameInput?.addEventListener("blur", () => {
+    const last = drafts[drafts.length - 1];
+    if (!last?.nameFromField) return;
+    nameInput.value = "";
+    last.nameFromField = false;
   });
 
   chipsEl.addEventListener("click", (event) => {
