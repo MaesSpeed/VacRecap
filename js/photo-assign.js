@@ -1,3 +1,4 @@
+import { calendarDayOf, fallbackTsOnDay } from "./capture-time.js";
 import { dayChipDateLine, dayIndexInTrip, dayRoleLabel, isDayInVacation, vacationDays } from "./days.js";
 import { fallbackPlaceName, haversineMeters } from "./geo.js";
 import { formatIsoDate } from "./utils.js";
@@ -116,10 +117,17 @@ export function planPhotoGroups({
   const groups = new Map();
   const unmatched = [];
 
+  function timeOnDay(photo) {
+    if (photo?.takenAt == null) return null;
+    if (calendarDayOf(photo.takenAt) !== photo.day) return null;
+    return photo.takenAt;
+  }
+
   function pushPhoto(key, photo) {
     const group = groups.get(key);
     group.photoKeys.push(photo.key);
-    if (photo.takenAt && (group.ts == null || photo.takenAt < group.ts)) group.ts = photo.takenAt;
+    const ts = timeOnDay(photo);
+    if (ts != null && (group.ts == null || ts < group.ts)) group.ts = ts;
   }
 
   for (const photo of photos) {
@@ -148,7 +156,7 @@ export function planPhotoGroups({
             ohneGps: true,
             gpsCount: 0,
             ohneCount: 0,
-            ts: photo.takenAt || null,
+            ts: timeOnDay(photo),
             suggested: null,
           });
         }
@@ -171,7 +179,7 @@ export function planPhotoGroups({
             ohneGps: true,
             gpsCount: 0,
             ohneCount: 0,
-            ts: photo.takenAt || null,
+            ts: timeOnDay(photo),
             suggested: null,
           });
         }
@@ -205,7 +213,7 @@ export function planPhotoGroups({
           ohneGps: false,
           gpsCount: 0,
           ohneCount: 0,
-          ts: photo.takenAt || null,
+          ts: timeOnDay(photo),
           suggested: null,
         });
       }
@@ -228,7 +236,11 @@ export function planPhotoGroups({
   for (const [day, list] of byDay) {
     for (const cluster of clusterPhotos(list, radiusM)) {
       clusterIndex += 1;
-      const ts = cluster.photos.find((p) => p.takenAt)?.takenAt || Date.now();
+      const times = cluster.photos
+        .map((photo) => (calendarDayOf(photo.takenAt) === day ? photo.takenAt : null))
+        .filter((ts) => ts != null);
+      const ts = times.length ? Math.min(...times) : null;
+      const labelTs = ts ?? fallbackTsOnDay(day, places);
       const selected = day === activeDay ? places.find((p) => p.id === selectedPlaceId && !p.soft) : null;
       const distanceM =
         selected?.lat != null && selected?.lng != null
@@ -242,7 +254,7 @@ export function planPhotoGroups({
         place: null,
         lat: cluster.lat,
         lng: cluster.lng,
-        name: fallbackPlaceName(ts),
+        name: fallbackPlaceName(labelTs),
         distanceM,
         photoKeys: cluster.photos.map((p) => p.key),
         ohneGps: false,
@@ -252,8 +264,8 @@ export function planPhotoGroups({
         suggested: {
           lat: cluster.lat,
           lng: cluster.lng,
-          name: fallbackPlaceName(ts),
-          ts,
+          name: fallbackPlaceName(labelTs),
+          ts: labelTs,
         },
       });
     }

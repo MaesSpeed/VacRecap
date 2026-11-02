@@ -1,4 +1,5 @@
 import { dayChipDateLine } from "./days.js";
+import { fallbackTsOnDay } from "./capture-time.js";
 import { formatTimeFromTs } from "./geo.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { bindSheetPull } from "./sheet-pull.js";
@@ -70,9 +71,10 @@ export function openPhotoAssignSheet({
       const options = [];
       const places = dayPlaces(group.day);
       if (group.suggested || group.kind === "new") {
+        const dayTs = fallbackTsOnDay(group.day, places);
         const suggested = group.suggested || {
           name: group.name,
-          ts: group.ts || Date.now(),
+          ts: group.ts || dayTs,
           lat: group.lat,
           lng: group.lng,
         };
@@ -80,7 +82,7 @@ export function openPhotoAssignSheet({
           key: "new",
           kind: "new",
           title: `Neue Karte «${suggested.name}»`,
-          sub: `Name aus Standort · ${formatTimeFromTs(suggested.ts || group.ts || Date.now())}`,
+          sub: `Name aus Standort · ${formatTimeFromTs(suggested.ts || group.ts || dayTs)}`,
           selected: group.kind === "new",
           suggested,
         });

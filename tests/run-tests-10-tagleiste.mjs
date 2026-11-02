@@ -205,7 +205,7 @@ async function login(page, baseUrl) {
   await page.goto(baseUrl);
   await page.waitForSelector('[data-testid="login-screen"]');
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 67, `Build ${build}, erwartet 67`);
+  assert(Number(build) === 68, `Build ${build}, erwartet 68`);
   await page.fill('input[name="email"]', "test@example.com");
   await page.click('form[data-step="email"] button[type="submit"]');
   await page.waitForSelector('form[data-step="otp"]');
@@ -294,7 +294,10 @@ function assertChipWidth(sample, viewportWidth, label) {
       `${label}: Chip ${width.toFixed(2)} px, erwartet ${expected.toFixed(2)} px`
     );
   }
-  assert(sample.fullCount === 4, `${label}: ${sample.fullCount} Chips voll sichtbar, erwartet 4`);
+  assert(
+    sample.fullCount === 4,
+    `${label}: am Leistenanfang ${sample.fullCount} Chips voll sichtbar, erwartet 4 (Mitte: 3 voll und 2 angeschnitten)`
+  );
   assert(Math.abs(sample.scrollLeft) <= 2, `${label}: Leiste startet bei ${sample.scrollLeft}`);
 }
 
@@ -426,6 +429,7 @@ async function runDesktop(browserType, baseUrl, label) {
   }
   const atEnd = await measure(page);
   assert(!atEnd.next && atEnd.prev, `${label}: Pfeile am Ende next=${atEnd.next} prev=${atEnd.prev}`);
+  assert(atEnd.fullCount === 4, `${label}: am Leistenende ${atEnd.fullCount} Chips voll sichtbar, erwartet 4`);
   assert(atEnd.scrollLeft > 80, `${label}: Pfeile erreichen das Ende nicht`);
   await clickArrow(page, "day-chips-prev");
   const back = await measure(page);
@@ -469,6 +473,35 @@ async function runDesktop(browserType, baseUrl, label) {
     (iso) => document.querySelector('[data-testid="trip-content"]')?.dataset.activeDay === iso,
     clickDay
   );
+
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await page.locator('.day-chip[data-day="2026-10-29"]').click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="trip-content"]')?.dataset.activeDay === "2026-10-29");
+  await page.evaluate(() => {
+    const row = document.querySelector(".day-chips");
+    const chip = document.querySelector('.day-chip[data-day="2026-10-29"]');
+    const c = row.getBoundingClientRect();
+    const r = chip.getBoundingClientRect();
+    row.scrollLeft += r.left + r.width / 2 - (c.left + c.width / 2);
+  });
+  const middle = await page.evaluate(() => {
+    const row = document.querySelector(".day-chips").getBoundingClientRect();
+    let full = 0;
+    let partial = 0;
+    for (const el of document.querySelectorAll(".day-chip")) {
+      const r = el.getBoundingClientRect();
+      const overlaps = r.right > row.left + 1 && r.left < row.right - 1;
+      const inside = r.left >= row.left - 2 && r.right <= row.right + 2 && r.width > 40;
+      if (inside) full += 1;
+      else if (overlaps && r.width > 40) partial += 1;
+    }
+    return { full, partial };
+  });
+  assert(
+    middle.full === 3 && middle.partial === 2,
+    `${label}: mittig ${middle.full} voll und ${middle.partial} angeschnitten, erwartet 3 voll + 2 angeschnitten`
+  );
+  console.log(`10 ${label}: Mitte 3 voll + 2 angeschnitten, Anfang/Ende 4 voll`);
 
   await createTrip(page, "Paket 10 kurz", SHORT_START, SHORT_END, 2);
   await page.setViewportSize({ width: 1366, height: 768 });
@@ -538,7 +571,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log(`Playwright 10 Tag-Leiste OK (Build 67, Bilder in ${SHOTS})`);
+  console.log(`Playwright 10 Tag-Leiste OK (Build 68, Bilder in ${SHOTS})`);
 }
 
 main().catch((err) => {

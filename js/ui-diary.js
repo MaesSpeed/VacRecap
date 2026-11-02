@@ -4,6 +4,7 @@ import { watchPresence, presenceBannerHtml } from "./trip-presence.js";
 import { loadTripPeople } from "./trip-people.js";
 import { dayColorFor } from "./day-colors.js";
 import { dayIndexInTrip, dayRoleLabel, vacationDays } from "./days.js";
+import { getUserId } from "./auth-service.js";
 import { getVacation } from "./db.js";
 import {
   buildDiaryContent,
@@ -55,22 +56,39 @@ function readDiaryLocal(tripId) {
       text: parsed.text,
       pending: Boolean(parsed.pending),
       savedAt: typeof parsed.savedAt === "string" ? parsed.savedAt : "",
+      remoteUpdatedAt: Object.prototype.hasOwnProperty.call(parsed, "remoteUpdatedAt")
+        ? String(parsed.remoteUpdatedAt || "")
+        : null,
     };
   } catch {
     return null;
   }
 }
 
-function writeDiaryLocal(tripId, text, pending) {
+function writeDiaryLocal(tripId, text, pending, remoteUpdatedAt) {
   const key = DIARY_LOCAL_PREFIX + tripId;
   try {
     if (!pending && !String(text || "").trim()) {
       localStorage.removeItem(key);
       return;
     }
+    let seen = remoteUpdatedAt;
+    if (seen === undefined) {
+      try {
+        const prev = JSON.parse(localStorage.getItem(key) || "null");
+        seen = prev && Object.prototype.hasOwnProperty.call(prev, "remoteUpdatedAt") ? String(prev.remoteUpdatedAt || "") : "";
+      } catch {
+        seen = "";
+      }
+    }
     localStorage.setItem(
       key,
-      JSON.stringify({ text: text || "", pending: Boolean(pending), savedAt: new Date().toISOString() })
+      JSON.stringify({
+        text: text || "",
+        pending: Boolean(pending),
+        savedAt: new Date().toISOString(),
+        remoteUpdatedAt: String(seen || ""),
+      })
     );
   } catch {
     /* Speicher voll: der Text bleibt im Feld. */
@@ -85,14 +103,24 @@ function discardDiaryLocal(tripId) {
   }
 }
 
-function seededDiaryText(tripId, serverText, serverUpdatedAt) {
+function seededDiaryText(tripId, serverText, serverUpdatedAt, serverUpdatedBy, myUserId) {
   const local = readDiaryLocal(tripId);
   const server = serverText || "";
   if (local?.pending) {
-    if (!local.savedAt) return local.text || "";
-    const localMs = Date.parse(local.savedAt);
-    const serverMs = Date.parse(serverUpdatedAt || "");
-    if (Number.isFinite(localMs) && Number.isFinite(serverMs) && serverMs > localMs) {
+    if (local.remoteUpdatedAt == null) {
+      if (!local.savedAt) return local.text || "";
+      const localMs = Date.parse(local.savedAt);
+      const serverMs = Date.parse(serverUpdatedAt || "");
+      if (Number.isFinite(localMs) && Number.isFinite(serverMs) && serverMs > localMs) {
+        discardDiaryLocal(tripId);
+        showToast("Neuerer Stand geladen");
+        return server;
+      }
+      return local.text || "";
+    }
+    const changed = Boolean(serverUpdatedAt) && serverUpdatedAt !== local.remoteUpdatedAt;
+    const other = Boolean(serverUpdatedBy) && Boolean(myUserId) && serverUpdatedBy !== myUserId;
+    if (changed && other) {
       discardDiaryLocal(tripId);
       showToast("Neuerer Stand geladen");
       return server;
@@ -372,7 +400,14 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
     await paintDraft(finalRow, { readonly: true, offerNew: true });
     return;
   }
-  paintCompose(notes?.sourceText || "", notes?.updatedAt || "");
+  let myUserId = "";
+  try {
+    myUserId = (await getUserId()) || "";
+  } catch {
+    myUserId = "";
+  }
+  if (!alive()) return;
+  paintCompose(notes?.sourceText || "", notes?.updatedAt || "", notes?.updatedBy || "", myUserId);
 
   function paintShell(current) {
     appEl.className = "screen screen--settings";
@@ -399,7 +434,7 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
       </div>`;
   }
 
-  function paintCompose(initial, serverUpdatedAt) {
+  function paintCompose(initial, serverUpdatedAt, serverUpdatedBy, myUserId) {
     let model = null;
     const main = appEl.querySelector('[data-testid="diary-main"]');
     if (!main) return;
@@ -424,7 +459,10 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
       </div>`;
     const textarea = main.querySelector('[data-testid="diary-source"]');
     const action = main.querySelector('[data-testid="diary-action"]');
-    textarea.value = clampDiaryText(seededDiaryText(tripId, initial || "", serverUpdatedAt || ""));
+    let seenRemote = serverUpdatedAt || "";
+    textarea.value = clampDiaryText(
+      seededDiaryText(tripId, initial || "", serverUpdatedAt || "", serverUpdatedBy || "", myUserId || "")
+    );
     let lastSaved = textarea.value;
     let saveTimer = 0;
     let holdConflict = false;
@@ -443,12 +481,13 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
       const text = clampDiaryText(textarea.value);
       if (text === lastSaved) return Promise.resolve();
       const pendingBefore = text;
-      writeDiaryLocal(tripId, text, true);
+      writeDiaryLocal(tripId, text, true, seenRemote);
       return saveDiaryNotes(tripId, text)
-        .then(() => {
+        .then((saved) => {
+          if (saved?.updatedAt) seenRemote = saved.updatedAt;
           if (textarea.value !== pendingBefore && clampDiaryText(textarea.value) !== text) return;
           lastSaved = text;
-          writeDiaryLocal(tripId, text, false);
+          writeDiaryLocal(tripId, text, false, seenRemote);
           showSavedLocally(false);
         })
         .catch(async (err) => {

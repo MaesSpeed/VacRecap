@@ -6,6 +6,7 @@ import { APP_BUILD_VERSION } from "./app-version.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { bindSheetPull } from "./sheet-pull.js";
 import { clearReadCache } from "./local-cache.js";
+import { AVATAR_COLOR_CHOICES } from "./trip-people.js";
 
 export function openGlobalSettingsSheet(hostEl) {
   const overlay = document.getElementById("overlay-root");
@@ -49,6 +50,7 @@ export function openGlobalSettingsSheet(hostEl) {
   const preview = overlay.querySelector('[data-testid="display-name-preview"]');
   const label = overlay.querySelector('[data-testid="display-name-label"]');
   let profileName = "";
+  let profileColor = "";
   void (async () => {
     try {
       const user = await getSupabase().auth.getUser();
@@ -58,7 +60,8 @@ export function openGlobalSettingsSheet(hostEl) {
       if (!id) return;
       const { data } = await getSupabase().from("profiles").select("display_name, avatar_color").eq("id", id).maybeSingle();
       profileName = String(data?.display_name || "").trim() || fallback;
-      const color = data?.avatar_color || "#5D6D7E";
+      profileColor = data?.avatar_color || "#5D6D7E";
+      const color = profileColor;
       const letter = Array.from(profileName)[0]?.toLocaleUpperCase("de-DE") || "?";
       if (preview) {
         preview.textContent = letter;
@@ -70,7 +73,7 @@ export function openGlobalSettingsSheet(hostEl) {
     }
   })();
   overlay.querySelector('[data-action="display-name"]')?.addEventListener("click", () => {
-    openDisplayNameEditor(hostEl, profileName);
+    openDisplayNameEditor(hostEl, profileName, profileColor);
   });
   overlay.querySelector('[data-action="clear-cache"]')?.addEventListener("click", () => {
     clearReadCache();
@@ -84,9 +87,14 @@ export function openGlobalSettingsSheet(hostEl) {
   });
 }
 
-function openDisplayNameEditor(hostEl, current) {
+function openDisplayNameEditor(hostEl, current, currentColor = "") {
   const overlay = document.getElementById("overlay-root");
   if (!overlay) return;
+  let color = AVATAR_COLOR_CHOICES.find((entry) => entry.toLowerCase() === String(currentColor || "").toLowerCase()) || AVATAR_COLOR_CHOICES[0];
+  const swatches = AVATAR_COLOR_CHOICES.map(
+    (entry) =>
+      `<button type="button" class="avatar-swatch" data-testid="avatar-color" data-color="${escapeHtml(entry)}" aria-label="Farbe ${escapeHtml(entry)}" aria-pressed="${entry.toLowerCase() === color.toLowerCase() ? "true" : "false"}"><span class="kr-av kr-av--lg" style="--kr:${escapeHtml(entry)}"></span></button>`
+  ).join("");
   overlay.hidden = false;
   overlay.innerHTML = `
     <div class="sheet sheet--settings-global" data-testid="display-name-sheet">
@@ -100,11 +108,23 @@ function openDisplayNameEditor(hostEl, current) {
           <span class="field__label">Anzeigename</span>
           <input type="text" maxlength="80" data-testid="display-name-input" value="${escapeHtml(current || "")}" />
         </label>
+        <div class="field">
+          <span class="field__label">Farbe</span>
+          <div class="chip-row" data-testid="avatar-color-row">${swatches}</div>
+        </div>
         <button type="button" class="btn btn-emaille btn-emaille--block" data-testid="display-name-save">Speichern</button>
       </div>
     </div>`;
   const close = () => openGlobalSettingsSheet(hostEl);
   const input = overlay.querySelector('[data-testid="display-name-input"]');
+  overlay.querySelectorAll('[data-testid="avatar-color"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      color = btn.dataset.color || color;
+      overlay.querySelectorAll('[data-testid="avatar-color"]').forEach((other) => {
+        other.setAttribute("aria-pressed", other === btn ? "true" : "false");
+      });
+    });
+  });
   overlay.querySelector('[data-action="close"]')?.addEventListener("click", close);
   overlay.querySelector('[data-testid="display-name-save"]')?.addEventListener("click", async () => {
     const name = input.value.trim();
@@ -120,7 +140,7 @@ function openDisplayNameEditor(hostEl, current) {
       const id = await getUserId();
       const { data, error } = await getSupabase()
         .from("profiles")
-        .update({ display_name: name })
+        .update({ display_name: name, avatar_color: color })
         .eq("id", id)
         .select("display_name, avatar_color");
       const row = Array.isArray(data) ? data[0] : data;

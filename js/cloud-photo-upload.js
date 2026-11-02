@@ -84,7 +84,7 @@ export async function uploadCloudPhoto({
   place,
   vacationId,
   day,
-  ts = Date.now(),
+  ts = null,
   originalBlob,
   thumbBlob,
   width,
@@ -119,7 +119,7 @@ export async function uploadCloudPhoto({
       width,
       height,
       size_bytes: originalBlob.size,
-      taken_at: new Date(ts).toISOString(),
+      taken_at: ts ? new Date(ts).toISOString() : null,
     });
   } else {
     await insertMediaRow(record);

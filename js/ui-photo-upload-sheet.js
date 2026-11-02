@@ -7,6 +7,7 @@ import {
 import { updateMediaRow } from "./db.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { processPhotoForCloud } from "./media-process.js";
+import { pullPlaceTimeEarlier } from "./place-service.js";
 import { deletePlaceIfEmpty } from "./target-place.js";
 import { canAddOwn, getMyTripRole } from "./trip-role.js";
 import { showToast, showWarnToast } from "./toast.js";
@@ -249,6 +250,17 @@ export function openPhotoUploadSheet({
       bindActions();
       const processed = await processPhotoForCloud(item.file);
       item.processed = processed;
+      if (processed.takenAt != null && usedPlace) {
+        try {
+          const next = await pullPlaceTimeEarlier(usedPlace, processed.takenAt);
+          if (next) {
+            usedPlace.ts = next.ts;
+            item.place = next;
+          }
+        } catch {
+          /* Upload läuft weiter. Die Ortszeit bleibt, bis sie sich speichern lässt. */
+        }
+      }
       item.status = "uploading";
       render();
       bindActions();
@@ -263,7 +275,7 @@ export function openPhotoUploadSheet({
           place: usedPlace,
           vacationId,
           day: item.day || day,
-          ts: processed.takenAt ?? Date.now(),
+          ts: processed.takenAt ?? null,
           originalBlob: processed.blob,
           thumbBlob: processed.thumbBlob,
           width: processed.w,

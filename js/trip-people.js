@@ -5,6 +5,7 @@ const cache = new Map();
 
 const FIXED_COLORS = new Set(["#0066b3", "#d64541", "#1f9d57"]);
 const PALETTE = ["#C25E00", "#7B4FB8", "#00838F", "#B83280", "#5D6D7E", "#8D6E00", "#3F51B5", "#A0522D"];
+export const AVATAR_COLOR_CHOICES = [...FIXED_COLORS, ...PALETTE];
 
 export async function loadTripPeople(tripId, { refresh = false } = {}) {
   if (!tripId) return [];

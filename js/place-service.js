@@ -6,6 +6,7 @@ import {
   isLocationUnavailable,
   reverseGeocodeName,
 } from "./geo.js";
+import { exifOnPlaceDay } from "./capture-time.js";
 import { deletePlace, getPlacesForDay, putPlace } from "./db.js";
 import { createPlace, findPlaceWithinMeters, normalizePlace } from "./places.js";
 import { getSamePlaceRadiusM } from "./settings-store.js";
@@ -194,17 +195,33 @@ export async function filterSoftPointsHidden(items, vacationId, day) {
   });
 }
 
-export async function updatePlaceName(place, name) {
-  const trimmed = String(name || "").trim().slice(0, 200);
+export async function updatePlaceDetails(place, { name, ts } = {}) {
+  const trimmed = String(name ?? place?.name ?? "").trim().slice(0, 200);
+  const nextTs = Number.isFinite(Number(ts)) ? Number(ts) : place.ts;
   const updated = normalizePlace({
     ...place,
     name: trimmed,
     title: trimmed,
+    ts: nextTs,
     updatedAt: Date.now(),
   });
   updated.forceSave = Boolean(place.forceSave);
   await putPlace(updated);
   return updated;
+}
+
+export async function updatePlaceName(place, name) {
+  return updatePlaceDetails(place, { name, ts: place?.ts });
+}
+
+/** Frühere EXIF-Zeit am selben Tag zieht die Ortszeit vor. Ohne eigene Zeit: keine Änderung. */
+export async function pullPlaceTimeEarlier(place, takenAt) {
+  if (!place?.id) return place;
+  const ts = Number(takenAt);
+  if (!Number.isFinite(ts) || !(ts < Number(place.ts))) return place;
+  const day = place.day || place.dayDate || "";
+  if (!exifOnPlaceDay(ts, day)) return place;
+  return updatePlaceDetails(place, { name: place.name, ts });
 }
 
 export function softPointLabel(place) {

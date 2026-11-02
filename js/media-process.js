@@ -71,7 +71,7 @@ function canvasToJpegBlob(canvas, quality) {
 }
 
 export async function processPhotoForCloud(file) {
-  const takenAt = (await readPhotoTakenAt(file)) ?? (file.lastModified || Date.now());
+  const takenAt = (await readPhotoTakenAt(file)) ?? null;
   const bitmap = await loadImageBitmap(file);
   const full = drawToCanvas(bitmap, PHOTO_MAX_EDGE);
   const thumb = drawToCanvas(bitmap, THUMB_EDGE);
