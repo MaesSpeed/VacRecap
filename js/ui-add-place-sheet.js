@@ -254,7 +254,10 @@ export function openAddPlaceFlow({ vacation, vacationId, day, lat, lng, userId }
             : ""
         }
         <div class="pick-groups">
-          ${visible.map((group) => renderGroup(group, thumbs)).join("") || `<p class="pick-empty">An diesem Tag liegt noch nichts ohne Ort.</p>`}
+          ${
+            visible.map((group) => renderGroup(group, thumbs)).join("") ||
+            (contentLoadFailed ? "" : `<p class="pick-empty">An diesem Tag liegt noch nichts ohne Ort.</p>`)
+          }
         </div>
         ${hasForeign ? `<p class="photo-select-hint" data-testid="add-media-foreign">Fremde Fotos und Notizen sind nicht wählbar.</p>` : ""}
         ${

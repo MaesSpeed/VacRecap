@@ -316,7 +316,7 @@ async function runSuite(browserType, baseUrl, label) {
     throw new Error(`${label}: noteToRow setzt waypoint_id nicht auf null`);
   }
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  if (Number(build) !== 65) throw new Error(`${label}: Build ${build}, erwartet 65`);
+  if (Number(build) !== 66) throw new Error(`${label}: Build ${build}, erwartet 66`);
 
   await page.fill('input[name="email"]', LONG_EMAIL);
   const emailOverflow = await page.evaluate(() => {
@@ -701,6 +701,10 @@ async function runSuite(browserType, baseUrl, label) {
     { timeout: 15_000 }
   );
 
+  await page.waitForFunction(() => {
+    const box = document.querySelector(".trip-header .link-btn--back svg")?.getBoundingClientRect();
+    return box && box.width > 8 && box.x > 4;
+  });
   const tripIcon = await svgBox(page, ".trip-header .link-btn--back svg");
   const mapHit = await page.locator('[data-action="map"]').evaluate((el) => {
     const r = el.getBoundingClientRect();
@@ -847,7 +851,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 8a tests OK (Build 65)");
+  console.log("Playwright 8a tests OK (Build 66)");
 }
 
 main().catch((err) => {

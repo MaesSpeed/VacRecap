@@ -335,6 +335,8 @@ export async function renderUrlaubDetail(appEl, id) {
   let chipPhase = "idle";
   let chipOriginScroll = 0;
   let chipMarkBox = null;
+  let chipDragIso = "";
+  let chipDragBase = 0;
   installDaySwipe(contentEl, (dir) => shiftDay(dir), {
     onLock: () => {
       chipOriginScroll = chipsEl.scrollLeft;
@@ -365,11 +367,6 @@ export async function renderUrlaubDetail(appEl, id) {
 
   const CHIP_CENTER_EPS = 2;
 
-  const CHIP_DATE = [11, 42, 74];
-  const CHIP_DATE_ON = [255, 255, 255];
-  const CHIP_ROLE = [91, 107, 122];
-  const CHIP_ROLE_ON = [214, 228, 247];
-
   function chipsHtml() {
     const total = days.length;
     return days
@@ -384,12 +381,6 @@ export async function renderUrlaubDetail(appEl, id) {
         </button>`;
       })
       .join("");
-  }
-
-  function mixRgb(from, to, t) {
-    const m = Math.max(0, Math.min(1, t));
-    const c = from.map((v, i) => Math.round(v + (to[i] - v) * m));
-    return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
   }
 
   function markEl() {
@@ -422,8 +413,11 @@ export async function renderUrlaubDetail(appEl, id) {
     chipMarkBox = box;
     const host = el.parentElement.getBoundingClientRect();
     const scroller = chipsEl.getBoundingClientRect();
-    const x = scroller.left - host.left + box.left - chipsEl.scrollLeft;
+    let x = scroller.left - host.left + box.left - chipsEl.scrollLeft;
     const y = scroller.top - host.top + box.top - chipsEl.scrollTop;
+    const maxX = Math.max(0, host.width - box.width);
+    if (x < 0) x = 0;
+    else if (x > maxX) x = maxX;
     el.style.width = `${box.width}px`;
     el.style.height = `${box.height}px`;
     el.style.transform = `translate3d(${x}px, ${y}px, 0)`;
@@ -450,19 +444,12 @@ export async function renderUrlaubDetail(appEl, id) {
       const m = Math.max(0, Math.min(1, 1 - Math.abs(markCenter - center) / span));
       const date = btn.querySelector(".day-chip__date");
       const role = btn.querySelector(".day-chip__role");
-      if (m < 0.04) {
-        btn.style.background = "";
-        btn.style.borderColor = "";
-        btn.style.boxShadow = "";
-        if (date) date.style.color = "";
-        if (role) role.style.color = "";
-        continue;
-      }
-      btn.style.background = `rgba(255,255,255,${(1 - m).toFixed(3)})`;
-      btn.style.borderColor = `rgba(213,222,231,${(1 - m).toFixed(3)})`;
+      const covered = m >= 0.5;
+      btn.style.background = covered ? "transparent" : "#fff";
+      btn.style.borderColor = covered ? "transparent" : "";
       btn.style.boxShadow = "none";
-      if (date) date.style.color = mixRgb(CHIP_DATE, CHIP_DATE_ON, m);
-      if (role) role.style.color = mixRgb(CHIP_ROLE, CHIP_ROLE_ON, m);
+      if (date) date.style.color = covered ? "#fff" : "";
+      if (role) role.style.color = covered ? "#d6e4f7" : "";
     }
   }
 
@@ -594,11 +581,13 @@ export async function renderUrlaubDetail(appEl, id) {
     if (chipPhase !== "drag") {
       chipPhase = "drag";
       setChipFollow(true);
+      chipDragIso = "";
     }
     const from = chipBox(state.activeDay);
     if (!from) return;
     const dir = ratio < 0 ? 1 : ratio > 0 ? -1 : 0;
     if (!dir) {
+      chipDragIso = "";
       if (chipsEl.scrollLeft !== chipOriginScroll) chipsEl.scrollLeft = chipOriginScroll;
       placeMark(from);
       applyMarkTint(from);
@@ -615,12 +604,37 @@ export async function renderUrlaubDetail(appEl, id) {
       applyMarkTint(box);
       return;
     }
+    const fromEl = chipsEl.querySelector(`[data-day="${state.activeDay}"]`);
+    const toEl = chipsEl.querySelector(`[data-day="${nextIso}"]`);
+    if (fromEl && toEl && chipDragIso !== nextIso) {
+      chipDragIso = nextIso;
+      chipsEl.scrollLeft = revealChipScroll(fromEl, toEl);
+      chipDragBase = chipsEl.scrollLeft;
+    }
     const t = Math.max(0, Math.min(1, Math.abs(ratio)));
     const box = lerpBox(from, to, t);
-    const dest = chipScrollTarget(chipsEl, chipsEl.querySelector(`[data-day="${nextIso}"]`));
-    chipsEl.scrollLeft = chipOriginScroll + (dest - chipOriginScroll) * t;
+    const dest = chipScrollTarget(chipsEl, toEl);
+    const base = chipDragIso === nextIso ? chipDragBase : chipsEl.scrollLeft;
+    chipsEl.scrollLeft = base + (dest - base) * t;
     placeMark(box);
     applyMarkTint(box);
+  }
+
+  function revealChipScroll(fromEl, toEl) {
+    const view = chipsEl.clientWidth;
+    const max = Math.max(0, chipsEl.scrollWidth - view);
+    const left = Math.min(fromEl.offsetLeft, toEl.offsetLeft);
+    const right = Math.max(fromEl.offsetLeft + fromEl.offsetWidth, toEl.offsetLeft + toEl.offsetWidth);
+    const cur = chipsEl.scrollLeft;
+    if (right - left <= view + 1) {
+      if (cur <= left + 1 && cur + view >= right - 1) return cur;
+      if (left < cur) return Math.max(0, left);
+      return Math.max(0, Math.min(max, right - view));
+    }
+    const targetRight = toEl.offsetLeft + toEl.offsetWidth;
+    if (cur <= toEl.offsetLeft + 1 && cur + view >= targetRight - 1) return cur;
+    if (targetRight > cur + view) return Math.max(0, Math.min(max, targetRight - view));
+    return Math.max(0, Math.min(max, toEl.offsetLeft));
   }
 
   function onChipCancel() {
@@ -869,13 +883,19 @@ export async function renderUrlaubDetail(appEl, id) {
       : warmHtml.get(state.activeDay);
     if (!active?.html || active.stale) return;
     contentEl.dataset.photoSelecting = state.photoSelecting ? "1" : "0";
+    syncPhotoSelectMark();
     queuePaint(active, state.listRefreshToken, { keepScroll: true });
+  }
+
+  function syncPhotoSelectMark() {
+    if (appEl) appEl.dataset.photoSelect = state.photoSelecting ? "1" : "0";
   }
 
   function clearPhotoSelect() {
     state.photoSelecting = false;
     state.photoSelected = new Set();
     if (contentEl?.isConnected) contentEl.dataset.photoSelecting = "0";
+    syncPhotoSelectMark();
   }
 
   function dropPhotoSelectEntry() {
@@ -1481,6 +1501,7 @@ export async function renderUrlaubDetail(appEl, id) {
     if (!state.photoSelected) state.photoSelected = new Set();
     if (mediaId) state.photoSelected.add(mediaId);
     contentEl.dataset.photoSelecting = "1";
+    syncPhotoSelectMark();
     if (!history.state?.vacrecapPhotoSelect) {
       history.pushState({ vacrecapPhotoSelect: true }, "");
     }
@@ -1581,7 +1602,7 @@ export async function renderUrlaubDetail(appEl, id) {
 
   contentEl.addEventListener("pointerdown", (event) => {
     if (event.button > 0) return;
-    if (event.target.closest("[data-kr-tip]")) return;
+    if (!state.photoSelecting && event.target.closest("[data-kr-tip]")) return;
     const tile = event.target.closest(".tile[data-media-id], .th[data-media-id]");
     if (!tile) return;
     clearPhotoPress();
@@ -1613,7 +1634,7 @@ export async function renderUrlaubDetail(appEl, id) {
   });
 
   contentEl.addEventListener("click", async (e) => {
-    if (e.target.closest("[data-kr-tip]")) return;
+    if (!state.photoSelecting && e.target.closest("[data-kr-tip]")) return;
     if (suppressTileClick) {
       suppressTileClick = false;
       e.preventDefault();

@@ -14,7 +14,7 @@ import {
   listVideoRecaps,
   loadRecapMaterial,
 } from "./recap-service.js";
-import { buildVideoRecap } from "./recap-storyboard.js";
+import { buildVideoRecap, countMaterialPhotos } from "./recap-storyboard.js";
 import { navigate } from "./router.js";
 import { resolveTripEditing, ROLE_UNKNOWN_MESSAGE, tripRoleLoadFailed } from "./trip-role.js";
 import { openConfirmDialog } from "./ui-confirm.js";
@@ -40,6 +40,13 @@ const MONTHS = [
 const SHOWN_SCENES = 5;
 
 const ICON_SPARK = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2.5l1.4 6.1L19.5 10 13.4 11.4 12 17.5l-1.4-6.1L4.5 10l6.1-1.4L12 2.5z" fill="#fff"/><path d="M18 14.5l.6 2.4 2.4.6-2.4.6-.6 2.4-.6-2.4-2.4-.6 2.4-.6.6-2.4z" fill="#d6ebfa"/></svg>`;
+const ICON_FILM = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/></svg>`;
+const ICON_DIARY = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4h9l4 4v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M14 4v5h5M8 13h8M8 17h5"/></svg>`;
+const THUMB_RETRY_MS = 1500;
+
+function bannerButton({ testId, action, title, sub, icon }) {
+  return `<button type="button" class="btn btn-emaille btn-emaille--ghost recap-banner__btn" data-action="${action}" data-testid="${testId}"><span class="recap-banner__btn-icon">${icon}</span><span class="recap-banner__btn-copy"><span class="recap-banner__btn-title">${title}</span><span class="recap-banner__btn-sub">${sub}</span></span></button>`;
+}
 
 function formatDeNumber(n) {
   const rounded = Math.round(Number(n) * 10) / 10;
@@ -107,13 +114,13 @@ export function recapEntryCardHtml({ canEdit, hasFinal, hasDiaryFinal = false } 
   const primary =
     canEdit || hasFinal
       ? canEdit
-        ? `<button type="button" class="btn btn-emaille btn-emaille--ghost recap-banner__btn" data-action="open-recap-video" data-testid="recap-create"><span class="recap-banner__btn-title">Recap-Video</span><span class="recap-banner__btn-sub">erstellen</span></button>`
-        : `<button type="button" class="btn btn-emaille btn-emaille--ghost recap-banner__btn" data-action="open-recap-video" data-testid="recap-open-final"><span class="recap-banner__btn-title">Recap-Video</span><span class="recap-banner__btn-sub">ansehen</span></button>`
+        ? bannerButton({ testId: "recap-create", action: "open-recap-video", title: "Recap-Video", sub: "erstellen", icon: ICON_FILM })
+        : bannerButton({ testId: "recap-open-final", action: "open-recap-video", title: "Recap-Video", sub: "ansehen", icon: ICON_FILM })
       : "";
   const diary = canEdit
-    ? `<button type="button" class="btn btn-emaille btn-emaille--ghost recap-banner__btn" data-action="open-diary" data-testid="recap-diary"><span class="recap-banner__btn-title">Reisetagebuch</span><span class="recap-banner__btn-sub">erstellen</span></button>`
+    ? bannerButton({ testId: "recap-diary", action: "open-diary", title: "Reisetagebuch", sub: "erstellen", icon: ICON_DIARY })
     : hasDiaryFinal
-      ? `<button type="button" class="btn btn-emaille btn-emaille--ghost recap-banner__btn" data-action="open-diary" data-testid="recap-diary-final"><span class="recap-banner__btn-title">Reisetagebuch</span><span class="recap-banner__btn-sub">ansehen</span></button>`
+      ? bannerButton({ testId: "recap-diary-final", action: "open-diary", title: "Reisetagebuch", sub: "ansehen", icon: ICON_DIARY })
       : "";
   return `
     <section class="recap-banner" data-testid="recap-entry">
@@ -408,18 +415,45 @@ export async function renderRecapVideo(appEl, tripId, { recapId = "" } = {}) {
     });
   }
 
+  function linePhotoCount(source, viewCounts) {
+    if (!Array.isArray(source?.photos)) return viewCounts.photos || 0;
+    const counted = countMaterialPhotos(source.photos);
+    if (counted > 0) return counted;
+    return viewCounts.photos || 0;
+  }
+
+  async function loadSceneThumbs(photos, ids) {
+    const signable = (photos || []).some(
+      (photo) => ids.has(photo.id) && (photo.thumbPath || photo.storagePath)
+    );
+    const missing = (map) => signable && ids.size > 0 && !Object.keys(map || {}).length;
+    const once = () => resolveThumbUrlMap(photos || [], ids);
+    try {
+      const first = await once();
+      if (!missing(first)) return { thumbs: first, failed: false };
+    } catch {
+      /* einmal erneut versuchen */
+    }
+    await new Promise((resolve) => setTimeout(resolve, THUMB_RETRY_MS));
+    if (!alive()) return { thumbs: {}, failed: false };
+    try {
+      const second = await once();
+      if (!missing(second)) return { thumbs: second, failed: false };
+    } catch {
+      /* Hinweis statt leerer Kacheln ohne Erklärung */
+    }
+    return { thumbs: {}, failed: signable };
+  }
+
   async function paintStory(current, row, source, { readonly, offerNewDraft = false }) {
     const view = viewModel(row.content, source.places);
     const thumbIds = new Set();
     for (const scene of view.scenes) {
       for (const mediaId of scene.mediaIds || []) thumbIds.add(mediaId);
     }
-    let thumbs = {};
-    try {
-      thumbs = await resolveThumbUrlMap(source.photos || [], thumbIds);
-    } catch {
-      thumbs = {};
-    }
+    const loaded = await loadSceneThumbs(source.photos || [], thumbIds);
+    const thumbs = loaded.thumbs || {};
+    const thumbsFailed = loaded.failed;
     if (!alive()) return;
     paintShell(current, { preview: true });
     const main = appEl.querySelector('[data-testid="recap-main"]');
@@ -487,12 +521,19 @@ export async function renderRecapVideo(appEl, tripId, { recapId = "" } = {}) {
               <strong data-testid="recap-duration-label">${escapeHtml(fmt(view.seconds))}</strong>
               <span class="recap-tag" data-testid="recap-startwert">Startwert</span>
             </div>
-            <p class="recap-duration__line" data-testid="recap-counts">${escapeHtml(ausZeile(view.counts))}</p>
+            <p class="recap-duration__line" data-testid="recap-counts">${escapeHtml(
+              ausZeile({ ...view.counts, photos: linePhotoCount(source, view.counts) })
+            )}</p>
             <p class="recap-duration__meta" data-testid="recap-formula-line">${escapeHtml(
               `${countWord(photosUsed, "Foto", "Fotos")} im Video · ${formatDeNumber(perPhoto)} s je Foto · +${formatDeNumber(perNote)} s je Notiz`
             )}</p>
           </div>
         </section>
+        ${
+          thumbsFailed
+            ? `<p class="recap-hint" data-testid="recap-thumb-hint">Vorschau gerade nicht verfügbar</p>`
+            : ""
+        }
         <div data-testid="recap-scenes">${rowsHtml}</div>
         ${extra ? `<p class="recap-more" data-testid="recap-more">${escapeHtml(extra)}</p>` : ""}
         ${actions}

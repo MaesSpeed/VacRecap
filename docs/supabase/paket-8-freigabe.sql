@@ -230,6 +230,12 @@ create policy notes_delete on public.notes for delete to authenticated
   );
 
 -- media
+-- Fotonotiz (caption) liegt auf der media-Zeile. Stand live, nur Doku, keine Policy-Änderung:
+-- media_update / media_delete: Besitzer und Mitbearbeiter dürfen jede Zeile ändern,
+-- der Beitragende nur eigene Zeilen (created_by = auth.uid()).
+-- Insert dürfen alle drei Rollen, wenn created_by = auth.uid().
+-- Ein Mitbearbeiter kann also per API die Notiz an einem fremden Foto ändern.
+-- Das entspricht dem Paket-8-Rechtemodell. Der Client bietet die Fotonotiz nur an eigenen Fotos an.
 drop policy if exists media_insert on public.media;
 create policy media_insert on public.media for insert to authenticated
   with check (

@@ -24,14 +24,22 @@ let renderGeneration = 0;
 let renderCoalescePending = false;
 let appStarted = false;
 let loadErrorShown = false;
+let hasRenderedScreen = false;
 
-function renderCloudLoadError(retry) {
+function cloudLoadErrorCopy(err) {
+  if (err instanceof CloudNetworkError) {
+    return "Die Cloud ist gerade nicht erreichbar. Bitte Verbindung prüfen.";
+  }
+  return "Die Cloud antwortet gerade nicht. Bitte gleich nochmal versuchen.";
+}
+
+function renderCloudLoadError(retry, err) {
   if (!appEl) return;
   loadErrorShown = true;
   appEl.className = "screen screen--login";
   appEl.innerHTML = `
     <main class="login-main" data-testid="cloud-load-error">
-      <p class="login-lead">Die Cloud ist gerade nicht erreichbar. Bitte Verbindung prüfen.</p>
+      <p class="login-lead">${cloudLoadErrorCopy(err)}</p>
       <button type="button" class="btn btn-emaille" data-testid="cloud-retry">Erneut versuchen</button>
     </main>
   `;
@@ -117,6 +125,7 @@ async function renderNow() {
       await renderUrlaubeScreen(appEl, vacations);
       break;
   }
+  if (appEl?.dataset.appRenderGen === String(gen)) hasRenderedScreen = true;
 }
 
 function scheduleRender() {
@@ -129,11 +138,11 @@ function scheduleRender() {
         showWarnToast(err.message);
         return;
       }
-      if (err instanceof CloudNetworkError) {
-        renderCloudLoadError(scheduleRender);
+      if (hasRenderedScreen) {
+        showWarnToast("Neu laden hat nicht geklappt. Bitte gleich nochmal versuchen.");
         return;
       }
-      renderCloudLoadError(scheduleRender);
+      renderCloudLoadError(scheduleRender, err);
     });
   });
 }

@@ -292,7 +292,10 @@ function renderPhotoCaptionEdits(media, canEditMedia, userId, thumbUrls) {
         : "";
       const when = formatTimeFromTs(item.ts);
       const label = `Notiz zum Foto ${index + 1}${when ? `, ${when}` : ""}`;
-      return `<button type="button" class="notes-add" data-action="edit-photo-caption" data-media-id="${item.id}" data-testid="photo-caption-edit" aria-label="${escapeHtml(label)}">${img}${ICON_NOTE} Notiz zum Foto</button>`;
+      const caption = img
+        ? `${img}${ICON_NOTE}<span class="notes-add__label">Notiz zum Foto</span>`
+        : `${ICON_NOTE} Notiz zum Foto`;
+      return `<button type="button" class="notes-add" data-action="edit-photo-caption" data-media-id="${item.id}" data-testid="photo-caption-edit" aria-label="${escapeHtml(label)}">${caption}</button>`;
     })
     .join("");
 }

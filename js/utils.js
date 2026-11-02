@@ -122,10 +122,7 @@ export function daysUntilStart(startIso, refIso = todayIso()) {
 export function formatCountdown(daysUntil) {
   if (daysUntil <= 0) return "heute";
   if (daysUntil === 1) return "in 1 Tag";
-  if (daysUntil < 30) return `in ${daysUntil} Tagen`;
-  const months = Math.round(daysUntil / 30);
-  if (months === 1) return "in 1 Monat";
-  return `in ${months} Monaten`;
+  return `in ${daysUntil} Tagen`;
 }
 
 export function escapeHtml(text) {

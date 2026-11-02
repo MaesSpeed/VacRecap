@@ -51,7 +51,11 @@ function readDiaryLocal(tripId) {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed.text !== "string") return null;
-    return { text: parsed.text, pending: Boolean(parsed.pending) };
+    return {
+      text: parsed.text,
+      pending: Boolean(parsed.pending),
+      savedAt: typeof parsed.savedAt === "string" ? parsed.savedAt : "",
+    };
   } catch {
     return null;
   }
@@ -64,16 +68,37 @@ function writeDiaryLocal(tripId, text, pending) {
       localStorage.removeItem(key);
       return;
     }
-    localStorage.setItem(key, JSON.stringify({ text: text || "", pending: Boolean(pending) }));
+    localStorage.setItem(
+      key,
+      JSON.stringify({ text: text || "", pending: Boolean(pending), savedAt: new Date().toISOString() })
+    );
   } catch {
     /* Speicher voll: der Text bleibt im Feld. */
   }
 }
 
-function seededDiaryText(tripId, serverText) {
+function discardDiaryLocal(tripId) {
+  try {
+    localStorage.removeItem(DIARY_LOCAL_PREFIX + tripId);
+  } catch {
+    /* bleibt liegen, der Servertext steht trotzdem im Feld */
+  }
+}
+
+function seededDiaryText(tripId, serverText, serverUpdatedAt) {
   const local = readDiaryLocal(tripId);
   const server = serverText || "";
-  if (local?.pending) return local.text || "";
+  if (local?.pending) {
+    if (!local.savedAt) return local.text || "";
+    const localMs = Date.parse(local.savedAt);
+    const serverMs = Date.parse(serverUpdatedAt || "");
+    if (Number.isFinite(localMs) && Number.isFinite(serverMs) && serverMs > localMs) {
+      discardDiaryLocal(tripId);
+      showToast("Neuerer Stand geladen");
+      return server;
+    }
+    return local.text || "";
+  }
   if (server) return server;
   return local?.text || "";
 }
@@ -347,7 +372,7 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
     await paintDraft(finalRow, { readonly: true, offerNew: true });
     return;
   }
-  paintCompose(notes?.sourceText || "");
+  paintCompose(notes?.sourceText || "", notes?.updatedAt || "");
 
   function paintShell(current) {
     appEl.className = "screen screen--settings";
@@ -374,7 +399,7 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
       </div>`;
   }
 
-  function paintCompose(initial) {
+  function paintCompose(initial, serverUpdatedAt) {
     let model = null;
     const main = appEl.querySelector('[data-testid="diary-main"]');
     if (!main) return;
@@ -399,7 +424,7 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
       </div>`;
     const textarea = main.querySelector('[data-testid="diary-source"]');
     const action = main.querySelector('[data-testid="diary-action"]');
-    textarea.value = clampDiaryText(seededDiaryText(tripId, initial || ""));
+    textarea.value = clampDiaryText(seededDiaryText(tripId, initial || "", serverUpdatedAt || ""));
     let lastSaved = textarea.value;
     let saveTimer = 0;
     let holdConflict = false;

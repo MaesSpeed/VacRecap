@@ -28,7 +28,6 @@ import {
 
 const LONG_PRESS_MS = 550;
 let peopleByTrip = new Map();
-const CHEVRON_SVG = `<svg width="8" height="14" viewBox="0 0 8 14" fill="none" aria-hidden="true"><path d="M1 1l6 6-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 export async function renderUrlaubeScreen(appEl, vacations) {
   const mountGen = appEl?.dataset?.appRenderGen ?? "";
@@ -49,6 +48,7 @@ export async function renderUrlaubeScreen(appEl, vacations) {
     await Promise.all(vacations.map(async (vacation) => [vacation.id, await loadTripPeople(vacation.id, { refresh: true })]))
   );
 
+  if (appEl?.dataset?.appRenderGen !== mountGen) return;
   appEl.className = "screen screen--urlaube";
   delete appEl.dataset.vacationId;
   delete appEl.dataset.cardSymbols;
@@ -195,14 +195,13 @@ function cardCompact(v, kind) {
           <h3 class="card-compact__title">${escapeHtml(v.title)}</h3>
           <div class="card-syms" data-card-syms></div>
         </div>
-        <p class="card-compact__dates">${formatDateRangeCard(v.startDate, v.endDate)}</p>
+        <p class="card-compact__dates">${formatDateRangeOverlay(v.startDate, v.endDate)}</p>
         ${companionTagsMarkup(v)}
         <div class="card-compact__meta">
           ${meta}
           <div class="avatars">${avatars}</div>
         </div>
       </div>
-      <span class="card-compact__chevron" aria-hidden="true">${CHEVRON_SVG}</span>
       ${
         kind === "past"
           ? `<div class="card-recap-actions" data-card-actions hidden></div>`

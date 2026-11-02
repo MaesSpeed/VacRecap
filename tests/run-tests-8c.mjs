@@ -298,10 +298,25 @@ async function runSuite(browserType, baseUrl, label) {
   const errors = [];
   page.on("pageerror", (err) => errors.push(String(err)));
 
+  await page.addInitScript(() => {
+    const RealDate = Date;
+    const fixed = Date.parse("2026-10-30T10:00:00.000Z");
+    const booted = RealDate.now();
+    function TestDate(...args) {
+      if (!new.target) return new RealDate(TestDate.now()).toString();
+      if (args.length === 0) return new RealDate(TestDate.now());
+      return new RealDate(...args);
+    }
+    TestDate.prototype = RealDate.prototype;
+    TestDate.now = () => fixed + (RealDate.now() - booted);
+    TestDate.parse = RealDate.parse.bind(RealDate);
+    TestDate.UTC = RealDate.UTC.bind(RealDate);
+    window.Date = TestDate;
+  });
   await page.goto(baseUrl);
   await page.waitForSelector('[data-testid="login-screen"]');
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  if (Number(build) !== 65) throw new Error(`${label}: Build ${build}, erwartet 65`);
+  if (Number(build) !== 66) throw new Error(`${label}: Build ${build}, erwartet 66`);
 
   await page.fill('input[name="email"]', "test@example.com");
   await page.click('form[data-step="email"] button[type="submit"]');
@@ -508,7 +523,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 8c tests OK (Build 65)");
+  console.log("Playwright 8c tests OK (Build 66)");
 }
 
 main().catch((err) => {
