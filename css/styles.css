@@ -1455,6 +1455,7 @@ body {
   gap: 0;
   padding: 0 0 9px;
   margin-bottom: 0;
+  position: relative;
 }
 
 .day-chips-wrap {
@@ -1484,11 +1485,72 @@ body {
 
 .day-chips:not(.day-chips--fill) .day-chip {
   flex: 0 0 auto;
-  min-width: calc((100vw - 28px - 24px) / 4);
+  /* Spalte ist höchstens 480 px. 100vw allein macht die Chips am PC breiter als die Leiste. */
+  min-width: calc((min(100vw, 480px) - 28px - 24px) / 4);
 }
 
 .day-chips::-webkit-scrollbar {
   display: none;
+}
+
+.day-chips-arrow {
+  display: none;
+  position: absolute;
+  top: 8px;
+  z-index: 3;
+  width: 35px;
+  height: 35px;
+  padding: 0;
+  border-radius: 11px;
+  border: 1.5px solid #c5e4f6;
+  background: linear-gradient(180deg, #fff, #eef5fb);
+  color: var(--navy);
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.day-chips-arrow--prev {
+  left: 8px;
+}
+
+.day-chips-arrow--next {
+  right: 8px;
+}
+
+.day-chips-arrow svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.day-chips-arrow::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .day-chips-arrow {
+    display: inline-flex;
+  }
+
+  .day-chips-arrow[hidden] {
+    display: none !important;
+  }
+
+  .day-chips:not(.day-chips--fill) {
+    cursor: grab;
+  }
+
+  .day-chips.day-chips--grab {
+    cursor: grabbing;
+    user-select: none;
+  }
 }
 
 .day-chip {

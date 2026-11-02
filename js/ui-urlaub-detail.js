@@ -71,6 +71,9 @@ import { mountTripFooter } from "./ui-trip-footer.js";
 import { escapeHtml, todayIso } from "./utils.js";
 import { tripCompanionsMarkup } from "./vacation.js";
 
+const CHIP_ARROW_PREV = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M14 6l-6 6 6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const CHIP_ARROW_NEXT = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M10 6l6 6-6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
 const tripUiState = new Map();
 
 export function clearTripUiState(vacationId) {
@@ -111,11 +114,13 @@ export async function storeTripSelection(vacationId, day, placeId) {
 }
 
 async function getState(id, vacation) {
+  const days = vacationDays(vacation);
   let state = tripUiState.get(id);
   if (!state) {
     const saved = await loadTripSelection(id);
+    const savedDay = saved?.activeDay;
     state = {
-      activeDay: saved?.activeDay ?? defaultActiveDay(vacation),
+      activeDay: savedDay && days.includes(savedDay) ? savedDay : defaultActiveDay(vacation),
       selectedByDay: saved?.selectedByDay ?? {},
       notesExpanded: new Set(),
       freeNotesExpanded: false,
@@ -132,6 +137,7 @@ async function getState(id, vacation) {
     };
     tripUiState.set(id, state);
   }
+  if (!days.includes(state.activeDay)) state.activeDay = defaultActiveDay(vacation);
   if (!state.freshPlaceIds) state.freshPlaceIds = new Set();
   if (!state.photoSelected) state.photoSelected = new Set();
   if (state.photoSelecting == null) state.photoSelecting = false;
@@ -187,10 +193,12 @@ export async function renderUrlaubDetail(appEl, id) {
     <div data-role="member-bar"></div>
     <div data-role="role-banner"></div>
     <div class="day-nav">
+      <button type="button" class="day-chips-arrow day-chips-arrow--prev" data-action="chips-prev" data-testid="day-chips-prev" aria-label="Frühere Tage" hidden>${CHIP_ARROW_PREV}</button>
       <div class="day-chips-wrap">
         <div class="day-chip-mark" data-testid="day-chip-mark" aria-hidden="true"></div>
         <div class="day-chips" data-role="chips" role="tablist"></div>
       </div>
+      <button type="button" class="day-chips-arrow day-chips-arrow--next" data-action="chips-next" data-testid="day-chips-next" aria-label="Spätere Tage" hidden>${CHIP_ARROW_NEXT}</button>
     </div>
     <main class="trip-content trip-content--places" data-role="day-content" data-testid="trip-content"></main>
     <input type="file" accept="image/*" capture="environment" hidden data-role="capture-photo-input" data-testid="capture-photo-input" />
@@ -462,6 +470,7 @@ export async function renderUrlaubDetail(appEl, id) {
     chipPhase = "idle";
     setChipFollow(false);
     clearChipTint();
+    syncChipArrows();
   }
 
   function prefersReducedMotion() {
@@ -663,6 +672,7 @@ export async function renderUrlaubDetail(appEl, id) {
     } else {
       applyChipActive(state.activeDay);
     }
+    syncChipArrows();
     if (chipFollowDay && chipFollowDay !== state.activeDay) {
       chipScrollToken += 1;
       chipFollowDay = null;
@@ -1975,6 +1985,107 @@ export async function renderUrlaubDetail(appEl, id) {
       await refreshDayList();
     }
   });
+
+  function syncChipArrows() {
+    const prev = appEl.querySelector("[data-action='chips-prev']");
+    const next = appEl.querySelector("[data-action='chips-next']");
+    if (!prev || !next) return;
+    const max = chipsEl.scrollWidth - chipsEl.clientWidth;
+    const over = max > 1 && !chipsEl.classList.contains("day-chips--follow");
+    prev.hidden = !(over && chipsEl.scrollLeft > 1);
+    next.hidden = !(over && chipsEl.scrollLeft < max - 1);
+  }
+
+  function scrollChipsStep(dir) {
+    if (chipPhase !== "idle") return;
+    const sample = chipsEl.querySelector(".day-chip");
+    const step = (sample?.offsetWidth || 80) + 8;
+    const max = Math.max(0, chipsEl.scrollWidth - chipsEl.clientWidth);
+    chipsEl.scrollLeft = Math.max(0, Math.min(max, chipsEl.scrollLeft + dir * step));
+    syncChipArrows();
+  }
+
+  function bindChipBarDesktop() {
+    appEl.querySelector("[data-action='chips-prev']")?.addEventListener("click", () => scrollChipsStep(-1));
+    appEl.querySelector("[data-action='chips-next']")?.addEventListener("click", () => scrollChipsStep(1));
+    chipsEl.addEventListener("scroll", () => syncChipArrows(), { passive: true });
+    const onResize = () => syncChipArrows();
+    window.addEventListener("resize", onResize);
+    const chipResize = typeof ResizeObserver === "function" ? new ResizeObserver(onResize) : null;
+    chipResize?.observe(chipsEl);
+    const prevCleanup = appEl._screenCleanup;
+    appEl._screenCleanup = () => {
+      chipResize?.disconnect();
+      window.removeEventListener("resize", onResize);
+      prevCleanup?.();
+    };
+
+    chipsEl.addEventListener(
+      "wheel",
+      (event) => {
+        if (chipPhase !== "idle") return;
+        if (event.ctrlKey) return;
+        const max = chipsEl.scrollWidth - chipsEl.clientWidth;
+        if (max <= 1) return;
+        if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+        event.preventDefault();
+        const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? chipsEl.clientWidth : 1;
+        chipsEl.scrollLeft = Math.max(0, Math.min(max, chipsEl.scrollLeft + event.deltaY * unit));
+        syncChipArrows();
+      },
+      { passive: false }
+    );
+
+    let chipGrab = null;
+    let suppressChipClick = false;
+    chipsEl.addEventListener("pointerdown", (event) => {
+      if (event.pointerType !== "mouse" || event.button !== 0) return;
+      if (chipPhase !== "idle") return;
+      chipGrab = { id: event.pointerId, x: event.clientX, left: chipsEl.scrollLeft, moved: false };
+    });
+    chipsEl.addEventListener("pointermove", (event) => {
+      if (!chipGrab || event.pointerId !== chipGrab.id) return;
+      const dx = event.clientX - chipGrab.x;
+      if (!chipGrab.moved) {
+        if (Math.abs(dx) < 5) return;
+        chipGrab.moved = true;
+        chipsEl.classList.add("day-chips--grab");
+        try {
+          chipsEl.setPointerCapture(event.pointerId);
+        } catch {
+          /* synthetischer Pointer */
+        }
+      }
+      chipsEl.scrollLeft = chipGrab.left - dx;
+      syncChipArrows();
+      if (event.cancelable) event.preventDefault();
+    });
+    const endChipGrab = (event) => {
+      if (!chipGrab || event.pointerId !== chipGrab.id) return;
+      const moved = chipGrab.moved;
+      chipGrab = null;
+      chipsEl.classList.remove("day-chips--grab");
+      if (!moved) return;
+      suppressChipClick = true;
+      setTimeout(() => {
+        suppressChipClick = false;
+      }, 400);
+    };
+    chipsEl.addEventListener("pointerup", endChipGrab);
+    chipsEl.addEventListener("pointercancel", endChipGrab);
+    chipsEl.addEventListener(
+      "click",
+      (event) => {
+        if (!suppressChipClick) return;
+        suppressChipClick = false;
+        event.preventDefault();
+        event.stopPropagation();
+      },
+      true
+    );
+  }
+
+  bindChipBarDesktop();
 
   chipsEl.addEventListener("click", (e) => {
     const chip = e.target.closest(".day-chip");
