@@ -1292,7 +1292,7 @@ body {
   transition:
     opacity 0.22s ease,
     transform 0.22s ease;
-  pointer-events: auto;
+  pointer-events: none;
   position: relative;
   width: max-content;
   max-width: calc(100vw - 28px);
@@ -1350,6 +1350,7 @@ body {
 }
 
 .toast__undo {
+  pointer-events: auto;
   border: 1px solid rgba(255, 255, 255, 0.28);
   background: rgba(255, 255, 255, 0.1);
   color: #e8f4ff;
@@ -4247,6 +4248,109 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+.photo-cap-list {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid #efe6cf;
+}
+
+.photo-cap-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: 8px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #14202b;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.photo-cap-row + .photo-cap-row {
+  border-top: 1px solid #efe6cf;
+}
+
+.photo-cap-row:focus-visible {
+  outline: 2px solid #0066b3;
+  outline-offset: 2px;
+}
+
+.photo-cap-row__hit {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+}
+
+.photo-cap-row .credits-list__thumb,
+.photo-cap-row__ph {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  flex: 0 0 auto;
+  object-fit: cover;
+  background: linear-gradient(180deg, #c5dff3 0 46%, #f3d7b0 46% 100%);
+}
+
+.photo-cap-row__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #1a3144;
+  font-weight: 500;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.photo-cap-row__placeholder {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #a8b3be;
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.photo-cap-row__pencil {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: #6f7f8e;
+  line-height: 0;
+}
+
+.photo-cap-row__pencil svg {
+  display: block;
+}
+
+.photo-cap-row__pencil--muted {
+  color: #c5ced6;
+}
+
+.photo-cap-row--readonly {
+  cursor: pointer;
+}
+
+.photo-cap-row--readonly .photo-cap-row__text {
+  color: #3d4e5c;
 }
 
 .free-notes {

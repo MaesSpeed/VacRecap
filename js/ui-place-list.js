@@ -15,6 +15,7 @@ const ICON_CAM = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" st
 const ICON_GALLERY = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="M3 16l5-4 3 3 2-2 8 6"/></svg>`;
 const PIN_CAM_BADGE = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>`;
 const ICON_NOTE = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>`;
+const ICON_CAPTION_PENCIL = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>`;
 const PLAY_SVG = `<svg class="tile__play" width="14" height="14" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>`;
 
 function sortNotesNewestFirst(notes) {
@@ -199,14 +200,14 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
             ? `<p class="photo-select-hint" data-testid="photo-foreign-hint">Fremde Fotos sind nicht wählbar.</p>`
             : "";
 
-        const captionRows = selected ? renderPhotoCaptionRows(media, thumbUrls) : "";
-        const captionEdits = selected ? renderPhotoCaptionEdits(media, canEditMedia, photoSelect?.userId, thumbUrls) : "";
+        const captionBlock = selected
+          ? renderPhotoCaptionBlock(media, canEditMedia, photoSelect?.userId, thumbUrls)
+          : "";
 
         const notesBlock =
           sortedNotes.length || selected
             ? `<div class="np">
-              ${captionEdits}
-              ${captionRows}
+              ${captionBlock}
               ${previewNotes
                 .map(
                   (n) => `
@@ -280,39 +281,74 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
   };
 }
 
-function renderPhotoCaptionEdits(media, canEditMedia, userId, thumbUrls) {
+function uploadedPhotosByCapture(media) {
   return (media || [])
-    .filter((item) => item.type !== "video" && (item.uploadStatus || "uploaded") === "uploaded" && mediaOwnedBy(item, userId) && canEditMedia)
+    .filter((item) => item.type !== "video" && (item.uploadStatus || "uploaded") === "uploaded")
     .slice()
-    .sort((a, b) => a.ts - b.ts)
-    .map((item, index) => {
-      const thumb = thumbUrls?.[item.id];
-      const img = thumb
-        ? `<img class="credits-list__thumb" src="${thumb}" alt="" data-testid="photo-caption-edit-thumb" />`
-        : "";
-      const when = formatTimeFromTs(item.ts);
-      const label = `Notiz zum Foto ${index + 1}${when ? `, ${when}` : ""}`;
-      const caption = img
-        ? `${img}${ICON_NOTE}<span class="notes-add__label">Notiz zum Foto</span>`
-        : `${ICON_NOTE} Notiz zum Foto`;
-      return `<button type="button" class="notes-add" data-action="edit-photo-caption" data-media-id="${item.id}" data-testid="photo-caption-edit" aria-label="${escapeHtml(label)}">${caption}</button>`;
-    })
-    .join("");
+    .sort((a, b) => (a.ts || 0) - (b.ts || 0));
 }
 
-function renderPhotoCaptionRows(media, thumbUrls) {
-  return (media || [])
-    .filter((item) => item.type !== "video" && (item.uploadStatus || "uploaded") === "uploaded" && item.caption)
-    .slice()
-    .sort((a, b) => a.ts - b.ts)
-    .map((item) => {
-      const thumb = thumbUrls[item.id];
-      const img = thumb
-        ? `<img class="credits-list__thumb" src="${thumb}" alt="" data-testid="photo-caption-thumb" />`
-        : "";
-      return `<button type="button" class="nr nr__text--btn" data-action="open-photo-caption" data-media-id="${item.id}" data-testid="photo-caption-row">${img}<span class="nr__text">${escapeHtml(item.caption)}</span></button>`;
-    })
-    .join("");
+function captionText(item) {
+  return typeof item?.caption === "string" ? item.caption.trim() : "";
+}
+
+function captionAriaLabel(index, item) {
+  const when = formatTimeFromTs(item.ts);
+  return `Notiz zum Foto ${index + 1}${when ? `, ${when}` : ""}`;
+}
+
+function captionThumbHtml(item, thumbUrls, testId) {
+  const thumb = thumbUrls?.[item.id];
+  if (!thumb) return `<span class="photo-cap-row__ph" aria-hidden="true"></span>`;
+  return `<img class="credits-list__thumb" src="${thumb}" alt="" data-testid="${testId}" />`;
+}
+
+function renderPhotoCaptionEdits(media, canEditMedia, userId, thumbUrls) {
+  if (!canEditMedia) return [];
+  return uploadedPhotosByCapture(media).flatMap((item, index) => {
+    if (!mediaOwnedBy(item, userId)) return [];
+    const note = captionText(item);
+    const filled = Boolean(note);
+    const label = captionAriaLabel(index, item);
+    const thumb = captionThumbHtml(item, thumbUrls, "photo-caption-edit-thumb");
+    const pencil = `<span class="photo-cap-row__pencil${filled ? "" : " photo-cap-row__pencil--muted"}" aria-hidden="true">${ICON_CAPTION_PENCIL}</span>`;
+    const text = filled
+      ? `<span class="notes-add__label photo-cap-row__text">${escapeHtml(note)}</span>`
+      : `<span class="notes-add__label photo-cap-row__placeholder">Notiz hinzufügen</span>`;
+    const body = filled ? `${thumb}${text}${pencil}` : `${thumb}${pencil}${text}`;
+    return [
+      {
+        ts: item.ts || 0,
+        index,
+        html: `<button type="button" class="photo-cap-row${filled ? " photo-cap-row--filled" : " photo-cap-row--empty"}" data-action="edit-photo-caption" data-media-id="${item.id}" data-testid="photo-caption-edit" aria-label="${escapeHtml(label)}"><span class="photo-cap-row__hit" data-testid="photo-caption-row" data-media-id="${item.id}">${body}</span></button>`,
+      },
+    ];
+  });
+}
+
+function renderPhotoCaptionRows(media, thumbUrls, { canEditMedia = false, userId = null } = {}) {
+  return uploadedPhotosByCapture(media).flatMap((item, index) => {
+    const note = captionText(item);
+    if (!note) return [];
+    if (canEditMedia && mediaOwnedBy(item, userId)) return [];
+    const label = captionAriaLabel(index, item);
+    return [
+      {
+        ts: item.ts || 0,
+        index,
+        html: `<button type="button" class="photo-cap-row photo-cap-row--readonly" data-action="open-photo-caption" data-media-id="${item.id}" data-testid="photo-caption-row" aria-label="${escapeHtml(label)}">${captionThumbHtml(item, thumbUrls, "photo-caption-thumb")}<span class="photo-cap-row__text">${escapeHtml(note)}</span></button>`,
+      },
+    ];
+  });
+}
+
+function renderPhotoCaptionBlock(media, canEditMedia, userId, thumbUrls) {
+  const rows = [
+    ...renderPhotoCaptionEdits(media, canEditMedia, userId, thumbUrls),
+    ...renderPhotoCaptionRows(media, thumbUrls, { canEditMedia, userId }),
+  ].sort((a, b) => a.ts - b.ts || a.index - b.index);
+  if (!rows.length) return "";
+  return `<div class="photo-cap-list">${rows.map((row) => row.html).join("")}</div>`;
 }
 
 function qaButtons(place, canEditMedia, canEditPlace) {
@@ -419,7 +455,7 @@ export function visibleThumbMediaIds(items, selectedId) {
         if ((m.uploadStatus || "uploaded") === "uploaded") ids.add(m.id);
       });
       media.forEach((m) => {
-        if (m.caption && (m.uploadStatus || "uploaded") === "uploaded") ids.add(m.id);
+        if (m.type !== "video" && (m.uploadStatus || "uploaded") === "uploaded") ids.add(m.id);
       });
     }
     if (dimMedia) ids.add(dimMedia.id);
