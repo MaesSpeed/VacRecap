@@ -415,14 +415,27 @@ async function runFlows(page, state, label) {
     (await page.locator('[data-testid="place-photo"][data-media-id="m-own-2"] [data-testid="photo-caption-mark"]').count()) === 0,
     `${label}: leeres Foto trägt ein Notizzeichen`
   );
+  const rows = page.locator('[data-page="current"] .oc--selected [data-testid="photo-caption-row"]');
+  assert((await rows.count()) === 3, `${label}: Ort zeigt ${await rows.count()} Fotozeilen statt 3`);
+  const order = await rows.evaluateAll((els) => els.map((el) => el.getAttribute("data-media-id")));
+  assert(order.join(",") === "m-own-1,m-own-2,m-fremd", `${label}: Fotozeilen ${order.join(",")}`);
   const row = page.locator('[data-testid="photo-caption-row"][data-media-id="m-own-1"]');
   assert((await row.innerText()).includes("Morgenlicht"), `${label}: Notizliste ohne Fotonotiz`);
-  assert((await row.locator('[data-testid="photo-caption-thumb"]').count()) === 1, `${label}: Fotonotiz ohne Thumbnail`);
+  assert((await row.locator('[data-testid="photo-caption-edit-thumb"]').count()) === 1, `${label}: Fotonotiz ohne Thumbnail`);
+  const clamp = await row.locator(".photo-cap-row__text").evaluate((el) => getComputedStyle(el).webkitLineClamp || getComputedStyle(el).lineClamp);
+  assert(String(clamp) === "2", `${label}: Notiz nicht auf 2 Zeilen begrenzt (${clamp})`);
+  const empty = page.locator('[data-testid="photo-caption-row"][data-media-id="m-own-2"]');
+  assert((await empty.innerText()).includes("Notiz hinzufügen"), `${label}: leere Zeile ohne Hinweis`);
+  assert(!(await empty.innerText()).includes("Morgenlicht"), `${label}: leere Zeile zeigt eine fremde Notiz`);
   assert(
     (await page.locator('[data-testid="photo-caption-edit"][data-media-id="m-fremd"]').count()) === 0,
     `${label}: fremdes Foto ist bearbeitbar`
   );
-  assert((await page.locator('[data-testid="photo-caption-row"][data-media-id="m-fremd"]').innerText()).includes("Fremde Notiz"), `${label}: fremde Notiz fehlt`);
+  const foreign = page.locator('[data-testid="photo-caption-row"][data-media-id="m-fremd"]');
+  assert((await foreign.innerText()).includes("Fremde Notiz"), `${label}: fremde Notiz fehlt`);
+  assert((await foreign.locator("svg").count()) === 0, `${label}: fremde Notiz hat einen Stift`);
+  assert((await foreign.locator('[data-testid="photo-caption-thumb"]').count()) === 1, `${label}: fremde Notiz ohne Thumbnail`);
+  assert((await foreign.getAttribute("data-action")) === "open-photo-caption", `${label}: fremde Notiz ist nicht nur lesbar`);
 
   const editButtons = page.locator('[data-page="current"] [data-testid="photo-caption-edit"]');
   const editLabels = await editButtons.evaluateAll((els) => els.map((el) => el.getAttribute("aria-label") || ""));
@@ -449,6 +462,18 @@ async function runFlows(page, state, label) {
   await page.waitForSelector('[data-testid="photo-caption-sheet"]', { state: "detached" });
 
   await row.click();
+  await page.waitForSelector('[data-testid="photo-caption-sheet"]');
+  assert((await page.locator('[data-testid="photo-caption-sheet"]').count()) === 1, `${label}: Zeile öffnet mehr als ein Sheet`);
+  assert((await page.locator('[data-testid="photo-caption-text"]').inputValue()) === "Morgenlicht", `${label}: Zeile öffnet die falsche Notiz`);
+  await page.click('[data-testid="photo-caption-cancel"]');
+  await page.waitForSelector('[data-testid="photo-caption-sheet"]', { state: "detached" });
+  await empty.click();
+  await page.waitForSelector('[data-testid="photo-caption-sheet"]');
+  assert((await page.locator('[data-testid="photo-caption-text"]').inputValue()) === "", `${label}: leere Zeile öffnet eine vorhandene Notiz`);
+  await page.click('[data-testid="photo-caption-cancel"]');
+  await page.waitForSelector('[data-testid="photo-caption-sheet"]', { state: "detached" });
+
+  await page.locator('[data-testid="place-photo"][data-media-id="m-own-1"]').click();
   await page.waitForSelector('[data-testid="media-viewer-caption"]');
   assert((await page.locator('[data-testid="media-viewer-caption"]').innerText()).includes("Morgenlicht"), `${label}: Großansicht ohne Notiz`);
   assert((await page.locator('[data-testid="media-viewer"] [data-testid="photo-caption-edit"]').count()) === 1, `${label}: eigene Notiz ohne Stift`);
@@ -478,9 +503,17 @@ async function runFlows(page, state, label) {
   );
 
   await page.click('[data-testid="app-toast"] [data-action="undo"]');
-  await page.waitForFunction(() => !document.querySelector('[data-testid="photo-caption-row"][data-media-id="m-own-2"]'));
+  await page.waitForFunction(() => {
+    const line = document.querySelector('[data-testid="photo-caption-row"][data-media-id="m-own-2"]');
+    const text = line?.innerText || "";
+    return text.includes("Notiz hinzufügen") && !text.includes("Hafen");
+  });
   const undone = state.mediaPatches.at(-1);
   assertCaptionPatch(undone.patch, null, `${label} rückgängig`);
+  assert(
+    (await page.locator('[data-testid="place-photo"][data-media-id="m-own-2"] [data-testid="photo-caption-mark"]').count()) === 0,
+    `${label}: Notizzeichen bleibt nach Rückgängig`
+  );
 
   await openCaptionSheet(page, "m-own-2");
   await page.fill('[data-testid="photo-caption-text"]', "Hafen");
@@ -505,7 +538,11 @@ async function runFlows(page, state, label) {
   await page.waitForFunction(() => !document.querySelector('[data-testid="media-viewer-caption"]'));
   assertCaptionPatch(state.mediaPatches[beforeDelete].patch, null, `${label} löschen`);
   await page.click('[data-testid="media-viewer-close"]');
-  await page.waitForFunction(() => !document.querySelector('[data-testid="photo-caption-row"][data-media-id="m-own-2"]'));
+  await page.waitForFunction(() => {
+    const line = document.querySelector('[data-testid="photo-caption-row"][data-media-id="m-own-2"]');
+    const text = line?.innerText || "";
+    return text.includes("Notiz hinzufügen") && !text.includes("Steg") && !text.includes("Hafen");
+  });
 
   const beforeEscape = state.mediaPatches.length;
   await openCaptionSheet(page, "m-own-1");
@@ -553,7 +590,7 @@ async function runFlows(page, state, label) {
   await page.waitForFunction(() => (document.body.innerText || "").includes("Morgenlicht"));
   assert((await page.locator('[data-testid="photo-caption-edit"]').count()) >= 1, `${label}: Beitragender bearbeitet die eigene Notiz nicht`);
   assert((await page.locator('[data-testid="photo-caption-row"][data-media-id="m-own-1"]').innerText()).includes("Morgenlicht"), `${label}: Betrachter sieht die Notiz nicht`);
-  await page.locator('[data-testid="photo-caption-row"][data-media-id="m-own-1"]').click();
+  await page.locator('[data-testid="place-photo"][data-media-id="m-own-1"]').click();
   await page.waitForSelector('[data-testid="media-viewer-caption"]');
   assert((await page.locator('[data-testid="media-viewer"] [data-testid="photo-caption-edit"]').count()) === 1, `${label}: Beitragender bearbeitet in der Großansicht nicht`);
   assert((await page.locator('[data-testid="media-viewer-caption"]').innerText()).includes("Morgenlicht"), `${label}: Großansicht für Betrachter leer`);
