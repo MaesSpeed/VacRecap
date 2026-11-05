@@ -1292,7 +1292,7 @@ body {
   transition:
     opacity 0.22s ease,
     transform 0.22s ease;
-  pointer-events: auto;
+  pointer-events: none;
   position: relative;
   width: max-content;
   max-width: calc(100vw - 28px);
@@ -1350,6 +1350,7 @@ body {
 }
 
 .toast__undo {
+  pointer-events: auto;
   border: 1px solid rgba(255, 255, 255, 0.28);
   background: rgba(255, 255, 255, 0.1);
   color: #e8f4ff;
