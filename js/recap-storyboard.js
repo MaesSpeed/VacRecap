@@ -4,6 +4,15 @@ function round1(n) {
   return Math.round(n * 10) / 10;
 }
 
+/** Titel und Untertitel einer Tageskarte. Ohne Tagestitel nur die Anzahl. */
+export function dayMapCaption(dateLabel, legend, count) {
+  const n = Math.max(0, Number(count) || 0);
+  const places = n === 1 ? "1 Ort" : `${n} Orte`;
+  const title = dateLabel ? `Tageskarte · ${dateLabel}` : "Tageskarte";
+  const subtitle = legend ? `${legend} · ${places}` : places;
+  return { title, subtitle };
+}
+
 function byTimeThenId(a, b, time) {
   const delta = time(a) - time(b);
   if (delta) return delta;
@@ -60,7 +69,25 @@ export function buildVideoRecap({ places = [], photos = [], notes = [] } = {}) {
   const planned = plan(inputs);
   if (!planned.ok) return { ok: false, reason: planned.reason || "too-few-photos", counts };
   const scenes = [{ type: "title", seconds: P.introS }];
+  let previousDay = null;
+  let dayMaps = 0;
   hard.forEach((place, index) => {
+    const day = place.day || "";
+    if (day !== previousDay) {
+      const waypointIds = [];
+      for (let cursor = index; cursor < hard.length; cursor += 1) {
+        if ((hard[cursor].day || "") !== day) break;
+        waypointIds.push(hard[cursor].id);
+      }
+      scenes.push({
+        type: "daymap",
+        date: day,
+        waypoint_ids: waypointIds,
+        seconds: P.dayMapS,
+      });
+      dayMaps += 1;
+      previousDay = day;
+    }
     const chosenPhotos = (photosByPlace.get(place.id) || [])
       .slice()
       .sort((a, b) => byTimeThenId(a, b, (item) => item.ts || 0))
@@ -91,10 +118,19 @@ export function buildVideoRecap({ places = [], photos = [], notes = [] } = {}) {
       photosPerPlace: planned.photosPerPlace,
       minS: P.minS,
       maxS: P.maxS,
+      dayMapS: P.dayMapS,
     },
     counts,
-    seconds: planned.seconds,
+    seconds: round1(planned.seconds + dayMaps * P.dayMapS),
     scenes: scenes.map((scene) => {
+      if (scene.type === "daymap") {
+        return {
+          type: "daymap",
+          date: scene.date,
+          waypoint_ids: scene.waypoint_ids,
+          seconds: scene.seconds,
+        };
+      }
       if (scene.type !== "place") return { type: scene.type, seconds: scene.seconds };
       return {
         type: "place",
