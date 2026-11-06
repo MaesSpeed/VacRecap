@@ -8,9 +8,11 @@ export const P = {
   perNoteS: 1.5,
   maxNotesPerPlace: 2,
   minS: 30,
+  // Früherer Deckel. Wird nicht mehr angewendet: die Dauer darf darüber wachsen.
   maxS: 150,
   maxPhotoS: 2.5,
   minPhotos: 6,
+  dayMapS: 3,
 };
 
 // places: [{ photos: n, notes: n }]
@@ -33,8 +35,7 @@ export function plan(places, p = P) {
     const extra = (p.minS - r.s) / r.used;
     r = calc(r.perPlace, Math.min(p.maxPhotoS, p.perPhotoS + extra));
   }
-  while (r.s > p.maxS && r.perPlace > 1) r = calc(r.perPlace - 1, p.perPhotoS);
-  const seconds = Math.max(p.minS, Math.min(p.maxS, r.s));
+  const seconds = Math.max(p.minS, r.s);
   return {
     ok: true,
     seconds,
