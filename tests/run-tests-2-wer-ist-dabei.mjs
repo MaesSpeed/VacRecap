@@ -324,7 +324,7 @@ async function runFlows(page, state, label, missingCode) {
   await page.click('button[data-action="apply"]');
 
   const labels = (await page.locator('[data-role="tag-chips"] [data-tag]').allInnerTexts()).map((text) => text.trim());
-  assert(labels.join("|") === "Allein|Partner:in|Familie|Freunde", `${label}: Beschriftungen ${labels.join("|")}`);
+  assert(labels.join("|") === "Allein|Partner|Familie|Freunde", `${label}: Beschriftungen ${labels.join("|")}`);
   assert(
     (await page.locator('[data-role="name-input"]').getAttribute("enterkeyhint")) === "done",
     `${label}: enterkeyhint`
@@ -365,13 +365,15 @@ async function runFlows(page, state, label, missingCode) {
   const stored = state.trip(tripId);
   assert(JSON.stringify(stored.companion_tags) === JSON.stringify(["familie", "freunde"]), `${label}: Tags ${stored.companion_tags}`);
   assert(JSON.stringify(stored.companions) === JSON.stringify(["Anna", "Ben"]), `${label}: Namen ${stored.companions}`);
-  assert(
-    (await page.locator(".screen--trip [data-testid='companion-tags']").getAttribute("data-tags")) === "familie freunde",
-    `${label}: Detail zeigt die Tags nicht`
-  );
-  assert((await page.locator("[data-testid='companion-names']").innerText()).includes("Ben"), `${label}: Detail ohne pending Name`);
-  assert((await page.locator(".screen--trip [data-testid='companion-tags']").innerText()).includes("Familie"), `${label}: Text Familie fehlt`);
-  assert(!(await page.locator(".screen--trip [data-testid='companion-tags']").innerText()).includes("Allein"), `${label}: Allein steht fälschlich im Detail`);
+  assert((await page.locator(".screen--trip [data-testid='trip-companions']").count()) === 0, `${label}: Tagesansicht ohne Begleiter-Zeile`);
+  await openEdit(page, tripId, "Gardasee");
+  await expectTags(page, ["familie", "freunde"], `${label} Bearbeiten`);
+  const editChips = await page.locator('[data-role="name-chips"]').innerText();
+  assert(editChips.includes("Anna") && editChips.includes("Ben"), `${label}: Namen in Reise bearbeiten «${editChips}»`);
+  await page.evaluate(() => {
+    history.back();
+  });
+  await page.waitForSelector(".screen--trip");
 
   state.trips.push({
     id: "trip-wien",
@@ -400,8 +402,8 @@ async function runFlows(page, state, label, missingCode) {
     `${label}: Reisekarte liest die Tags nicht`
   );
   assert(
-    (await page.locator('[data-vacation-id="trip-wien"] [data-testid="companion-tags"]').innerText()).includes("Partner:in"),
-    `${label}: Karte ohne Partner:in`
+    (await page.locator('[data-vacation-id="trip-wien"] [data-testid="companion-tags"]').innerText()).includes("Partner"),
+    `${label}: Karte ohne Partner`
   );
 
   await openEdit(page, "trip-wien", "Wien");
@@ -433,8 +435,18 @@ async function runFlows(page, state, label, missingCode) {
   assert(attempts[1].title === "Gardasee ohne Spalte", `${label}: Titel nicht gespeichert`);
   assert(attempts[1].companions.includes("Cem") && attempts[1].companions.includes("Anna"), `${label}: Namen ${attempts[1].companions}`);
   assert(state.trip(tripId).title === "Gardasee ohne Spalte", `${label}: Zeile ohne neuen Titel`);
-  assert((await page.locator(".screen--trip [data-testid='companion-tags']").count()) === 0, `${label}: Tags trotz fehlender Spalte sichtbar`);
-  assert((await page.locator("[data-testid='companion-names']").innerText()).includes("Cem"), `${label}: pending Name fehlt nach Fallback`);
+  assert((await page.locator(".screen--trip [data-testid='trip-companions']").count()) === 0, `${label}: Tagesansicht zeigt keine Begleiter-Zeile`);
+  await openEdit(page, tripId, "Gardasee ohne Spalte");
+  await expectTags(page, [], `${label} ohne Spalte (Bearbeiten)`);
+  const chipsFallback = await page.locator('[data-role="name-chips"]').innerText();
+  assert(
+    chipsFallback.includes("Cem") && chipsFallback.includes("Anna"),
+    `${label}: Namen nach Fallback «${chipsFallback}»`
+  );
+  await page.evaluate(() => {
+    history.back();
+  });
+  await page.waitForSelector(".screen--trip");
 
   const parallel = await page.evaluate(async (id) => {
     const { getAllVacations, getVacation } = await import("./js/db.js");
@@ -488,7 +500,7 @@ async function runSuite(browserType, baseUrl, label, viewport, missingCode) {
   const where = `${label} ${viewport.width}x${viewport.height} ${missingCode}`;
   await page.goto(baseUrl);
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 68, `${where}: Build ${build}`);
+  assert(Number(build) === 69, `${where}: Build ${build}`);
   await runFlows(page, state, where, missingCode);
   const unexpected = pageErrors.filter((err) => !err.includes("access control checks"));
   assert(!unexpected.length, `${where}: Seitenfehler ${unexpected.join(" | ")}`);

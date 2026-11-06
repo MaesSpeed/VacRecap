@@ -110,6 +110,15 @@ export function abandonOverlayHistory() {
   syncToastRootPosition();
 }
 
+/** Nur interne Referenzen leeren, kein history.back() — z. B. wenn das Overlay-DOM manuell geleert wurde. */
+export function resetOverlayStack() {
+  activeClose = null;
+  activeDismiss = null;
+  closeStack.length = 0;
+  dismissStack.length = 0;
+  syncToastRootPosition();
+}
+
 export function dismissOverlayOnly() {
   while (activeClose) {
     const fn = activeClose;

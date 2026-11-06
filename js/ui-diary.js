@@ -33,7 +33,7 @@ import {
 } from "./recap-service.js";
 import { navigate } from "./router.js";
 import { showToast, showWarnToast } from "./toast.js";
-import { resolveTripEditing, ROLE_UNKNOWN_MESSAGE, tripRoleLoadFailed } from "./trip-role.js";
+import { getConfirmedTripRole, isReadOnlyTripRole, resolveTripEditing, ROLE_UNKNOWN_MESSAGE, tripRoleLoadFailed } from "./trip-role.js";
 import { openConfirmDialog } from "./ui-confirm.js";
 import { resolveThumbUrlMap } from "./ui-place-list.js";
 import { escapeHtml, formatDateRangeCard, parseIsoDate, todayIso } from "./utils.js";
@@ -331,7 +331,8 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
     return;
   }
 
-  const canEdit = await canEditDiary(tripId);
+  const [canEdit, roleInfo] = await Promise.all([canEditDiary(tripId), getConfirmedTripRole(tripId)]);
+  const readOnlyObserver = isReadOnlyTripRole(roleInfo.role);
   paintShell(vacation);
   if (!alive()) return;
 
@@ -368,13 +369,13 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
       paintUnavailable(unavailableCopy(tripId, "Noch kein Reisetagebuch."));
       return;
     }
-    await paintDraft(finalRow, { readonly: true, offerNew: false });
+    await paintDraft(finalRow, { readonly: true, offerNew: false, readOnlyObserver });
     return;
   }
   if (focusFinal || focused?.status === "final") {
     const row = focusFinal ? finalRow : focused;
     if (row) {
-      await paintDraft(row, { readonly: true, offerNew: true });
+      await paintDraft(row, { readonly: true, offerNew: true, readOnlyObserver });
       return;
     }
     paintUnavailable("Noch kein Reisetagebuch.");
@@ -386,7 +387,7 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
   }
   if (recapId) {
     if (finalRow) {
-      await paintDraft(finalRow, { readonly: true, offerNew: true });
+      await paintDraft(finalRow, { readonly: true, offerNew: true, readOnlyObserver });
       return;
     }
     paintUnavailable("Dieser Entwurf ist nicht mehr da.");
@@ -397,7 +398,7 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
     return;
   }
   if (finalRow) {
-    await paintDraft(finalRow, { readonly: true, offerNew: true });
+    await paintDraft(finalRow, { readonly: true, offerNew: true, readOnlyObserver });
     return;
   }
   let myUserId = "";
@@ -655,7 +656,7 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
     syncChrome();
   }
 
-  async function paintDraft(row, { readonly, offerNew = false }) {
+  async function paintDraft(row, { readonly, offerNew = false, readOnlyObserver = false }) {
     const content = row?.content || {};
     const days = Array.isArray(content.days) ? content.days : [];
     const ids = new Set();
@@ -724,7 +725,9 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
         </article>`;
       })
       .join("");
-    const actions = readonly
+    const actions = readOnlyObserver
+      ? ""
+      : readonly
       ? offerNew
         ? `<button type="button" class="btn btn-emaille btn-emaille--block" data-testid="diary-new-draft">Neuer Entwurf</button>`
         : ""
@@ -748,9 +751,11 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
         ${actions}
       </div>`;
     if (readonly) {
-      main.querySelector('[data-testid="diary-new-draft"]')?.addEventListener("click", () => {
-        void startNewDraft(row);
-      });
+      if (!readOnlyObserver) {
+        main.querySelector('[data-testid="diary-new-draft"]')?.addEventListener("click", () => {
+          void startNewDraft(row);
+        });
+      }
       return;
     }
     main.querySelectorAll('[data-testid="diary-edit"]').forEach((button) => {

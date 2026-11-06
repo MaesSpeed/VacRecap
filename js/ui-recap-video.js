@@ -16,7 +16,7 @@ import {
 } from "./recap-service.js";
 import { buildVideoRecap, countMaterialPhotos } from "./recap-storyboard.js";
 import { navigate } from "./router.js";
-import { resolveTripEditing, ROLE_UNKNOWN_MESSAGE, tripRoleLoadFailed } from "./trip-role.js";
+import { getConfirmedTripRole, isReadOnlyTripRole, resolveTripEditing, ROLE_UNKNOWN_MESSAGE, tripRoleLoadFailed } from "./trip-role.js";
 import { openConfirmDialog } from "./ui-confirm.js";
 import { resolveThumbUrlMap } from "./ui-place-list.js";
 import { showToast, showWarnToast } from "./toast.js";
@@ -225,7 +225,8 @@ export async function renderRecapVideo(appEl, tripId, { recapId = "" } = {}) {
     return;
   }
 
-  const canEdit = await canEditRecap(tripId);
+  const [canEdit, roleInfo] = await Promise.all([canEditRecap(tripId), getConfirmedTripRole(tripId)]);
+  const readOnlyObserver = isReadOnlyTripRole(roleInfo.role);
   paintShell(vacation, { busy: true });
   if (!alive()) return;
 
@@ -269,14 +270,14 @@ export async function renderRecapVideo(appEl, tripId, { recapId = "" } = {}) {
       paintUnavailable(vacation, unavailableCopy(tripId, "Noch kein Recap-Video."));
       return;
     }
-    await paintStory(vacation, finalRow, material, { readonly: true, offerNewDraft: false });
+    await paintStory(vacation, finalRow, material, { readonly: true, offerNewDraft: false, readOnlyObserver });
     return;
   }
 
   if (focusFinal || focused?.status === "final") {
     const row = focusFinal ? finalRow : focused;
     if (row) {
-      await paintStory(vacation, row, material, { readonly: true, offerNewDraft: true });
+      await paintStory(vacation, row, material, { readonly: true, offerNewDraft: true, readOnlyObserver });
       return;
     }
     paintUnavailable(vacation, "Noch kein Recap-Video.");
@@ -290,7 +291,7 @@ export async function renderRecapVideo(appEl, tripId, { recapId = "" } = {}) {
 
   if (recapId) {
     if (finalRow) {
-      await paintStory(vacation, finalRow, material, { readonly: true, offerNewDraft: true });
+      await paintStory(vacation, finalRow, material, { readonly: true, offerNewDraft: true, readOnlyObserver });
       return;
     }
     paintUnavailable(vacation, "Dieser Entwurf ist nicht mehr da.");
@@ -303,7 +304,7 @@ export async function renderRecapVideo(appEl, tripId, { recapId = "" } = {}) {
   }
 
   if (finalRow) {
-    await paintStory(vacation, finalRow, material, { readonly: true, offerNewDraft: true });
+    await paintStory(vacation, finalRow, material, { readonly: true, offerNewDraft: true, readOnlyObserver });
     return;
   }
 
@@ -445,7 +446,7 @@ export async function renderRecapVideo(appEl, tripId, { recapId = "" } = {}) {
     return { thumbs: {}, failed: signable };
   }
 
-  async function paintStory(current, row, source, { readonly, offerNewDraft = false }) {
+  async function paintStory(current, row, source, { readonly, offerNewDraft = false, readOnlyObserver = false }) {
     const view = viewModel(row.content, source.places);
     const thumbIds = new Set();
     for (const scene of view.scenes) {
@@ -496,7 +497,9 @@ export async function renderRecapVideo(appEl, tripId, { recapId = "" } = {}) {
           </article>`;
       })
       .join("");
-    const actions = readonly
+    const actions = readOnlyObserver
+      ? ""
+      : readonly
       ? offerNewDraft
         ? `<button type="button" class="btn btn-emaille btn-emaille--block" data-testid="recap-new-draft">Neuer Entwurf</button>`
         : ""
@@ -542,9 +545,11 @@ export async function renderRecapVideo(appEl, tripId, { recapId = "" } = {}) {
       openPreview(current, view, thumbs);
     });
     if (readonly) {
-      main.querySelector('[data-testid="recap-new-draft"]')?.addEventListener("click", () => {
-        void startNewDraft(row);
-      });
+      if (!readOnlyObserver) {
+        main.querySelector('[data-testid="recap-new-draft"]')?.addEventListener("click", () => {
+          void startNewDraft(row);
+        });
+      }
       return;
     }
     const form = main.querySelector('[data-testid="recap-feedback-form"]');

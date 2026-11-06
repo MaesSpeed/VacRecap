@@ -18,7 +18,8 @@ export function exifOnPlaceDay(takenAt, day) {
  */
 export function fallbackTsOnDay(day, places = [], now = Date.now()) {
   if (!day) return now;
-  if (day === todayIso()) return now;
+  const refDay = formatIsoDate(new Date(now));
+  if (day === refDay) return now;
   let latest = null;
   for (const place of places) {
     if (!place) continue;

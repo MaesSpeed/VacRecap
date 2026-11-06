@@ -16,11 +16,6 @@ import {
   setMediathekPlace,
 } from "./mediathek-session.js";
 import { savePhotoForPlace, saveVideoForPlace } from "./media-service.js";
-import {
-  abandonOverlayHistory,
-  closeOverlayHistory,
-  openOverlayHistory,
-} from "./overlay-stack.js";
 import { navigate } from "./router.js";
 import {
   getOrCreateOhneOrtPlace,
@@ -80,8 +75,6 @@ export async function renderMediathekScreen(appEl, vacationId) {
     clearMediathekSession();
     navigate({ name: "urlaub-detail", id: vacationId }, { replace: true });
   };
-
-  openOverlayHistory(closeWithoutSave);
 
   function render() {
     const s = getMediathekSession();
@@ -144,8 +137,7 @@ export async function renderMediathekScreen(appEl, vacationId) {
       s.ohneOrtPending
     );
 
-    appEl.querySelector('[data-action="cancel"]').onclick = () =>
-      closeOverlayHistory(closeWithoutSave);
+    appEl.querySelector('[data-action="cancel"]').onclick = () => closeWithoutSave();
     appEl.querySelector('[data-action="change-place"]').onclick = () => {
       openMediathekPlaceSheet({
         vacationId,
@@ -257,7 +249,6 @@ export async function renderMediathekScreen(appEl, vacationId) {
 
     const day = s.day;
     clearMediathekSession();
-    abandonOverlayHistory();
     setTripSelection(vacationId, day, place.id);
     navigate({ name: "urlaub-detail", id: vacationId }, { replace: true });
 

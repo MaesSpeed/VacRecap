@@ -71,7 +71,8 @@ export async function forceRebuildPhotoThumb() {
   return false;
 }
 
-function renderAddNoteLink() {
+function renderAddNoteLink(canEdit = true) {
+  if (!canEdit) return "";
   return `<button type="button" class="notes-add" data-action="add-note">+ Notiz</button>`;
 }
 
@@ -79,7 +80,7 @@ function sortNotesByRecentUpdate(notes) {
   return notes.slice().sort((a, b) => (b.ts ?? b.createdAt ?? 0) - (a.ts ?? a.createdAt ?? 0));
 }
 
-export function renderFreeNotesHtml(notes, { expanded = false, share = null } = {}) {
+export function renderFreeNotesHtml(notes, { expanded = false, share = null, canEditFreeNotes = true } = {}) {
   if (!notes?.length) return "";
   const sorted = sortNotesByRecentUpdate(notes);
   const preview = expanded ? sorted : sorted.slice(0, 2);
@@ -98,22 +99,30 @@ export function renderFreeNotesHtml(notes, { expanded = false, share = null } = 
           )
           .join("")}
         ${
-          !expanded && hiddenCount > 0
+          canEditFreeNotes && !expanded && hiddenCount > 0
             ? `<button type="button" class="notes-more" data-action="expand-free-notes">+${hiddenCount} weitere ${hiddenCount === 1 ? "Notiz" : "Notizen"} ⌄</button>`
             : ""
         }
         ${
-          expanded && sorted.length > 2
+          canEditFreeNotes && expanded && sorted.length > 2
             ? `<button type="button" class="notes-more" data-action="collapse-free-notes">Weniger ⌃</button>`
             : ""
         }
-        <button type="button" class="notes-add" data-action="add-free-note">+ Notiz</button>
+        ${
+          canEditFreeNotes
+            ? `<button type="button" class="notes-add" data-action="add-free-note">+ Notiz</button>`
+            : ""
+        }
       </div>
     </section>`;
 }
 
-export function withFreeNotesHtml(placeHtml, freeNotes, { expanded = false, replaceEmpty = false, share = null } = {}) {
-  const freeHtml = renderFreeNotesHtml(freeNotes, { expanded, share });
+export function withFreeNotesHtml(
+  placeHtml,
+  freeNotes,
+  { expanded = false, replaceEmpty = false, share = null, canEditFreeNotes = true } = {}
+) {
+  const freeHtml = renderFreeNotesHtml(freeNotes, { expanded, share, canEditFreeNotes });
   if (!freeHtml) return placeHtml;
   if (replaceEmpty) return freeHtml;
   return `${freeHtml}${placeHtml}`;
@@ -144,69 +153,69 @@ function uploadedPhotoCount(media) {
   return (media || []).filter((item) => item.type !== "video" && (item.uploadStatus || "uploaded") === "uploaded").length;
 }
 
-export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrls = {}, canEditMedia = true, freshPlaceIds = null, photoSelect = null, share = null, canEditPlace = null }) {
-  if (!items.length) return { listHtml: "", mediaErrorHtml: "", selectBarHtml: "" };
-
-  const anyMediaError = items.some((i) => i.mediaLoadError);
-  const mediaErrorHtml = anyMediaError
-    ? `<div class="place-media-error" data-testid="place-media-error">
-        <span>Fotos konnten nicht geladen werden.</span>
-        <button type="button" class="notes-more" data-action="retry-media-load">Erneut laden</button>
-      </div>`
-    : "";
-
-  const listHtml = items
-      .map(({ place, photos, videos, notes, media }) => {
-        if (place.soft) {
-          const time = softPointLabel(place).split(" · ")[0];
-          const street = place.name || "Unbekannt";
-          return `
+export function renderPlaceCardHtml(
+  item,
+  {
+    selectedId,
+    notesExpanded,
+    thumbUrls = {},
+    canEditMedia = true,
+    freshPlaceIds = null,
+    photoSelect = null,
+    share = null,
+    canEditPlace = null,
+    canEditNotesInPlace = true,
+  }
+) {
+  const { place, photos, videos, notes, media } = item;
+  if (place.soft) {
+    const time = softPointLabel(place).split(" · ")[0];
+    const street = place.name || "Unbekannt";
+    return `
         <li class="soft" data-place-id="${place.id}" data-soft="1">
           <span class="soft__dot" aria-hidden="true"></span>
           <span class="soft__text"><strong>${escapeHtml(time)}</strong> · Weicher Punkt · ${escapeHtml(street)} · beim Öffnen</span>
         </li>`;
-        }
+  }
 
-        const selected = place.id === selectedId;
-        const dim = selectedId && !selected;
-        const meta = buildPlaceMetaLine(place, {
-          photos,
-          videos,
-          notes: notes.length,
-        });
-        const hasMedia = media.length > 0;
-        const expanded = notesExpanded.has(place.id);
-        const sortedNotes = sortNotesNewestFirst(notes);
-        const previewNotes = expanded ? sortedNotes : sortedNotes.slice(0, 2);
-        const hiddenCount = Math.max(0, sortedNotes.length - 2);
-        const dimMedia = dim ? newestUploadedPhoto(media) : null;
-        const dimThumb = dimMedia ? thumbUrls[dimMedia.id] : null;
-        const dimOwn = dimMedia ? mediaOwnedBy(dimMedia, photoSelect?.userId) : false;
-        const dimCaptionMark =
-          dimMedia?.caption && dimMedia.type !== "video"
-            ? `<span class="tile__dur" data-testid="photo-caption-mark" aria-hidden="true">${ICON_NOTE}</span>`
-            : "";
-        const dimPicked = Boolean(photoSelect?.active && dimMedia && photoSelect.selectedIds?.has(dimMedia.id));
-        const showSelectStart = selected && uploadedPhotoCount(media) > 0 && !photoSelect?.active;
-        const foreignHint =
-          photoSelect?.active &&
-          selected &&
-          media.some(
-            (item) =>
-              item.type !== "video" &&
-              (item.uploadStatus || "uploaded") === "uploaded" &&
-              !mediaOwnedBy(item, photoSelect.userId)
-          )
-            ? `<p class="photo-select-hint" data-testid="photo-foreign-hint">Fremde Fotos sind nicht wählbar.</p>`
-            : "";
+  const selected = place.id === selectedId;
+  const dim = selectedId && !selected;
+  const meta = buildPlaceMetaLine(place, {
+    photos,
+    videos,
+    notes: notes.length,
+  });
+  const hasMedia = media.length > 0;
+  const expanded = notesExpanded.has(place.id);
+  const sortedNotes = sortNotesNewestFirst(notes);
+  const previewNotes = expanded ? sortedNotes : sortedNotes.slice(0, 2);
+  const hiddenCount = Math.max(0, sortedNotes.length - 2);
+  const dimMedia = dim ? newestUploadedPhoto(media) : null;
+  const dimThumb = dimMedia ? thumbUrls[dimMedia.id] : null;
+  const dimOwn = dimMedia ? mediaOwnedBy(dimMedia, photoSelect?.userId) : false;
+  const dimCaptionMark =
+    dimMedia?.caption && dimMedia.type !== "video"
+      ? `<span class="tile__dur" data-testid="photo-caption-mark" aria-hidden="true">${ICON_NOTE}</span>`
+      : "";
+  const dimPicked = Boolean(photoSelect?.active && dimMedia && photoSelect.selectedIds?.has(dimMedia.id));
+  const showSelectStart = selected && uploadedPhotoCount(media) > 0 && !photoSelect?.active;
+  const foreignHint =
+    photoSelect?.active &&
+    selected &&
+    media.some(
+      (m) =>
+        m.type !== "video" &&
+        (m.uploadStatus || "uploaded") === "uploaded" &&
+        !mediaOwnedBy(m, photoSelect.userId)
+    )
+      ? `<p class="photo-select-hint" data-testid="photo-foreign-hint">Fremde Fotos sind nicht wählbar.</p>`
+      : "";
 
-        const captionBlock = selected
-          ? renderPhotoCaptionBlock(media, canEditMedia, photoSelect?.userId, thumbUrls)
-          : "";
+  const captionBlock = selected ? renderPhotoCaptionBlock(media, canEditMedia, photoSelect?.userId, thumbUrls) : "";
 
-        const notesBlock =
-          sortedNotes.length || selected
-            ? `<div class="np">
+  const notesBlock =
+    sortedNotes.length || selected
+      ? `<div class="np">
               ${captionBlock}
               ${previewNotes
                 .map(
@@ -215,20 +224,20 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
                 )
                 .join("")}
               ${
-                !expanded && hiddenCount > 0
+                canEditNotesInPlace && !expanded && hiddenCount > 0
                   ? `<button type="button" class="notes-more" data-action="expand-notes">+${hiddenCount} weitere ${hiddenCount === 1 ? "Notiz" : "Notizen"} ⌄</button>`
                   : ""
               }
               ${
-                expanded && sortedNotes.length > 2
+                canEditNotesInPlace && expanded && sortedNotes.length > 2
                   ? `<button type="button" class="notes-more" data-action="collapse-notes">Weniger ⌃</button>`
                   : ""
               }
-              ${selected ? renderAddNoteLink() : ""}
+              ${selected ? renderAddNoteLink(canEditNotesInPlace) : ""}
             </div>`
-            : "";
+      : "";
 
-        return `
+  return `
       <li>
         <article class="oc${selected ? " oc--selected" : ""}${dim ? " oc--dim" : ""}" data-place-id="${place.id}">
           <div class="pinb${selected ? " pinb--selected" : ""}">
@@ -239,17 +248,11 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
             <div class="oc__head">
               <div class="oc__head-text">
                 <h4 class="oc__title"><span>${escapeHtml(place.name)}</span>${
-                  freshPlaceIds?.has(place.id)
-                    ? `<span class="oc__new" data-testid="place-new-badge">NEU</span>`
-                    : ""
+                  freshPlaceIds?.has(place.id) ? `<span class="oc__new" data-testid="place-new-badge">NEU</span>` : ""
                 }</h4>
                 <div class="oc__meta">${escapeHtml(meta)}</div>
               </div>
-              ${
-                selected && !photoSelect?.active
-                  ? qaButtons(place, canEditMedia, canEditPlace)
-                  : ""
-              }
+              ${selected && !photoSelect?.active ? qaButtons(place, canEditMedia, canEditPlace) : ""}
             </div>
             ${selected && hasMedia ? `<div class="tiles">${renderTiles(media, thumbUrls, canEditMedia, photoSelect, share)}</div>` : ""}
             ${foreignHint}
@@ -271,8 +274,44 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
           }
         </article>
       </li>`;
+}
+
+export function renderPlaceListHtml(items, {
+  selectedId,
+  notesExpanded,
+  thumbUrls = {},
+  canEditMedia = true,
+  freshPlaceIds = null,
+  photoSelect = null,
+  share = null,
+  canEditPlace = null,
+  canEditFreeNotes = true,
+}) {
+  if (!items.length) return { listHtml: "", mediaErrorHtml: "", selectBarHtml: "" };
+
+  const anyMediaError = items.some((i) => i.mediaLoadError);
+  const mediaErrorHtml = anyMediaError
+    ? `<div class="place-media-error" data-testid="place-media-error">
+        <span>Fotos konnten nicht geladen werden.</span>
+        <button type="button" class="notes-more" data-action="retry-media-load">Erneut laden</button>
+      </div>`
+    : "";
+
+  const listHtml = items
+    .map((entry) =>
+      renderPlaceCardHtml(entry, {
+        selectedId,
+        notesExpanded,
+        thumbUrls,
+        canEditMedia,
+        freshPlaceIds,
+        photoSelect,
+        share,
+        canEditPlace,
+        canEditNotesInPlace: canEditFreeNotes,
       })
-      .join("");
+    )
+    .join("");
 
   return {
     listHtml,

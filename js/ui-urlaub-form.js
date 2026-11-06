@@ -1,7 +1,7 @@
 import { normalizePresetId, presetUrl } from "./covers.js";
 import { bindCoverImage, coverStatusLabel, resolveVacationCover } from "./cover-sources.js";
 import { deleteBlob, fetchUploadedPhotosForTrip, getPlacesForVacation, getVacation, putVacation } from "./db.js";
-import { getRoute, navigate } from "./router.js";
+import { getRoute, navigate, NAV_FROM_OVERVIEW_KEY } from "./router.js";
 import { clearTripUiState } from "./ui-urlaub-detail.js";
 import { CloudNetworkError, CloudOfflineError } from "./cloud-errors.js";
 import { showToast, showWarnToast } from "./toast.js";
@@ -38,6 +38,17 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
   }
 
   const isEdit = mode === "edit";
+  if (isEdit && vacation.id && !sessionStorage.getItem("vacrecap-form-return")) {
+    sessionStorage.setItem("vacrecap-form-return", JSON.stringify({ name: "urlaub-detail", id: vacation.id }));
+  }
+  // Zwischenstopps (z. B. Bearbeiten) brechen die direkte Overview→Detail-Historie ab.
+  if (isEdit) {
+    try {
+      sessionStorage.removeItem(NAV_FROM_OVERVIEW_KEY);
+    } catch {
+      /* ignore */
+    }
+  }
   const [roleInfo, photoResult, places, myUserId] = await Promise.all([
     isEdit ? getConfirmedTripRole(vacation.id) : Promise.resolve({ role: "owner", confirmed: true }),
     isEdit ? fetchUploadedPhotosForTrip(vacation.id) : Promise.resolve({ media: [] }),

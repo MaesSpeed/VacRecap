@@ -1,6 +1,13 @@
 import { deleteVacation, getVacation } from "./db.js";
 import { listDiaryRecaps, listVideoRecaps } from "./recap-service.js";
-import { canDeleteTrip, canEditAny, canStartRecap, getConfirmedTripRole, tripRoleLoadFailed } from "./trip-role.js";
+import {
+  canDeleteTrip,
+  canEditAny,
+  canStartRecap,
+  getConfirmedTripRole,
+  isReadOnlyTripRole,
+  tripRoleLoadFailed,
+} from "./trip-role.js";
 import { leaveTrip } from "./trip-access.js";
 import { clearTripPeople } from "./trip-people.js";
 import { clearTripRoleCache } from "./trip-role.js";
@@ -52,6 +59,7 @@ export async function renderUrlaubSettings(appEl, id) {
     diarySettingsAction(id),
     getConfirmedTripRole(id),
   ]);
+  const readOnlyObserver = isReadOnlyTripRole(roleInfo.role);
   const showEdit = canEditAny(roleInfo.role);
   const showDelete = canDeleteTrip(roleInfo.role, roleInfo.confirmed);
   const showLeave = roleInfo.confirmed && roleInfo.role !== "owner";
@@ -66,7 +74,7 @@ export async function renderUrlaubSettings(appEl, id) {
       <span class="map-header__spacer" aria-hidden="true"></span>
     </header>
     <main class="settings-main settings-main--draft">
-      <section class="settings-block">
+      <section class="settings-block"${readOnlyObserver ? ' hidden' : ""}>
         <h2 class="settings-block__label">Standort · Alle Reisen</h2>
         <div class="settings-card">
           <div class="settings-item settings-item--switch" data-action="toggle-remember">
@@ -97,7 +105,7 @@ export async function renderUrlaubSettings(appEl, id) {
           </div>
         </div>
       </section>
-      <section class="settings-block">
+      <section class="settings-block"${readOnlyObserver ? ' hidden' : ""}>
         <h2 class="settings-block__label">Fotos &amp; Videos</h2>
         <div class="settings-card">
           <div class="settings-item settings-item--switch" data-action="toggle-capture">
@@ -110,7 +118,7 @@ export async function renderUrlaubSettings(appEl, id) {
           </div>
         </div>
       </section>
-      <section class="settings-block">
+      <section class="settings-block"${readOnlyObserver ? ' hidden' : ""}>
         <h2 class="settings-block__label">Karte</h2>
         <div class="settings-card">
           <div class="settings-item settings-item--switch" data-action="toggle-map-routes">
@@ -126,6 +134,11 @@ export async function renderUrlaubSettings(appEl, id) {
       </section>
       <section class="settings-block">
         <h2 class="settings-block__label">Daten</h2>
+        ${
+          readOnlyObserver
+            ? `<p class="settings-privacy" data-testid="settings-readonly-hint">Als Betrachter kannst du die Reise nur ansehen. Ort, Fotos, Notizen, Freigaben und Einstellungen sind ausgeblendet.</p>`
+            : ""
+        }
         <p class="settings-privacy">${ICON_LOCK} Reisedaten liegen in der Cloud (Supabase). Auf dem Gerät nur ein kleiner Lesecache.</p>
       </section>
       <section class="settings-block">
@@ -141,7 +154,7 @@ export async function renderUrlaubSettings(appEl, id) {
               ? `<button type="button" class="settings-link-row" data-action="diary" data-testid="settings-diary">${escapeHtml(diaryAction)}</button>`
               : ""
           }
-          ${showEdit ? `<button type="button" class="settings-link-row" data-action="edit" data-testid="settings-edit-trip">Reise bearbeiten</button>` : ""}
+          ${showEdit && !readOnlyObserver ? `<button type="button" class="settings-link-row" data-action="edit" data-testid="settings-edit-trip">Reise bearbeiten</button>` : ""}
           ${showDelete ? `<button type="button" class="settings-link-row settings-link-row--danger" data-action="delete" data-testid="settings-delete-trip">Reise löschen</button>` : ""}
           ${showLeave ? `<button type="button" class="settings-link-row settings-link-row--danger" data-action="leave" data-testid="settings-leave-trip">Reise verlassen</button>` : ""}
         </div>

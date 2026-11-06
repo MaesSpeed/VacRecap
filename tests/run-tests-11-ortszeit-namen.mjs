@@ -425,7 +425,7 @@ async function login(page, baseUrl) {
   await page.goto(baseUrl);
   await page.waitForSelector('[data-testid="login-screen"]');
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 68, `Build ${build}, erwartet 68`);
+  assert(Number(build) === 69, `Build ${build}, erwartet 69`);
   await page.fill('input[name="email"]', "test@example.com");
   await page.click('form[data-step="email"] button[type="submit"]');
   await page.waitForSelector('form[data-step="otp"]');
@@ -1368,7 +1368,7 @@ try {
   await testExifDateTimeTag();
   await runSuite(chromium, baseUrl, "chromium");
   await runSuite(webkit, baseUrl, "webkit");
-  console.log(`Playwright 11 Ortszeit/Namen OK (Build 68, Bilder in ${SHOTS})`);
+  console.log(`Playwright 11 Ortszeit/Namen OK (Build 69, Bilder in ${SHOTS})`);
 } finally {
   server.close();
 }

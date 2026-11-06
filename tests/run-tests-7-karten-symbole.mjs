@@ -520,7 +520,7 @@ async function waitFor(fn, message, ms = 8000) {
 
 async function runFlows(page, state, label) {
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 68, `${label}: Build ${build}`);
+  assert(Number(build) === 69, `${label}: Build ${build}`);
 
   await page.waitForSelector(`[data-vacation-id="${PARIS}"] .card-compact__title`);
   await waitFor(() => cardQueries(state).length >= 1, `${label}: Kartenabfrage fehlt`);
@@ -628,7 +628,7 @@ async function runFlows(page, state, label) {
   });
   assert(tags.attr === "partner familie freunde", `${label}: Tags ${tags.attr}`);
   assert(tags.oneLine && tags.height < 32, `${label}: Tags umbrochen h=${tags.height} «${tags.text}»`);
-  const shown = ["Partner:in", "Familie", "Freunde"].filter((name) => tags.text.includes(name));
+  const shown = ["Partner", "Familie", "Freunde"].filter((name) => tags.text.includes(name));
   if (shown.length < 3) {
     const more = tags.text.match(/\+(\d+)/);
     assert(more && Number(more[1]) === 3 - shown.length, `${label}: Überlauf «${tags.text}»`);
@@ -936,13 +936,27 @@ async function runSuite(browserType, baseUrl, label, viewport) {
   await installSupabaseMocks(page, state);
   const pageErrors = [];
   page.on("pageerror", (err) => pageErrors.push(String(err)));
+  await page.addInitScript(() => {
+    const RealDate = Date;
+    const fixed = Date.UTC(2026, 10, 1, 12, 0, 0, 0);
+    function FixedDate(...args) {
+      if (!new.target) return new RealDate(fixed).toString();
+      if (args.length === 0) return new RealDate(fixed);
+      return new RealDate(...args);
+    }
+    FixedDate.prototype = RealDate.prototype;
+    FixedDate.now = () => fixed;
+    FixedDate.parse = RealDate.parse.bind(RealDate);
+    FixedDate.UTC = RealDate.UTC.bind(RealDate);
+    window.Date = FixedDate;
+  });
   const where = `${label} ${viewport.width}x${viewport.height}`;
   try {
     await login(page, baseUrl);
     await runFlows(page, state, where);
     const errors = pageErrors.filter((entry) => !/access control checks/i.test(entry));
     assert(errors.length === 0, `${where}: ${errors.join(" | ")}`);
-    console.log(`Playwright 7 Karten-Symbole OK (${where}, Build 68)`);
+    console.log(`Playwright 7 Karten-Symbole OK (${where}, Build 69)`);
   } finally {
     await browser.close();
   }
@@ -963,4 +977,4 @@ try {
 } finally {
   await new Promise((resolve) => server.close(resolve));
 }
-console.log("Playwright 7 Karten-Symbole OK (Build 68)");
+console.log("Playwright 7 Karten-Symbole OK (Build 69)");

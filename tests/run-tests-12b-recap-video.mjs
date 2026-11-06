@@ -354,10 +354,19 @@ export function createMockSupabaseState() {
     return { status: 404, json: {} };
   };
   state.handleRest = async (url, method, body, headers) => {
+    if (url.pathname.includes("/rpc/")) {
+      const fn = url.pathname.split("/").filter(Boolean).pop() || "";
+      if (fn === "list_trip_people") return { status: 200, json: [] };
+      if (fn === "touch_trip_presence" || fn === "clear_trip_presence") return { status: 200, json: null };
+      if (fn === "list_trip_presence") return { status: 200, json: [] };
+      return { status: 200, json: null };
+    }
     const table = url.pathname.split("/").filter(Boolean).pop();
     if (table === "trip_members" && method === "GET") {
       if (state.roleError) return { status: 500, json: { message: "Rolle nicht geladen" } };
-      return sendRows([{ role: state.role, trip_id: TRIP, user_id: USER }], headers);
+      const tripId =
+        [...url.searchParams.entries()].find(([k, v]) => k === "trip_id" && String(v).startsWith("eq."))?.[1]?.slice(3) || TRIP;
+      return sendRows([{ role: state.role, trip_id: tripId, user_id: USER }], headers);
     }
     if (table === "trips" && method === "GET") return sendRows(applyFilters(state.trips, url), headers);
     if (table === "waypoints" && method === "GET") return sendRows(applyFilters(state.waypoints, url), headers);
@@ -504,7 +513,7 @@ function realErrors(list) {
 
 async function runFlows(page, state, label) {
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 68, `${label}: Build ${build}`);
+  assert(Number(build) === 69, `${label}: Build ${build}`);
 
   let releaseInsert;
   state.recapInsertGate = new Promise((resolve) => {
@@ -754,7 +763,7 @@ async function runSuite(browserType, baseUrl, label, viewport) {
     await runFlows(page, state, where);
     const errors = realErrors(pageErrors);
     assert(errors.length === 0, `${where}: ${errors.join(" | ")}`);
-    console.log(`Playwright 12b tests OK (${where}, Build 68)`);
+    console.log(`Playwright 12b tests OK (${where}, Build 69)`);
   } finally {
     await browser.close();
   }
@@ -772,5 +781,5 @@ if (isDirectRun) {
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
-  console.log("Playwright 12b recap-video tests OK (Build 68)");
+  console.log("Playwright 12b recap-video tests OK (Build 69)");
 }

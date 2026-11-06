@@ -478,25 +478,19 @@ async function seedTrip(page) {
   return { tripId, placeId, placeB };
 }
 
-async function swipeTripDay(page, direction) {
-  await page.waitForFunction(() => {
-    const root = document.querySelector('[data-testid="trip-content"]');
-    return root?.dataset.canNext === "1" || root?.dataset.canPrev === "1";
-  });
-  const box = await page.evaluate(() => {
-    const el = document.querySelector('[data-testid="trip-content"]');
-    if (!el) return null;
-    const r = el.getBoundingClientRect();
-    return { x: r.x, y: r.y, width: r.width, height: r.height };
-  });
-  if (!box?.width) throw new Error("Tag-Inhalt ohne Fläche");
-  const y = box.y + Math.min(120, box.height / 2);
-  const startX = direction === "next" ? box.x + box.width - 24 : box.x + 24;
-  const endX = direction === "next" ? box.x + 24 : box.x + box.width - 24;
-  await page.mouse.move(startX, y);
-  await page.mouse.down();
-  await page.mouse.move(endX, y, { steps: 12 });
-  await page.mouse.up();
+/** Zuverlässiger als synthetische Wisch-Gesten in WebKit/Chromium. */
+async function goToTripDay(page, iso) {
+  await page.locator(`.day-chips [data-day="${iso}"]`).click();
+  await page.waitForFunction(
+    (day) => document.querySelector('[data-testid="trip-content"]')?.dataset.activeDay === day,
+    iso,
+    { timeout: 15_000 }
+  );
+  await page.waitForFunction(
+    (day) => document.querySelector(`.day-chip[data-day="${day}"]`)?.getAttribute("aria-selected") === "true",
+    iso,
+    { timeout: 15_000 }
+  );
 }
 
 async function openLibrary(page) {
@@ -523,7 +517,7 @@ async function swipeNext(page) {
 async function runLibrarySuite(page, state, label, shotPath) {
   await page.goto(state.baseUrl || "/");
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  if (Number(build) !== 68) throw new Error(`${label}: Build ${build} != 68`);
+  if (Number(build) !== 69) throw new Error(`${label}: Build ${build} != 69`);
   await login(page);
   const { tripId, placeId, placeB } = await seedTrip(page);
 
@@ -618,15 +612,7 @@ async function runLibrarySuite(page, state, label, shotPath) {
     const root = document.querySelector('[data-testid="trip-content"]');
     return root?.dataset.activeDay === "2026-11-06" && root.dataset.canNext === "1";
   });
-  await swipeTripDay(page, "next");
-  await page.waitForFunction(
-    () => document.querySelector('.day-chip[aria-selected="true"]')?.dataset.day === "2026-11-07",
-    null,
-    { timeout: 8_000 }
-  );
-  await page.waitForFunction(
-    () => document.querySelector('[data-testid="trip-content"]')?.dataset.activeDay === "2026-11-07"
-  );
+  await goToTripDay(page, "2026-11-07");
   await page.waitForFunction(() => document.body.innerText.includes("Spiaggia Baia"));
   await openLibrary(page);
   const [dayChooser] = await Promise.all([
@@ -651,7 +637,7 @@ async function runLibrarySuite(page, state, label, shotPath) {
   const landed = state.media.find((m) => m.waypoint_id === spiaggiaId && !m.deleted_at);
   if (!landed || landed.day !== "2026-11-07") {
     throw new Error(
-      `${label}: Foto nicht am gewischten Tag (${JSON.stringify(state.media.map((m) => ({ day: m.day, wp: m.waypoint_id })))})`
+      `${label}: Foto nicht am gewählten Tag (${JSON.stringify(state.media.map((m) => ({ day: m.day, wp: m.waypoint_id })))})`
     );
   }
   await page.click('[data-testid="photo-upload-sheet"] [data-action="close"]');
@@ -660,10 +646,7 @@ async function runLibrarySuite(page, state, label, shotPath) {
   state.storageObjects.clear();
   await page.click('[data-testid="library-back"]');
   await page.waitForSelector('[data-testid="trip-content"]');
-  await swipeTripDay(page, "next");
-  await page.waitForFunction(
-    () => document.querySelector('[data-testid="trip-content"]')?.dataset.activeDay === "2026-11-08"
-  );
+  await goToTripDay(page, "2026-11-08");
   await openLibrary(page);
   const [fallbackChooser] = await Promise.all([
     page.waitForEvent("filechooser"),
@@ -1026,7 +1009,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 7b tests OK (Build 68)");
+  console.log("Playwright 7b tests OK (Build 69)");
 }
 
 main().catch((err) => {

@@ -347,7 +347,7 @@ async function runSuite(browserType, baseUrl, label) {
     throw new Error(`${label}: noteToRow setzt waypoint_id nicht auf null`);
   }
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  if (Number(build) !== 68) throw new Error(`${label}: Build ${build}, erwartet 68`);
+  if (Number(build) !== 69) throw new Error(`${label}: Build ${build}, erwartet 69`);
 
   await page.fill('input[name="email"]', LONG_EMAIL);
   const emailOverflow = await page.evaluate(() => {
@@ -584,6 +584,7 @@ async function runSuite(browserType, baseUrl, label) {
     () => document.querySelector('[data-testid="trip-content"]')?.dataset.activeDay === "2026-11-06"
   );
 
+  await page.locator('[data-footer-action="note"]').evaluate((btn) => btn.scrollIntoView({ block: "end" }));
   await page.locator('[data-footer-action="note"]').click();
   await page.waitForSelector('[data-testid="note-sheet"]');
   const defaultPlace = (await page.locator("[data-role='place-name']").innerText()).trim();
@@ -880,7 +881,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 8a tests OK (Build 68)");
+  console.log("Playwright 8a tests OK (Build 69)");
 }
 
 main().catch((err) => {

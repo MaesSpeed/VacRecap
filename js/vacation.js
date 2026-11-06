@@ -2,7 +2,7 @@ import { createId, escapeHtml } from "./utils.js";
 
 export const COMPANION_TAGS = [
   { id: "allein", label: "Allein" },
-  { id: "partner", label: "Partner:in" },
+  { id: "partner", label: "Partner" },
   { id: "familie", label: "Familie" },
   { id: "freunde", label: "Freunde" },
 ];

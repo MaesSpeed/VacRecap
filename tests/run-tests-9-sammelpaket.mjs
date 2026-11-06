@@ -67,7 +67,7 @@ function toneHits(file, text) {
   text.split("\n").forEach((line, index) => {
     if (SIE.test(line)) hits.push(`${file}:${index + 1} Sie/Ihr «${line.trim()}»`);
     if (!GENDER.test(line)) return;
-    const allowed = file.endsWith(`${path.sep}js${path.sep}vacation.js`) && line.includes('label: "Partner:in"');
+    const allowed = file.endsWith(`${path.sep}js${path.sep}vacation.js`) && line.includes('label: "Partner"');
     if (!allowed) hits.push(`${file}:${index + 1} Gendern «${line.trim()}»`);
   });
   return hits;
@@ -81,7 +81,7 @@ async function assertTone() {
   assert(toneHits("probe.js", "Bitte deine Fotos prüfen").length === 0, "du-Form");
   assert(toneHits("probe.js", "Bitte Ihre Fotos prüfen").length === 1, "Ihre wird nicht erkannt");
   assert(toneHits("probe.js", 'label: "Freund:in"').length === 1, "Freund:in wird nicht erkannt");
-  assert(!toneHits(path.join(root, "js", "vacation.js"), '  { id: "partner", label: "Partner:in" },').length, "Partner:in");
+  assert(!toneHits(path.join(root, "js", "vacation.js"), '  { id: "partner", label: "Partner" },').length, "Partner");
   const sql = await readFile(path.join(root, "docs/supabase/paket-9-avatar-farbe.sql"), "utf8");
   const fn = sql.slice(sql.indexOf("select case"), sql.indexOf("else (array"));
   const prefix = fn.indexOf("~ '^dom'");
@@ -404,8 +404,20 @@ async function layoutPass(page, state, label, { shots }) {
   }
 
   await openTrip(page);
-  const names = await page.locator('[data-testid="trip-companions"]').innerText();
-  assert(names.includes("Dominik Röder") && names.includes("Sabine Röder"), `${label}: Namenszeile «${names}»`);
+  assert((await page.locator('[data-testid="trip-companions"]').count()) === 0, `${label}: Begleiter-Zeile entfernt`);
+  await page.evaluate((tripId) => {
+    window.location.hash = `#/urlaub/${tripId}/bearbeiten`;
+  }, TRIP);
+  await page.waitForSelector(".screen--form");
+  await page.waitForSelector('[data-role="name-chips"]');
+  const namesInForm = await page.locator('[data-role="name-chips"] .chip').allInnerTexts();
+  const joined = namesInForm.join(" ");
+  assert(
+    joined.includes("Dominik Röder") && joined.includes("Sabine Röder"),
+    `${label}: Namen in Reise bearbeiten «${joined}»`
+  );
+  await page.click('[data-action="cancel"]');
+  await page.waitForSelector('[data-testid="trip-content"]');
   await clickDay(page, "2025-06-16");
   const caption = page.locator('[data-page="current"] [data-testid="photo-caption-edit"]:has(img)').first();
   await caption.waitFor();
@@ -513,6 +525,23 @@ async function placeGap(page) {
     if (!field || !chips) return null;
     return chips.getBoundingClientRect().top - field.getBoundingClientRect().bottom;
   });
+}
+
+/** Chip aus E-Mail (Bereich #share, ein Aufruf — kein Rennen zwischen wait und evaluate). */
+async function commitShareEmail(page, email) {
+  await page.waitForFunction(() => {
+    const el = document.querySelector('[data-testid="share-section"] [data-testid="share-email-input"]');
+    return Boolean(el && el.offsetParent !== null);
+  });
+  await page.evaluate((addr) => {
+    const el = document.querySelector('[data-testid="share-section"] [data-testid="share-email-input"]');
+    if (!el) throw new Error("share-email-input fehlt");
+    el.focus();
+    el.value = addr;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  }, email);
+  await page.waitForSelector('[data-testid="share-chip"]', { state: "visible" });
 }
 
 async function behaviorPass(page, state, label, { shots }) {
@@ -695,21 +724,23 @@ async function behaviorPass(page, state, label, { shots }) {
   });
   await page.waitForSelector('[data-testid="settings-edit-trip"]');
   await page.click('[data-testid="settings-edit-trip"]');
-  await page.waitForSelector('[data-testid="share-email-input"]');
-  await page.fill('[data-testid="share-email-input"]', "gast@example.com");
-  await page.keyboard.press("Enter");
-  await page.waitForSelector('[data-testid="share-chip"]');
+  await commitShareEmail(page, "gast@example.com");
   await page.click('[data-action="cancel"]');
   await page.waitForSelector(".screen--urlaube, [data-testid='settings-screen']");
   await page.evaluate(() => {
     window.location.hash = "#/urlaub/trip-garda/bearbeiten";
   });
+  await page.waitForSelector(".screen--form");
   await page.waitForSelector('[data-testid="share-section"]');
   assert((await page.locator('[data-testid="share-chip"]').count()) === 0, `${label}: Entwurf übersteht Abbrechen`);
-  await page.fill('[data-testid="share-email-input"]', "gast@example.com");
-  await page.keyboard.press("Enter");
-  await page.waitForSelector('[data-testid="share-chip"]');
-  await page.locator('button[type="submit"]').click();
+  await commitShareEmail(page, "gast@example.com");
+  await page.waitForFunction(() => {
+    const btn = document.querySelector("footer.form-footer button[type='submit']");
+    return Boolean(btn && btn.offsetParent !== null);
+  });
+  await page.evaluate(() => {
+    document.querySelector("footer.form-footer button[type='submit']")?.click();
+  });
   await page.waitForFunction(() => document.querySelectorAll('[data-testid="share-chip"]').length === 0);
   await page.evaluate(() => {
     window.location.hash = "#/urlaube";
@@ -950,7 +981,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 9 Sammelpaket OK (Build 68)");
+  console.log("Playwright 9 Sammelpaket OK (Build 69)");
 }
 
 main().catch((err) => {

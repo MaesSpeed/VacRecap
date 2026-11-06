@@ -6,6 +6,8 @@
 const REST = "translate3d(-33.333333%, 0, 0)";
 const DAY_SWIPE_BEZIER = [0.2, 0.82, 0.2, 1];
 
+const PAGE_ORDER = ["prev", "current", "next"];
+
 export const DAY_SWIPE_MS = 280;
 
 function bezierAxis(a, b, t) {
@@ -83,6 +85,24 @@ export function setDaySwipePage(root, html, opts = {}) {
   }
 }
 
+/**
+ * Bringt die drei Seitenflächen wieder in die feste Reihenfolge prev–current–next
+ * (nach einem Tagwechsel per Knotentausch).
+ */
+export function normalizeDaySwipePages(root) {
+  ensureStructure(root);
+  const track = trackOf(root);
+  if (!track) return;
+  const byRole = {};
+  for (const role of PAGE_ORDER) {
+    byRole[role] = track.querySelector(`[data-page='${role}']`);
+  }
+  if (!byRole.prev || !byRole.current || !byRole.next) return;
+  for (const role of PAGE_ORDER) {
+    track.appendChild(byRole[role]);
+  }
+}
+
 export function setDaySwipeNeighbor(root, which, html) {
   const page = root.querySelector(`[data-page="${which}"]`);
   if (page) page.innerHTML = html || "";
@@ -101,7 +121,6 @@ export function installDaySwipe(root, onShift, hooks = {}) {
   let lastT = 0;
   let vel = 0;
   let width = 1;
-  let docMove = null;
   const settle = { gen: 0, timer: 0, onEnd: null };
 
   const cancelSettle = () => {
@@ -114,6 +133,7 @@ export function installDaySwipe(root, onShift, hooks = {}) {
     if (track) {
       track.style.transition = "none";
       track.style.transform = REST;
+      normalizeDaySwipePages(root);
     }
     root.dataset.swipeLock = "0";
     root.dataset.gesture = "0";
@@ -144,20 +164,6 @@ export function installDaySwipe(root, onShift, hooks = {}) {
     if (!track) return;
     track.style.transition = "transform 360ms cubic-bezier(0.34, 1.28, 0.64, 1)";
     track.style.transform = REST;
-  };
-
-  const detachDoc = () => {
-    if (!docMove) return;
-    document.removeEventListener("touchmove", docMove);
-    docMove = null;
-  };
-
-  const armDocBlock = () => {
-    if (docMove) return;
-    docMove = (ev) => {
-      if (mode === "h" && ev.cancelable) ev.preventDefault();
-    };
-    document.addEventListener("touchmove", docMove, { passive: false });
   };
 
   const onStart = (x, y) => {
@@ -192,11 +198,10 @@ export function installDaySwipe(root, onShift, hooks = {}) {
           }
         }
         hooks.onLock?.();
-        armDocBlock();
       }
     }
     if (mode !== "h") return;
-    if (event?.pointerType && event.cancelable) event.preventDefault();
+    if (event?.cancelable) event.preventDefault();
     const now = performance.now();
     const dt = now - lastT;
     if (dt >= 16) {
@@ -216,7 +221,6 @@ export function installDaySwipe(root, onShift, hooks = {}) {
     tracking = false;
     mode = null;
     root.dataset.gesture = "0";
-    detachDoc();
     if (!wasH) return;
     if (Math.abs(dx) > 36) {
       root.dataset.suppressClick = "1";
@@ -260,16 +264,47 @@ export function installDaySwipe(root, onShift, hooks = {}) {
       settle.timer = 0;
       if (settle.onEnd) track.removeEventListener("transitionend", settle.onEnd);
       settle.onEnd = null;
-      const incoming = root.querySelector(`[data-page="${dir > 0 ? "next" : "prev"}"]`);
-      const current = root.querySelector("[data-page='current']");
-      if (incoming && current && incoming.innerHTML.trim()) current.innerHTML = incoming.innerHTML;
+      const prevEl = root.querySelector("[data-page='prev']");
+      const curEl = root.querySelector("[data-page='current']");
+      const nextEl = root.querySelector("[data-page='next']");
+      if (prevEl && curEl && nextEl) {
+        let incScroll = 0;
+        if (dir > 0) {
+          if (!nextEl.innerHTML.trim()) {
+            hooks.onRest?.();
+            track.style.transition = "none";
+            track.style.transform = REST;
+            onShift(dir);
+            root.dataset.swipeLock = "0";
+            return;
+          }
+          incScroll = nextEl.scrollTop || 0;
+          curEl.dataset.page = "prev";
+          nextEl.dataset.page = "current";
+          prevEl.dataset.page = "next";
+        } else {
+          if (!prevEl.innerHTML.trim()) {
+            hooks.onRest?.();
+            track.style.transition = "none";
+            track.style.transform = REST;
+            onShift(dir);
+            root.dataset.swipeLock = "0";
+            return;
+          }
+          incScroll = prevEl.scrollTop || 0;
+          nextEl.dataset.page = "prev";
+          prevEl.dataset.page = "current";
+          curEl.dataset.page = "next";
+        }
+        normalizeDaySwipePages(root);
+        const newCur = root.querySelector("[data-page='current']");
+        if (newCur) newCur.scrollTop = incScroll;
+      }
       hooks.onRest?.();
       track.style.transition = "none";
       track.style.transform = REST;
       onShift(dir);
-      setTimeout(() => {
-        if (root.isConnected && root.dataset.swipeLock === "1") root.dataset.swipeLock = "0";
-      }, 900);
+      root.dataset.swipeLock = "0";
     };
     const onEnd = (ev) => {
       if (ev.propertyName !== "transform") return;
@@ -295,7 +330,7 @@ export function installDaySwipe(root, onShift, hooks = {}) {
       if (!tracking || e.touches.length !== 1) return;
       onMove(e.touches[0].clientX, e.touches[0].clientY, e);
     },
-    { passive: true }
+    { passive: false }
   );
 
   root.addEventListener("touchend", (e) => {
@@ -308,7 +343,6 @@ export function installDaySwipe(root, onShift, hooks = {}) {
     tracking = false;
     mode = null;
     root.dataset.gesture = "0";
-    detachDoc();
     rest();
     if (wasH) hooks.onCancel?.();
   };

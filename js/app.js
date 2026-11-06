@@ -7,7 +7,9 @@ import { getRoute, navigate, onRouteChange, startRouter } from "./router.js";
 import { renderLoginScreen } from "./ui-login.js";
 import { renderUrlaubDetail } from "./ui-urlaub-detail.js";
 import { renderMapScreen } from "./ui-map.js";
+import { getMediathekSession } from "./mediathek-session.js";
 import { renderTripLibrary } from "./ui-trip-library.js";
+import { renderMediathekScreen } from "./ui-mediathek.js";
 import { renderRecapVideo } from "./ui-recap-video.js";
 import { renderDiary } from "./ui-diary.js";
 import { renderUrlaubSettings } from "./ui-urlaub-settings.js";
@@ -117,9 +119,15 @@ async function renderNow() {
     case "urlaub-map":
       await renderMapScreen(appEl, route.id);
       break;
-    case "urlaub-mediathek":
-      await renderTripLibrary(appEl, route.id);
+    case "urlaub-mediathek": {
+      const session = getMediathekSession();
+      if (session && session.vacationId === route.id) {
+        await renderMediathekScreen(appEl, route.id);
+      } else {
+        await renderTripLibrary(appEl, route.id);
+      }
       break;
+    }
     case "urlaube":
     default:
       await renderUrlaubeScreen(appEl, vacations);
@@ -157,9 +165,13 @@ async function startApp() {
     scheduleRender();
   });
   startRouter();
-  window.addEventListener("vacrecap:data-changed", () => {
+  window.addEventListener("vacrecap:data-changed", (event) => {
     if (document.querySelector("[data-testid='cover-sheet']")) return;
     if (document.getElementById("app")?.dataset.formSaving === "1") return;
+    const d = event.detail || {};
+    if (d.skipFullRender && getRoute().name === "urlaub-detail" && d.tripId && getRoute().id === d.tripId) {
+      return;
+    }
     scheduleRender();
   });
   window.addEventListener("online", () => {

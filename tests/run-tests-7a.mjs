@@ -392,7 +392,7 @@ async function runPhotoSuite(page, baseUrl, state, fixturePaths, label) {
   const [fixturePath, fixturePathB, fixturePathC] = fixturePaths;
   await page.goto(baseUrl);
   const v = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  if (Number(v) !== 68) throw new Error(`${label}: Build ${v} != 68`);
+  if (Number(v) !== 69) throw new Error(`${label}: Build ${v} != 69`);
   await login(page);
   const { tripId, day, placeId } = await seedTripWithPlace(page);
 
@@ -537,7 +537,14 @@ async function runPhotoSuite(page, baseUrl, state, fixturePaths, label) {
   const mediaBeforeMidOffline = state.media.length;
   state.setFailNextOriginalOffline(1);
   await page.setInputFiles('[data-testid="gallery-input"]', [fixturePathC]);
-  await page.waitForSelector('[data-testid="photo-upload-sheet"]', { state: "visible" });
+  await page.waitForFunction(
+    () => {
+      const root = document.getElementById("overlay-root");
+      return Boolean(root && !root.hidden && root.querySelector('[data-testid="photo-upload-sheet"]'));
+    },
+    null,
+    { timeout: 30_000 }
+  );
   await page.waitForFunction(
     () => document.querySelector(".photo-upload-item__status")?.textContent?.includes("Offline"),
     null,
@@ -580,6 +587,12 @@ async function runPhotoSuite(page, baseUrl, state, fixturePaths, label) {
     throw new Error(`${label}: Offline-Retry-Zeile nicht uploaded`);
   }
 
+  /* vacrecap:data-changed startet renderNow asynchron — Overlay erst öffnen, wenn wieder frei. */
+  await page.waitForFunction(() => document.getElementById("overlay-root")?.hidden === true, null, {
+    timeout: 15_000,
+  });
+  await page.waitForTimeout(150);
+
   await page.evaluate(
     async ({ tripId, day, placeId }) => {
       Object.defineProperty(navigator, "onLine", { configurable: true, get: () => false });
@@ -595,11 +608,20 @@ async function runPhotoSuite(page, baseUrl, state, fixturePaths, label) {
     },
     { tripId, day, placeId }
   );
-  await page.waitForSelector('[data-testid="photo-upload-sheet"]');
+  await page.waitForFunction(
+    () => {
+      const root = document.getElementById("overlay-root");
+      return Boolean(
+        root && !root.hidden && root.querySelector('[data-testid="photo-upload-sheet"]')
+      );
+    },
+    null,
+    { timeout: 60_000 }
+  );
   await page.waitForFunction(
     () => document.querySelector(".photo-upload-item__status")?.textContent?.includes("Offline"),
     null,
-    { timeout: 30_000 }
+    { timeout: 60_000 }
   );
   await page.evaluate(() => {
     Object.defineProperty(navigator, "onLine", { configurable: true, get: () => true });
@@ -622,10 +644,39 @@ async function runPhotoSuite(page, baseUrl, state, fixturePaths, label) {
   });
   if (!overflow) throw new Error(`${label}: horizontal overflow`);
 
+  await page.evaluate(async () => {
+    const { resetOverlayStack } = await import("./js/overlay-stack.js");
+    resetOverlayStack();
+    const o = document.getElementById("overlay-root");
+    if (o) {
+      o.hidden = true;
+      o.innerHTML = "";
+      o.classList.remove("overlay-root--bleed");
+    }
+  });
+
   const heapBefore = await page.evaluate(() => performance.memory?.usedJSHeapSize ?? 0);
   for (let i = 0; i < 20; i++) {
-    await page.setInputFiles('[data-testid="gallery-input"]', [fixturePath]);
-    await page.waitForSelector('[data-testid="photo-upload-sheet"]');
+    await page.waitForFunction(
+      () => document.getElementById("app")?.dataset?.captureBusy !== "1",
+      null,
+      { timeout: 30_000 }
+    );
+    /* Gleicher Pfad löst in WebKit oft kein zweites "change" aus — pro Lauf ein eigener Inhalt. */
+    await page.waitForTimeout(80);
+    await page.setInputFiles("[data-testid=\"gallery-input\"]", [
+      { name: `heap-${i}.png`, mimeType: "image/png", buffer: Buffer.concat([TINY_PNG, Buffer.from([i & 0xff])]) },
+    ]);
+    await page.waitForFunction(
+      () => {
+        const root = document.getElementById("overlay-root");
+        return Boolean(
+          root && !root.hidden && root.querySelector('[data-testid="photo-upload-sheet"]')
+        );
+      },
+      null,
+      { timeout: 60_000 }
+    );
     await page.waitForFunction(
       () => document.querySelector(".photo-upload-item__status")?.textContent?.includes("✓"),
       null,

@@ -20,6 +20,7 @@ const HELP = {
   viewer: "<b>Beitragender</b>: fügt eigene Fotos, Notizen und Orte hinzu. Fremdes nur ansehen.",
   editor:
     "<b>Mitbearbeiter</b>: bearbeitet alles wie du, auch Entwürfe für Recap und Tagebuch anstoßen und umsetzen.",
+  observer: "<b>Betrachter</b>: sieht Orte, Fotos, Notizen und Recaps. Kann nichts hinzufügen oder ändern.",
 };
 
 export function shareFieldHtml() {
@@ -108,6 +109,7 @@ export function bindShareField(root, { tripId, myUserId }) {
             <input type="text" class="fg-in" maxlength="60" data-share-name data-testid="share-draft-name" data-mail="${escapeHtml(draft.email)}" value="${escapeHtml(draft.name || "")}" placeholder="Name, optional" />
           </label>
           <div class="settings-segments" data-mail="${escapeHtml(draft.email)}">
+            <button type="button" class="settings-segment fg-seg${draft.role === "observer" ? " settings-segment--active" : ""}" data-share-role="observer">Betrachter</button>
             <button type="button" class="settings-segment fg-seg${draft.role === "viewer" ? " settings-segment--active" : ""}" data-share-role="viewer">Beitragender</button>
             <button type="button" class="settings-segment fg-seg${draft.role === "editor" ? " settings-segment--active" : ""}" data-share-role="editor">Mitbearbeiter</button>
           </div>
@@ -278,7 +280,8 @@ export function bindShareField(root, { tripId, myUserId }) {
     const email = btn.parentElement?.dataset?.mail;
     const draft = drafts.find((item) => item.email === email);
     if (!draft) return;
-    draft.role = btn.dataset.shareRole === "editor" ? "editor" : "viewer";
+    const next = btn.dataset.shareRole || "viewer";
+    draft.role = next === "editor" ? "editor" : next === "observer" ? "observer" : "viewer";
     paint();
   });
 
@@ -312,7 +315,8 @@ export function bindShareField(root, { tripId, myUserId }) {
           expired
             ? `<button type="button" data-action="reinvite">Erneut einladen</button>
                <button type="button" data-action="revoke" class="danger">Einladung zurückziehen</button>`
-            : `<button type="button" data-action="editor" class="${check("editor")}">Mitbearbeiter${mark("editor")}</button>
+            : `<button type="button" data-action="observer" class="${check("observer")}">Betrachter${mark("observer")}</button>
+               <button type="button" data-action="editor" class="${check("editor")}">Mitbearbeiter${mark("editor")}</button>
                <button type="button" data-action="viewer" class="${check("viewer")}">Beitragender${mark("viewer")}</button>
                <button type="button" data-action="revoke" class="danger">Zugriff entziehen</button>`
         }
@@ -324,6 +328,7 @@ export function bindShareField(root, { tripId, myUserId }) {
     };
     const activeClose = bindOverlay(overlay, close);
     overlay.querySelector('[data-action="cancel"]').addEventListener("click", () => closeOverlayHistory(activeClose));
+    overlay.querySelector('[data-action="observer"]')?.addEventListener("click", () => changeRole("observer"));
     overlay.querySelector('[data-action="editor"]')?.addEventListener("click", () => changeRole("editor"));
     overlay.querySelector('[data-action="viewer"]')?.addEventListener("click", () => changeRole("viewer"));
     overlay.querySelector('[data-action="reinvite"]')?.addEventListener("click", () => reinvite());
@@ -356,7 +361,7 @@ export function bindShareField(root, { tripId, myUserId }) {
         await inviteToTrip(tripId, [
           {
             email: more.dataset.email,
-            role: role === "editor" ? "editor" : "viewer",
+            role: role === "editor" ? "editor" : role === "observer" ? "observer" : "viewer",
             name: clipName(more.dataset.name && more.dataset.name !== more.dataset.email ? more.dataset.name : ""),
           },
         ]);

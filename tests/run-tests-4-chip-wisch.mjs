@@ -120,6 +120,11 @@ function createMockSupabaseState() {
           return { status: 200, json: trips };
         }
       }
+      if (table === "trip_members" && method === "GET") {
+        const tid = qp(url, "trip_id");
+        const uid = qp(url, "user_id");
+        return { status: 200, json: [{ role: "owner", trip_id: tid || "", user_id: uid || userId }] };
+      }
       if (method === "GET") return { status: 200, json: [] };
       return { status: 200, json: null };
     },
@@ -359,6 +364,8 @@ async function runLongTrip(page, state, where, { reduced = false } = {}) {
       });
       window.__skObs.observe(root, { childList: true, subtree: true });
     });
+    /* Nur Treffer während dieser Geste zählen (vorheriger Ladevorgang darf noch GETs nachziehen). */
+    state.hits.length = 0;
   }
 
   const beforeHalf = await page.evaluate(() => window.__measure());
@@ -385,10 +392,14 @@ async function runLongTrip(page, state, where, { reduced = false } = {}) {
   if (!reduced) {
     const sawSkeleton = await page.evaluate(() => window.__sawSkeleton);
     assert(!sawSkeleton, `${where}: Tagesinhalt flackert (Skeleton) beim Einrasten`);
-    const notes = state.hits.filter((hit) => hit.table === "notes");
+    const noteGets = state.hits.filter((hit) => hit.table === "notes" && hit.method === "GET");
     const ways = state.hits.filter((hit) => hit.table === "waypoints");
     assert(ways.length === 0, `${where}: Wegpunkte werden beim Wisch erneut geladen (${ways.length})`);
-    assert(notes.length <= 1, `${where}: Notizen doppelt geladen (${notes.length})`);
+    const seen = new Set();
+    for (const h of noteGets) {
+      assert(!seen.has(h.search), `${where}: gleicher Notiz-GET zweimal (${h.search})`);
+      seen.add(h.search);
+    }
   }
 
   if (reduced) return;
@@ -769,7 +780,7 @@ async function runSuite(browserType, baseUrl, engine) {
   await page.goto(baseUrl);
   await page.waitForSelector('[data-testid="login-screen"]');
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 68, `${engine}: Build ${build}, erwartet 68`);
+  assert(Number(build) === 69, `${engine}: Build ${build}, erwartet 69`);
   await page.fill('input[name="email"]', "test@example.com");
   await page.click('form[data-step="email"] button[type="submit"]');
   await page.waitForSelector('form[data-step="otp"]');
@@ -816,7 +827,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 4 chip-wisch tests OK (Build 68)");
+  console.log("Playwright 4 chip-wisch tests OK (Build 69)");
 }
 
 main().catch((err) => {

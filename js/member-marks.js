@@ -53,11 +53,19 @@ export function shareContext(role, userId, people) {
     members,
     colors,
     byId,
-    viewer: role === "viewer",
+    viewer: role === "viewer" || role === "observer",
+    readOnly: role === "observer",
   };
 }
 
 export function noteMarkup(note, action, share) {
+  if (share?.readOnly) {
+    return `
+          <div class="nr" data-note-id="${note.id}"${action === "edit-free-note" ? ' data-free-note="1"' : ""}>
+            <span class="nr__icon">${note._icon || ""}</span>
+            <span class="nr__text">${note._text || ""}</span>
+          </div>`;
+  }
   const decorate = share && (share.viewer || share.multi);
   if (!decorate) {
     return `
