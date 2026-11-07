@@ -4,12 +4,20 @@ function round1(n) {
   return Math.round(n * 10) / 10;
 }
 
+/** „2. Tag“ ist kein Titel. Anreise, Abreise und eigene Namen bleiben. */
+export function dayMapLegendText(legend) {
+  const text = String(legend || "").trim();
+  if (!text || /^\d+\. Tag$/.test(text)) return "";
+  return text;
+}
+
 /** Titel und Untertitel einer Tageskarte. Ohne Tagestitel nur die Anzahl. */
 export function dayMapCaption(dateLabel, legend, count) {
   const n = Math.max(0, Number(count) || 0);
   const places = n === 1 ? "1 Ort" : `${n} Orte`;
   const title = dateLabel ? `Tageskarte · ${dateLabel}` : "Tageskarte";
-  const subtitle = legend ? `${legend} · ${places}` : places;
+  const named = dayMapLegendText(legend);
+  const subtitle = named ? `${named} · ${places}` : places;
   return { title, subtitle };
 }
 
@@ -117,7 +125,6 @@ export function buildVideoRecap({ places = [], photos = [], notes = [] } = {}) {
       perNoteS: P.perNoteS,
       photosPerPlace: planned.photosPerPlace,
       minS: P.minS,
-      maxS: P.maxS,
       dayMapS: P.dayMapS,
     },
     counts,

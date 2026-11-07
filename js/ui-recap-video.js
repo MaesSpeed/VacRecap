@@ -1,7 +1,7 @@
 import { RecapUnavailableError } from "./cloud-errors.js";
 import { dayColorFor, dayLegendLabel } from "./day-colors.js";
 import { dayChipDateLine, vacationDays } from "./days.js";
-import { dayMapSvg } from "./recap-daymap.js";
+import { dayMapPoints, dayMapSvg } from "./recap-daymap.js";
 import { getVacation } from "./db.js";
 import { ICON_BACK_CHEVRON } from "./icons.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
@@ -15,7 +15,7 @@ import {
   listVideoRecaps,
   loadRecapMaterial,
 } from "./recap-service.js";
-import { buildVideoRecap, countMaterialPhotos, dayMapCaption } from "./recap-storyboard.js";
+import { buildVideoRecap, countMaterialPhotos, dayMapCaption, dayMapLegendText } from "./recap-storyboard.js";
 import { navigate } from "./router.js";
 import { resolveTripEditing, ROLE_UNKNOWN_MESSAGE, tripRoleLoadFailed } from "./trip-role.js";
 import { openConfirmDialog } from "./ui-confirm.js";
@@ -141,14 +141,8 @@ function viewModel(content, places) {
   const scenes = (content?.scenes || []).map((scene) => {
     if (scene?.type === "daymap") {
       const ids = Array.isArray(scene.waypoint_ids) ? scene.waypoint_ids : [];
-      const points = [];
-      for (const id of ids) {
-        const place = byId.get(id);
-        const lat = Number(place?.lat);
-        const lng = Number(place?.lng);
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
-        points.push({ lat, lng });
-      }
+      const ordered = ids.map((id) => byId.get(id) || {});
+      const points = dayMapPoints(ordered);
       return { ...scene, waypointIds: ids, points, placeCount: ids.length, mediaIds: [], noteIds: [] };
     }
     if (scene?.type !== "place") return { ...scene, mediaIds: [], noteIds: [] };
@@ -183,7 +177,7 @@ function dayMapDateLabel(iso) {
 
 function dayMapLegend(vacation, iso) {
   if (!iso || !vacation || !vacationDays(vacation).includes(iso)) return "";
-  return dayLegendLabel(vacation, iso) || "";
+  return dayMapLegendText(dayLegendLabel(vacation, iso));
 }
 
 function dayMapCopy(scene, vacation) {
@@ -214,8 +208,11 @@ function fillDayMaps(root) {
     const pad = Math.max(22, Math.round(Math.min(width, height) * 0.16));
     const radius = height >= 160 ? 12 : 9;
     const svg = dayMapSvg(points, el.dataset.color, { width, height, pad, r: radius, fitWidth: width });
-    const fallback = escapeHtml(el.dataset.color || "#1F6DB5");
-    el.innerHTML = svg || `<div class="recap-daymap__fallback" style="background:${fallback}"></div>`;
+    if (!svg) {
+      el.remove();
+      return;
+    }
+    el.innerHTML = `${svg}<a class="recap-daymap__credit" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap</a>`;
   });
 }
 
@@ -513,9 +510,10 @@ export async function renderRecapVideo(appEl, tripId, { recapId = "" } = {}) {
     function sceneCard(scene, index) {
       const color = sceneColor(scene, current);
       if (scene.type === "daymap") {
+        const map = scene.points?.length ? dayMapMount(scene.points, color, 120, "recap-daymap__map") : "";
         return `
           <article class="settings-card recap-scene recap-scene--daymap" data-testid="recap-scene" data-kind="tageskarte" style="border-left-color:${color}">
-            ${dayMapMount(scene.points, color, 120, "recap-daymap__map")}
+            ${map}
             <div class="settings-item recap-scene__row">
               <span class="recap-scene__no">${index + 1}</span>
               <span class="recap-scene__text">
@@ -709,8 +707,9 @@ export async function renderRecapVideo(appEl, tripId, { recapId = "" } = {}) {
       stage.classList.remove("recap-stage--on", "recap-stage--day");
       if (frame.kind === "daymap") {
         stage.classList.add("recap-stage--day");
+        const map = frame.points?.length ? dayMapMount(frame.points, frame.color, 180, "recap-stage__map") : "";
         stage.innerHTML = `
-          ${dayMapMount(frame.points, frame.color, 180, "recap-stage__map")}
+          ${map}
           <div class="recap-stage__day">
             <span class="recap-stage__kicker">Tageskarte</span>
             ${frame.dateLabel ? `<strong>${escapeHtml(frame.dateLabel)}</strong>` : ""}

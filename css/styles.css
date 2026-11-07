@@ -5612,8 +5612,24 @@ body:has(.screen--trip-swipe) {
 
 .recap-daymap__map,
 .recap-stage__map {
+  position: relative;
   background: #e8eef3;
   overflow: hidden;
+}
+
+.recap-daymap__credit {
+  position: absolute;
+  right: 6px;
+  bottom: 4px;
+  z-index: 1;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.88);
+  color: #243140;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.3;
+  text-decoration: none;
 }
 
 .recap-daymap__map {
@@ -5623,11 +5639,6 @@ body:has(.screen--trip-swipe) {
 .recap-daymap__map svg,
 .recap-stage__map svg {
   display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.recap-daymap__fallback {
   width: 100%;
   height: 100%;
 }
