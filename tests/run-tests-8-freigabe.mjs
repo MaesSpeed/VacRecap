@@ -391,7 +391,10 @@ function handleRpc(state, name, body) {
     for (const item of list) {
       const email = String(item.email || "").trim().toLowerCase();
       const role = item.role;
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || (role !== "editor" && role !== "viewer")) {
+      if (
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+        (role !== "editor" && role !== "viewer" && role !== "observer")
+      ) {
         results.push({ email, result: "invalid", invite_id: null });
         continue;
       }
@@ -445,7 +448,7 @@ function handleRpc(state, name, body) {
     if (roleOn(state, args.p_trip_id) !== "owner") {
       return { status: 403, json: { code: "42501", message: "Nur der Besitzer kann Freigaben verwalten" } };
     }
-    if (args.p_role !== "editor" && args.p_role !== "viewer") {
+    if (args.p_role !== "editor" && args.p_role !== "viewer" && args.p_role !== "observer") {
       return { status: 400, json: { code: "22023", message: "Unbekannte Rolle" } };
     }
     const targets = [args.p_user_id, args.p_invite_id].filter(Boolean);

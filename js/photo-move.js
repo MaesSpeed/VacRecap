@@ -23,6 +23,7 @@ export function canCaptionMedia(media, role, userId) {
 export async function movePhotosToPlace(photos, place) {
   const day = place?.day || place?.dayDate;
   const waypointId = place?.id;
+  const tripId = place?.vacationId || place?.tripId || photos[0]?.vacationId || null;
   if (!waypointId || !day) throw new Error("Zielort fehlt.");
   const previous = photos.map((media) => ({
     id: media.id,
@@ -34,10 +35,22 @@ export async function movePhotosToPlace(photos, place) {
     for (const snap of previous) {
       if (!snap.id) continue;
       const source = photos.find((item) => item.id === snap.id);
+      const knownBefore = source
+        ? {
+            ...source,
+            vacationId: source.vacationId || tripId,
+          }
+        : {
+            id: snap.id,
+            placeId: snap.waypoint_id,
+            vacationId: tripId,
+          };
       const mapped = await updateMediaPlacement(snap.id, {
         waypointId,
         day,
         remoteUpdatedAt: source?.remoteUpdatedAt || null,
+        knownBefore,
+        beforePlaceId: source?.placeId || snap.waypoint_id,
       });
       snap.afterUpdatedAt = mapped?.remoteUpdatedAt || null;
       if (source && mapped?.remoteUpdatedAt) source.remoteUpdatedAt = mapped.remoteUpdatedAt;

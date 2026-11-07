@@ -56,7 +56,8 @@ export function vacationToTripRow(vacation) {
 
 export function waypointRowToPlace(row) {
   const day = row.day || "";
-  const ts = Date.parse(row.visited_at) || Date.now();
+  const parsedVisit = Date.parse(row.visited_at);
+  const ts = Number.isFinite(parsedVisit) ? parsedVisit : Date.now();
   return {
     id: row.id,
     createdAt: Date.parse(row.created_at) || ts,

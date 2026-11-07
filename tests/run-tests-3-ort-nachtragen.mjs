@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, webkit } from "playwright";
+import { ensureTripDetailDay } from "./trip-detail-helpers.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -383,6 +384,7 @@ async function loginAndOpen(page) {
   await page.click('button[data-action="apply"]');
   await page.click('button[type="submit"]');
   await page.waitForSelector('[data-testid="trip-content"]');
+  await ensureTripDetailDay(page, DAY);
   return page.locator(".screen--trip").getAttribute("data-vacation-id");
 }
 
@@ -398,14 +400,31 @@ async function openDayMap(page) {
 }
 
 async function tapMap(page) {
-  const point = await page.evaluate(() => {
-    const map = window.__vacrecapMap;
-    map.invalidateSize();
-    const size = map.getSize();
-    const target = map.containerPointToLatLng([Math.round(size.x * 0.62), Math.round(size.y * 0.18)]);
-    const pixel = map.latLngToContainerPoint(target);
-    return { x: pixel.x, y: pixel.y };
-  });
+  /* Unter Last kann zwischen Warten und Klick der Zoom zurückfallen — Punktrechnung in einer Schleife wiederholen. */
+  let point = null;
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    point = await page.evaluate(() => {
+      const map = window.__vacrecapMap;
+      if (!map || !map._loaded) return null;
+      const size = map.getSize?.();
+      if (!size || size.x < 8 || size.y < 8) return null;
+      try {
+        map.invalidateSize();
+        const target = map.containerPointToLatLng([
+          Math.round(size.x * 0.62),
+          Math.round(size.y * 0.18),
+        ]);
+        const pixel = map.latLngToContainerPoint(target);
+        return { x: pixel.x, y: pixel.y };
+      } catch {
+        return null;
+      }
+    });
+    if (point) break;
+    await page.waitForTimeout(40);
+  }
+  if (!point) throw new Error("Karte nicht bereit für Tipp (Leaflet)");
   await page.locator(".map-canvas").click({ position: { x: Math.max(8, point.x), y: Math.max(8, point.y) } });
 }
 
@@ -707,6 +726,22 @@ async function runFlows(page, state, label) {
   });
   await openDayMap(page);
   assert(await page.locator('[data-testid="map-tap-hint"]').isVisible(), `${label}: Beitragender sieht den Hinweis nicht`);
+  await page.waitForFunction(
+    () => {
+      const map = window.__vacrecapMap;
+      if (!map || !map._loaded) return false;
+      const size = map.getSize?.();
+      if (!size || size.x < 8) return false;
+      try {
+        map.containerPointToLatLng([24, size.y - 36]);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    null,
+    { timeout: 15_000 }
+  );
   await page.evaluate(() => {
     const map = window.__vacrecapMap;
     map.invalidateSize();
@@ -750,14 +785,14 @@ async function runSuite(browserType, baseUrl, label, viewport) {
   });
   await page.goto(baseUrl);
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 68, `${where}: Build ${build}`);
+  assert(Number(build) === 69, `${where}: Build ${build}`);
   const tripId = await loginAndOpen(page);
   seedTrip(state, tripId);
   await runFlows(page, state, where);
   const unexpected = pageErrors.filter((err) => !err.includes("access control checks") && !err.includes("Load failed") && !err.includes("Failed to fetch"));
   assert(!unexpected.length, `${where}: Seitenfehler ${unexpected.join(" | ")}`);
   await browser.close();
-  console.log(`Playwright 3 Ort nachtragen OK (${where}, Build 68)`);
+  console.log(`Playwright 3 Ort nachtragen OK (${where}, Build 69)`);
 }
 
 const { server, baseUrl } = await startServer();

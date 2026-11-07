@@ -15,7 +15,12 @@ export async function createNote({ place, vacationId, day, text }) {
 }
 
 export async function updateNoteText(note, text) {
-  const record = { ...note, text: text.trim(), ts: note.ts ?? Date.now() };
+  const record = {
+    ...note,
+    text: text.trim(),
+    ts: note.ts ?? Date.now(),
+    remoteUpdatedAt: note.remoteUpdatedAt || null,
+  };
   await putNote(record);
   return record;
 }

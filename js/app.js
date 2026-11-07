@@ -1,4 +1,4 @@
-import { getSession, onAuthStateChange } from "./auth-service.js";
+import { getSession, onAuthStateChange, setCachedAuthUserId } from "./auth-service.js";
 import { flushPendingMediaPurges, getAllVacations } from "./db.js";
 import { installGestureGuards } from "./gesture-guard.js";
 import { runLegacyCleanup } from "./legacy-cleanup.js";
@@ -7,7 +7,9 @@ import { getRoute, navigate, onRouteChange, startRouter } from "./router.js";
 import { renderLoginScreen } from "./ui-login.js";
 import { renderUrlaubDetail } from "./ui-urlaub-detail.js";
 import { renderMapScreen } from "./ui-map.js";
+import { getMediathekSession } from "./mediathek-session.js";
 import { renderTripLibrary } from "./ui-trip-library.js";
+import { renderMediathekScreen } from "./ui-mediathek.js";
 import { renderRecapVideo } from "./ui-recap-video.js";
 import { renderDiary } from "./ui-diary.js";
 import { renderUrlaubSettings } from "./ui-urlaub-settings.js";
@@ -117,9 +119,15 @@ async function renderNow() {
     case "urlaub-map":
       await renderMapScreen(appEl, route.id);
       break;
-    case "urlaub-mediathek":
-      await renderTripLibrary(appEl, route.id);
+    case "urlaub-mediathek": {
+      const session = getMediathekSession();
+      if (session && session.vacationId === route.id) {
+        await renderMediathekScreen(appEl, route.id);
+      } else {
+        await renderTripLibrary(appEl, route.id);
+      }
       break;
+    }
     case "urlaube":
     default:
       await renderUrlaubeScreen(appEl, vacations);
@@ -151,15 +159,22 @@ async function startApp() {
   if (appStarted) return;
   appStarted = true;
   const session = await getSession();
-  if (session?.user?.id) setCacheUserId(session.user.id);
+  if (session?.user?.id) {
+    setCacheUserId(session.user.id);
+    setCachedAuthUserId(session.user.id);
+  }
   onRouteChange(() => {
     dismissOverlayOnly();
     scheduleRender();
   });
   startRouter();
-  window.addEventListener("vacrecap:data-changed", () => {
+  window.addEventListener("vacrecap:data-changed", (event) => {
     if (document.querySelector("[data-testid='cover-sheet']")) return;
     if (document.getElementById("app")?.dataset.formSaving === "1") return;
+    const d = event.detail || {};
+    if (d.skipFullRender && getRoute().name === "urlaub-detail" && d.tripId && getRoute().id === d.tripId) {
+      return;
+    }
     scheduleRender();
   });
   window.addEventListener("online", () => {
@@ -185,12 +200,16 @@ async function boot() {
   if (!session) {
     renderLoginScreen(appEl, () => startApp());
     onAuthStateChange((s) => {
-      if (s?.user?.id) setCacheUserId(s.user.id);
+      if (s?.user?.id) {
+        setCacheUserId(s.user.id);
+        setCachedAuthUserId(s.user.id);
+      }
       if (s) startApp();
     });
     return;
   }
   setCacheUserId(session.user.id);
+  setCachedAuthUserId(session.user.id);
   startApp();
 }
 

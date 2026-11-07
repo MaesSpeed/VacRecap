@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, devices, webkit } from "playwright";
+import { ensureTripDetailDay, waitTripListPatch } from "./trip-detail-helpers.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -320,7 +321,11 @@ function createState() {
       }
       if (table === "media") {
         if (method === "GET") return { status: 200, json: answer(applyFilters(media, url), headers) };
-        if (method === "POST") return { status: 201, json: represent(upsert(media, JSON.parse(body || "{}")), headers) };
+        if (method === "POST") {
+          const row = JSON.parse(body || "{}");
+          upsert(media, row);
+          return { status: 201, json: represent(row, headers) };
+        }
         if (method === "PATCH") {
           const rows = applyFilters(media, url);
           if (!rows[0]) return { status: 200, json: [] };
@@ -425,7 +430,7 @@ async function login(page, baseUrl) {
   await page.goto(baseUrl);
   await page.waitForSelector('[data-testid="login-screen"]');
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 68, `Build ${build}, erwartet 68`);
+  assert(Number(build) === 69, `Build ${build}, erwartet 69`);
   await page.fill('input[name="email"]', "test@example.com");
   await page.click('form[data-step="email"] button[type="submit"]');
   await page.waitForSelector('form[data-step="otp"]');
@@ -451,6 +456,7 @@ async function createTrip(page, title, start, end, days) {
   await page.click('button[data-action="apply"]');
   await page.click('button[type="submit"]');
   await page.waitForSelector('[data-testid="trip-content"]');
+  await ensureTripDetailDay(page, start);
   await page.waitForFunction((n) => document.querySelectorAll(".day-chip").length === n, days);
 }
 
@@ -946,6 +952,7 @@ async function runSuite(browserType, baseUrl, label) {
   }
   await page.setViewportSize({ width: 375, height: 667 });
   await save.click();
+  await waitTripListPatch(page);
   await page.waitForFunction(
     (id) => document.querySelectorAll(".oc__title")[0]?.textContent?.includes("A") && document.querySelector(`[data-place-id="${id}"]`)?.textContent?.includes("20:00"),
     placeA
@@ -962,6 +969,7 @@ async function runSuite(browserType, baseUrl, label) {
   saved.visited_at = "2026-10-27T16:10:00.000Z";
   await page.locator('[data-testid="edit-place-time"]').fill("21:00");
   await save.click();
+  await waitTripListPatch(page);
   await page.waitForSelector('[data-testid="conflict-dialog"]');
   await page.locator('[data-testid="conflict-dialog"] [data-action="cancel"]').click();
   await page.waitForFunction(() => document.querySelector('[data-role="name"]')?.value === "Frischer Name");
@@ -1368,7 +1376,7 @@ try {
   await testExifDateTimeTag();
   await runSuite(chromium, baseUrl, "chromium");
   await runSuite(webkit, baseUrl, "webkit");
-  console.log(`Playwright 11 Ortszeit/Namen OK (Build 68, Bilder in ${SHOTS})`);
+  console.log(`Playwright 11 Ortszeit/Namen OK (Build 69, Bilder in ${SHOTS})`);
 } finally {
   server.close();
 }

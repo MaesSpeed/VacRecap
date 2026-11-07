@@ -50,6 +50,12 @@ export function openPhotoUploadSheet({
   }
   if (!imageRows.length) return;
 
+  /* Verstecktes Overlay kann noch altes Sheet-DOM enthalten (z. B. History nicht synchron). */
+  if (overlay.hidden) {
+    overlay.innerHTML = "";
+    overlay.classList.remove("overlay-root--bleed");
+  }
+
   const waitingForPlace = !currentPlace && typeof ensurePlace === "function";
   /** @type {UploadItem[]} */
   const items = imageRows.map((row) => ({

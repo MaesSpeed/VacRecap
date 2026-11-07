@@ -1,11 +1,11 @@
 import { normalizePresetId, presetUrl } from "./covers.js";
 import { bindCoverImage, coverStatusLabel, resolveVacationCover } from "./cover-sources.js";
 import { deleteBlob, fetchUploadedPhotosForTrip, getPlacesForVacation, getVacation, putVacation } from "./db.js";
-import { getRoute, navigate } from "./router.js";
+import { getRoute, navigate, NAV_FROM_OVERVIEW_KEY } from "./router.js";
 import { clearTripUiState } from "./ui-urlaub-detail.js";
 import { CloudNetworkError, CloudOfflineError } from "./cloud-errors.js";
 import { showToast, showWarnToast } from "./toast.js";
-import { canEditAny, canManageSharing, getConfirmedTripRole } from "./trip-role.js";
+import { canEditAny, canManageSharing, getConfirmedTripRole, tripRoleLoadFailed, clearTripRoleCache } from "./trip-role.js";
 import { bindShareField, shareFieldHtml } from "./ui-share-field.js";
 import { decideStaleWrite } from "./save-conflict.js";
 import { watchPresence, presenceBannerHtml } from "./trip-presence.js";
@@ -38,8 +38,25 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
   }
 
   const isEdit = mode === "edit";
-  const [roleInfo, photoResult, places, myUserId] = await Promise.all([
-    isEdit ? getConfirmedTripRole(vacation.id) : Promise.resolve({ role: "owner", confirmed: true }),
+  if (isEdit && vacation.id && !sessionStorage.getItem("vacrecap-form-return")) {
+    sessionStorage.setItem("vacrecap-form-return", JSON.stringify({ name: "urlaub-detail", id: vacation.id }));
+  }
+  // Zwischenstopps (z. B. Bearbeiten) brechen die direkte Overview→Detail-Historie ab.
+  if (isEdit) {
+    try {
+      sessionStorage.removeItem(NAV_FROM_OVERVIEW_KEY);
+    } catch {
+      /* ignore */
+    }
+  }
+  let roleInfo = await (isEdit
+    ? getConfirmedTripRole(vacation.id)
+    : Promise.resolve({ role: "owner", confirmed: true }));
+  if (isEdit && tripRoleLoadFailed(vacation.id)) {
+    clearTripRoleCache(vacation.id);
+    roleInfo = await getConfirmedTripRole(vacation.id);
+  }
+  const [photoResult, places, myUserId] = await Promise.all([
     isEdit ? fetchUploadedPhotosForTrip(vacation.id) : Promise.resolve({ media: [] }),
     isEdit ? getPlacesForVacation(vacation.id).catch(() => []) : Promise.resolve([]),
     getUserId().catch(() => null),

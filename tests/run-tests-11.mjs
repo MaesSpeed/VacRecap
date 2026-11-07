@@ -391,9 +391,26 @@ async function meta(page, placeId) {
   return page.locator(`[data-place-id="${placeId}"] .oc__meta`).innerText();
 }
 
+async function waitPhotoSelectCount(page, n) {
+  await page.waitForFunction(
+    (expected) => {
+      const t = document.querySelector('[data-testid="photo-select-count"]')?.textContent || "";
+      return t.includes(`${expected} ausgewählt`);
+    },
+    n,
+    { timeout: 15_000 }
+  );
+}
+
+async function selectPhoto(page, id, expectCount) {
+  await page.locator(`[data-testid="place-photo"][data-media-id="${id}"]`).click();
+  await waitPhotoSelectCount(page, expectCount);
+}
+
 async function enterSelect(page) {
   await page.click('[data-testid="photo-select-start"]');
   await page.waitForSelector('[data-testid="photo-select-bar"]');
+  await waitPhotoSelectCount(page, 0);
 }
 
 async function runFlows(page, state, label) {
@@ -536,7 +553,7 @@ async function runFlows(page, state, label) {
     return root?.innerText?.includes("Hafen Malcesine") && root.querySelector('[data-testid="photo-select-start"]');
   });
   await enterSelect(page);
-  await page.locator('[data-testid="place-photo"][data-media-id="m-see"]').click();
+  await selectPhoto(page, "m-see", 1);
   await page.click('[data-testid="photo-move"]');
   await page.waitForSelector('[data-testid="photo-move-sheet"]');
   await page.locator('[data-move-place="p-ufer"]').click();
@@ -554,7 +571,7 @@ async function runFlows(page, state, label) {
   assert(!(await meta(page, "p-ufer")).includes("Foto"), `${label}: Geisterfoto am Ufer «${await meta(page, "p-ufer")}»`);
 
   await enterSelect(page);
-  await page.locator('[data-testid="place-photo"][data-media-id="m-see"]').click();
+  await selectPhoto(page, "m-see", 1);
   await page.locator('[data-testid="photo-move"]').evaluate((btn) => {
     btn.click();
     btn.click();
@@ -573,7 +590,7 @@ async function runFlows(page, state, label) {
   assert(page.url().includes(`/urlaub/${tripId}`), `${label}: Escape verlässt die Reise`);
 
   await enterSelect(page);
-  await page.locator('[data-testid="place-photo"][data-media-id="m-see"]').click();
+  await selectPhoto(page, "m-see", 1);
   const beforeBack = page.url();
   await page.goBack();
   await page.waitForSelector('[data-testid="photo-select-bar"]', { state: "detached" });
@@ -621,7 +638,7 @@ async function runSuite(browserType, baseUrl, label, viewport) {
   const where = `${label} ${viewport.width}x${viewport.height}`;
   await page.goto(baseUrl);
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 68, `${where}: Build ${build}`);
+  assert(Number(build) === 69, `${where}: Build ${build}`);
   await runFlows(page, state, where);
   const unexpected = pageErrors.filter((err) => !err.includes("access control checks"));
   assert(!unexpected.length, `${where}: Seitenfehler ${unexpected.join(" | ")}`);

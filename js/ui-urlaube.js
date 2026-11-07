@@ -331,6 +331,7 @@ function bindCardMenu(overlay, id, vacation) {
   );
   overlay.querySelector('[data-action="edit"]')?.addEventListener("click", () => {
     releaseOverlayHistory(activeClose);
+    sessionStorage.setItem("vacrecap-form-return", JSON.stringify({ name: "urlaube" }));
     navigate({ name: "urlaub-form", mode: "edit", id });
   });
   overlay.querySelector('[data-action="delete"]')?.addEventListener("click", () => {

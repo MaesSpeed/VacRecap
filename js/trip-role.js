@@ -7,10 +7,24 @@ const confirmedRoles = new Map();
 const roleLoadFailed = new Set();
 const roleInflight = new Map();
 
+/** Rollen-Cache gilt nur für genau diesen Nutzer (sonst nach Kontowechsel falsche Rolle). */
+let roleCacheUserId = undefined;
+
+function ensureTripRoleCacheForUser(userId) {
+  const next = userId ?? null;
+  if (next === roleCacheUserId) return;
+  roleCache.clear();
+  confirmedRoles.clear();
+  roleLoadFailed.clear();
+  roleInflight.clear(); // sonst liefert ein alter Request die Rolle des vorherigen Kontos
+  roleCacheUserId = next;
+}
+
 export const ROLE_LABEL = {
   owner: "Besitzer",
   editor: "Mitbearbeiter",
   viewer: "Beitragender",
+  observer: "Betrachter",
 };
 
 export function tripRoleLoadFailed(tripId) {
@@ -47,25 +61,38 @@ function failRole(tripId) {
 
 export async function getConfirmedTripRole(tripId) {
   if (!tripId) return { role: "owner", confirmed: true };
+  let uid;
+  try {
+    uid = await getUserId();
+  } catch {
+    uid = null;
+  }
+  if (!uid) {
+    ensureTripRoleCacheForUser(null);
+    return failRole(tripId);
+  }
+  ensureTripRoleCacheForUser(uid);
   if (roleCache.has(tripId)) {
     return { role: roleCache.get(tripId), confirmed: confirmedRoles.has(tripId) };
   }
   if (roleInflight.has(tripId)) return roleInflight.get(tripId);
-  const job = loadConfirmedTripRole(tripId).finally(() => roleInflight.delete(tripId));
+  const job = loadConfirmedTripRole(tripId, uid).finally(() => roleInflight.delete(tripId));
   roleInflight.set(tripId, job);
   return job;
 }
 
-async function loadConfirmedTripRole(tripId) {
+async function loadConfirmedTripRole(tripId, uid) {
   try {
-    const uid = await getUserId();
     if (!uid) return failRole(tripId);
+    const loadForUser = uid;
     const { data, error } = await getSupabase()
       .from("trip_members")
       .select("role")
       .eq("trip_id", tripId)
       .eq("user_id", uid)
       .maybeSingle();
+    // Anderer Login während der Anfrage: Ergebnis verwerfen (keinen Cache füllen).
+    if (loadForUser !== roleCacheUserId) return { role: "owner", confirmed: false };
     if (error) return failRole(tripId);
     if (!data?.role) {
       if (isLocalOnlyTrip(tripId)) {
@@ -90,6 +117,7 @@ export async function getMyTripRole(tripId) {
 }
 
 export function canAddOwn(role) {
+  if (isReadOnlyTripRole(role)) return false;
   return role === "owner" || role === "editor" || role === "viewer";
 }
 
@@ -97,7 +125,12 @@ export function canEditAny(role) {
   return role === "owner" || role === "editor";
 }
 
+export function isReadOnlyTripRole(role) {
+  return role === "observer";
+}
+
 export function canEditItem(role, item, myUserId) {
+  if (isReadOnlyTripRole(role)) return false;
   if (canEditAny(role)) return true;
   return role === "viewer" && Boolean(myUserId) && item?.author === myUserId;
 }
@@ -124,6 +157,7 @@ export const ROLE_UNKNOWN_MESSAGE = "Rolle konnte nicht geladen werden. Bitte sp
 export async function resolveTripEditing(tripId) {
   const role = await getMyTripRole(tripId);
   if (tripRoleLoadFailed(tripId)) return false;
+  if (isReadOnlyTripRole(role)) return false;
   return canStartRecap(role);
 }
 
@@ -139,6 +173,7 @@ export async function listMyTripRoles(tripIds) {
   };
   try {
     userId = await getUserId();
+    ensureTripRoleCacheForUser(userId);
     if (!userId) {
       ids.forEach((id) => store(id, "owner", isLocalOnlyTrip(id)));
       return { failed: false, roles, userId };
@@ -171,9 +206,13 @@ export function clearTripRoleCache(tripId) {
     roleCache.delete(tripId);
     confirmedRoles.delete(tripId);
     roleLoadFailed.delete(tripId);
+    roleInflight.delete(tripId);
   } else {
     roleCache.clear();
     confirmedRoles.clear();
     roleLoadFailed.clear();
+    roleInflight.clear();
+    roleCacheUserId = undefined;
   }
 }
+

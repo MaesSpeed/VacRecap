@@ -19,12 +19,26 @@ import {
   vacationToTripRow,
   waypointRowToPlace,
 } from "./cloud-mappers.js";
-import { cachePayloadIsSmall, isOfflineReadOnly, readCache, writeCache } from "./local-cache.js";
+import { cachePayloadIsSmall, getCacheUserId, isOfflineReadOnly, readCache, writeCache } from "./local-cache.js";
 import { getSupabase } from "./supabase-client.js";
 import { normalizePlace } from "./places.js";
 import { normalizeVacation } from "./vacation.js";
 
 const SETTINGS_PREFIX = "vr-setting:";
+
+function emitDataChanged(detail = {}) {
+  window.dispatchEvent(new CustomEvent("vacrecap:data-changed", { detail }));
+}
+
+export function emitTripPlaceIdsChanged(tripId, placeIds) {
+  if (!tripId) return;
+  const uniq = [...new Set((placeIds || []).filter(Boolean))];
+  if (uniq.length > 1) {
+    emitDataChanged({ skipFullRender: true, tripId, placeIds: uniq });
+  } else if (uniq.length === 1) {
+    emitDataChanged({ skipFullRender: true, tripId, placeId: uniq[0] });
+  }
+}
 
 function assertWritable() {
   if (isOfflineReadOnly() || !navigator.onLine) {
@@ -218,7 +232,7 @@ export async function putVacation(vacation, { force = false } = {}) {
   const prev = readCache()?.trips || [];
   const idx = prev.findIndex((t) => t.id === mapped.id);
   writeCache({ trips: idx >= 0 ? prev.map((t, i) => (i === idx ? mapped : t)) : [...prev, mapped] });
-  window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  emitDataChanged({ mergeTrip: true });
   if (!companionsUnavailable) return mapped;
   return { ...mapped, companions: { ...mapped.companions }, companionsUnavailable: true };
 }
@@ -275,7 +289,7 @@ export async function deleteVacation(id) {
       notes: { ...cache.notes, [id]: [] },
     });
   }
-  window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  emitDataChanged();
 }
 
 export async function deleteVacationData(vacationId) {
@@ -385,7 +399,13 @@ export async function putPlace(place) {
   }
   const mapped = normalizePlace(waypointRowToPlace(data));
   mergeWaypointCache(mapped);
-  window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  emitDataChanged({
+    skipFullRender: true,
+    tripId: mapped.vacationId,
+    placeId: mapped.id,
+    placeDay: mapped.day || mapped.dayDate,
+    mergeTrip: true,
+  });
   return mapped;
 }
 
@@ -412,7 +432,12 @@ export async function deletePlace(id) {
     const list = (cache?.waypoints?.[place.vacationId] || []).filter((p) => p.id !== id);
     writeCache({ waypoints: { [place.vacationId]: list } });
   }
-  window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  emitDataChanged({
+    skipFullRender: true,
+    tripId: place?.vacationId,
+    placeId: id,
+    placeDay: place ? place.day || place.dayDate : null,
+  });
 }
 
 /** Hebt das weiche Löschen auf, damit Rückgängig den Ort wieder zeigt. */
@@ -539,29 +564,41 @@ function cacheFreeNotesForDay(tripId, day, notes) {
   writeCache({ notes: { [tripId]: [...without, ...notes] } });
 }
 
+/** Gleicher Tag/Trip parallel (merge + build): eine Anfrage, ein Ergebnis. */
+const freeNotesInflight = new Map();
+
 export async function getFreeNotesForDay(tripId, day) {
   if (!tripId || !day) return [];
   if (!navigator.onLine) return freeNotesFromCache(tripId, day);
-  try {
-    const { data, error } = await getSupabase()
-      .from("notes")
-      .select("*")
-      .eq("trip_id", tripId)
-      .eq("day", day)
-      .is("waypoint_id", null)
-      .is("deleted_at", null)
-      .order("updated_at", { ascending: true });
-    if (error) throw mapApiError(error);
-    const notes = (data || []).map(noteRowToApp);
-    cacheFreeNotesForDay(tripId, day, notes);
-    return notes;
-  } catch (err) {
-    const cached = freeNotesFromCache(tripId, day);
-    if (cached.length) return cached;
-    if (err instanceof CloudOfflineError || err instanceof CloudNetworkError) return [];
-    if (isFetchNetworkFailure(err)) return [];
-    throw err;
-  }
+  const key = `${tripId}|${day}`;
+  const inflight = freeNotesInflight.get(key);
+  if (inflight) return inflight;
+  const run = (async () => {
+    try {
+      const { data, error } = await getSupabase()
+        .from("notes")
+        .select("*")
+        .eq("trip_id", tripId)
+        .eq("day", day)
+        .is("waypoint_id", null)
+        .is("deleted_at", null)
+        .order("updated_at", { ascending: true });
+      if (error) throw mapApiError(error);
+      const notes = (data || []).map(noteRowToApp);
+      cacheFreeNotesForDay(tripId, day, notes);
+      return notes;
+    } catch (err) {
+      const cached = freeNotesFromCache(tripId, day);
+      if (cached.length) return cached;
+      if (err instanceof CloudOfflineError || err instanceof CloudNetworkError) return [];
+      if (isFetchNetworkFailure(err)) return [];
+      throw err;
+    } finally {
+      freeNotesInflight.delete(key);
+    }
+  })();
+  freeNotesInflight.set(key, run);
+  return run;
 }
 
 export async function putNote(record) {
@@ -582,7 +619,19 @@ export async function putNote(record) {
   }
   const mapped = noteRowToApp(data);
   mergeNoteCache(mapped);
-  window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  const guardedEdit = Boolean(record.id && record.remoteUpdatedAt);
+  if (guardedEdit) {
+    emitDataChanged({ tripId: mapped.vacationId });
+  } else {
+    emitDataChanged({
+      skipFullRender: true,
+      tripId: mapped.vacationId,
+      placeId: mapped.placeId || null,
+      placeDay: !mapped.placeId ? mapped.day : null,
+      noteListPatch: Boolean(mapped.placeId),
+      patchedNote: mapped.placeId ? mapped : null,
+    });
+  }
   return mapped;
 }
 
@@ -596,6 +645,17 @@ function mergeNoteCache(note) {
 
 export async function deleteNote(id) {
   assertWritable();
+  let cachedMeta = null;
+  const tripHint = readCache()?.notes;
+  if (tripHint) {
+    for (const [tid, list] of Object.entries(tripHint)) {
+      const hit = list?.find((n) => n.id === id);
+      if (hit) {
+        cachedMeta = { tripId: tid, placeId: hit.placeId, day: hit.day };
+        break;
+      }
+    }
+  }
   const { data, error } = await getSupabase()
     .from("notes")
     .update({ deleted_at: new Date().toISOString() })
@@ -604,7 +664,17 @@ export async function deleteNote(id) {
   if (error) throw mapApiError(error);
   if (!rowsOf(data).length) throw new Error("Dafür fehlt die Berechtigung.");
   removeNoteFromCache(id);
-  window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  emitDataChanged(
+    cachedMeta?.tripId
+      ? {
+          skipFullRender: true,
+          tripId: cachedMeta.tripId,
+          placeId: cachedMeta.placeId || null,
+          placeDay: !cachedMeta.placeId ? cachedMeta.day : null,
+          noteListPatch: Boolean(cachedMeta.placeId),
+        }
+      : {}
+  );
 }
 
 function removeNoteFromCache(noteId) {
@@ -635,7 +705,7 @@ export async function insertMediaRow(record) {
   const { data, error } = await getSupabase().from("media").insert(row).select().single();
   if (error) throw mapApiError(error);
   const mapped = mediaRowToApp(data);
-  window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  emitDataChanged({ skipFullRender: true, tripId: mapped.vacationId, placeId: mapped.placeId || null });
   return mapped;
 }
 
@@ -649,7 +719,7 @@ export async function updateMediaRow(id, patch) {
     .single();
   if (error) throw mapApiError(error);
   const mapped = mediaRowToApp(data);
-  window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  emitDataChanged({ skipFullRender: true, tripId: mapped.vacationId, placeId: mapped.placeId || null });
   return mapped;
 }
 
@@ -683,7 +753,7 @@ export async function updateMediaCaption(id, caption, { remoteUpdatedAt = null, 
     throw staleFromFresh(fresh, remoteUpdatedAt);
   }
   const mapped = mediaRowToApp(row);
-  window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  emitDataChanged({ skipFullRender: true, tripId: mapped.vacationId, placeId: mapped.placeId || null });
   return mapped;
 }
 
@@ -691,10 +761,31 @@ export async function updateMediaCaption(id, caption, { remoteUpdatedAt = null, 
  * Verschiebt ein Foto auf einen anderen Ort/Tag.
  * Der Patch enthält waypoint_id, day und updated_at — nie created_by.
  * taken_at nur, wenn der Aufrufer es ausdrücklich setzt (Foto ohne eigene Zeit).
- * Kein vacrecap:data-changed, damit die Tagesansicht Ort und Zähler aus dem Cache malt.
+ * Detail-Patch über vacrecap:data-changed mit placeId (Quell- und Ziel-Ort im Handler).
  */
-export async function updateMediaPlacement(id, { waypointId, day, takenAt, remoteUpdatedAt = null, force = false } = {}) {
+export async function updateMediaPlacement(
+  id,
+  {
+    waypointId,
+    day,
+    takenAt,
+    remoteUpdatedAt = null,
+    force = false,
+    knownBefore = null,
+    beforePlaceId = null,
+    suppressEmit = false,
+  } = {}
+) {
   assertWritable();
+  const priorPlaceId = beforePlaceId ?? knownBefore?.placeId ?? knownBefore?.waypoint_id ?? null;
+  const before =
+    priorPlaceId != null
+      ? {
+          id,
+          placeId: priorPlaceId,
+          vacationId: knownBefore?.vacationId || knownBefore?.tripId || null,
+        }
+      : await getMedia(id);
   const patch = {
     waypoint_id: waypointId,
     day,
@@ -713,7 +804,11 @@ export async function updateMediaPlacement(id, { waypointId, day, takenAt, remot
     const fresh = await readFreshRow(getSupabase(), "media", id);
     throw staleFromFresh(fresh, remoteUpdatedAt);
   }
-  return mediaRowToApp(row);
+  const mapped = mediaRowToApp(row);
+  if (!suppressEmit) {
+    emitTripPlaceIdsChanged(mapped.vacationId, [before?.placeId, mapped.placeId]);
+  }
+  return mapped;
 }
 
 export async function getMedia(id) {
@@ -736,18 +831,27 @@ export async function markMediaDeleted(id) {
     .select("id");
   if (error) throw mapApiError(error);
   if (!rowsOf(data).length) throw new Error("Dafür fehlt die Berechtigung.");
-  window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  emitDataChanged(
+    existing?.vacationId
+      ? { skipFullRender: true, tripId: existing.vacationId, placeId: existing.placeId || null }
+      : {}
+  );
   return existing;
 }
 
 export async function restoreMedia(id) {
   assertWritable();
+  const before = await getMedia(id);
   const { error } = await getSupabase()
     .from("media")
     .update({ deleted_at: null, updated_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw mapApiError(error);
-  window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  emitDataChanged(
+    before?.vacationId
+      ? { skipFullRender: true, tripId: before.vacationId, placeId: before.placeId || null }
+      : {}
+  );
 }
 
 export async function purgeMediaFiles(media) {
@@ -831,11 +935,13 @@ const STALE_PENDING_MS = 10 * 60 * 1000;
 
 async function reconcileStalePendingRows(rows) {
   if (!rows?.length || !navigator.onLine) return rows;
-  let userId = null;
-  try {
-    userId = await getUserId();
-  } catch {
-    return rows;
+  let userId = getCacheUserId();
+  if (!userId) {
+    try {
+      userId = await getUserId();
+    } catch {
+      return rows;
+    }
   }
   if (!userId) return rows;
   const now = Date.now();

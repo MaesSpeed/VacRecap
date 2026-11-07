@@ -1,5 +1,5 @@
 const listeners = new Set();
-const NAV_FROM_OVERVIEW_KEY = "vacrecap-nav-from-overview";
+export const NAV_FROM_OVERVIEW_KEY = "vacrecap-nav-from-overview";
 
 export function leaveTripToOverview() {
   const fromOverview = sessionStorage.getItem(NAV_FROM_OVERVIEW_KEY) === "1";

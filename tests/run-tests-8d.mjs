@@ -154,7 +154,8 @@ function createMockSupabaseState() {
   const rejected = [];
 
   function represent(row, headers) {
-    const accept = headers.accept || "";
+    const h = headers || {};
+    const accept = String(h.accept || h.Accept || "").toLowerCase();
     if (accept.includes("application/vnd.pgrst.object+json")) return row;
     return [row];
   }
@@ -221,6 +222,11 @@ function createMockSupabaseState() {
     },
     handleRest(url, method, body, headers) {
       const table = url.pathname.split("/").filter(Boolean).pop();
+      const acceptHdr =
+        typeof headers?.get === "function"
+          ? headers.get("accept") || ""
+          : String(headers?.accept || headers?.Accept || "");
+      const headerBag = { accept: acceptHdr };
       const upsert = (list, row) => {
         const id = row.id || crypto.randomUUID();
         const hit = list.find((item) => item.id === id);
@@ -240,7 +246,7 @@ function createMockSupabaseState() {
       if (table === "trips") {
         if (method === "POST") {
           const row = JSON.parse(body || "{}");
-          return { status: 201, json: represent(upsert(trips, row), headers) };
+          return { status: 201, json: represent(upsert(trips, row), headerBag) };
         }
         if (method === "GET") return { status: 200, json: applyFilters(trips, url) };
       }
@@ -259,35 +265,35 @@ function createMockSupabaseState() {
             rejected.push({ row, violation });
             return { status: 400, json: violation };
           }
-          return { status: 201, json: represent(upsert(waypoints, row), headers) };
+          return { status: 201, json: represent(upsert(waypoints, row), headerBag) };
         }
         if (method === "PATCH") {
           const rows = applyFilters(waypoints, url);
           const row = JSON.parse(body || "{}");
           if (!rows[0]) return { status: 406, json: { code: "PGRST116", message: "0 rows" } };
           Object.assign(rows[0], row, { updated_at: new Date().toISOString() });
-          return { status: 200, json: represent(rows[0], headers) };
+          return { status: 200, json: represent(rows[0], headerBag) };
         }
       }
       if (table === "notes") {
         if (method === "GET") return { status: 200, json: applyFilters(notes, url) };
         if (method === "POST") {
           const row = JSON.parse(body || "{}");
-          return { status: 201, json: represent(upsert(notes, row), headers) };
+          return { status: 201, json: represent(upsert(notes, row), headerBag) };
         }
       }
       if (table === "media") {
         if (method === "GET") return { status: 200, json: applyFilters(media, url) };
         if (method === "POST") {
           const row = JSON.parse(body || "{}");
-          return { status: 201, json: represent(upsert(media, row), headers) };
+          return { status: 201, json: represent(upsert(media, row), headerBag) };
         }
         if (method === "PATCH") {
           const rows = applyFilters(media, url);
           const row = JSON.parse(body || "{}");
           if (!rows[0]) return { status: 406, json: { code: "PGRST116", message: "0 rows" } };
           Object.assign(rows[0], row, { updated_at: new Date().toISOString() });
-          return { status: 200, json: represent(rows[0], headers) };
+          return { status: 200, json: represent(rows[0], headerBag) };
         }
       }
       if (table === "trip_members" && method === "GET") {
@@ -332,6 +338,8 @@ async function loginAndCreateTrip(page) {
   await page.click('.calendar-day[data-date="2026-11-09"]');
   await page.click('button[data-action="apply"]');
   await page.click('button[type="submit"]');
+  await page.waitForSelector('[data-testid="trip-content"]', { timeout: 15_000 });
+  await page.click('[data-day="2026-11-06"]');
   await page.waitForFunction(
     () => document.querySelector('[data-testid="trip-content"]')?.dataset.activeDay === "2026-11-06",
     null,
@@ -378,7 +386,7 @@ async function runSuite(browserType, baseUrl, label) {
 
   await page.goto(baseUrl);
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 68, `${label}: Build ${build}, erwartet 68`);
+  assert(Number(build) === 69, `${label}: Build ${build}, erwartet 69`);
 
   state.setFailWaypointWrites(true);
   await loginAndCreateTrip(page);
@@ -479,7 +487,7 @@ async function runSuite(browserType, baseUrl, label) {
   await page.locator('[data-testid="note-sheet"] [data-action="save"]').click();
   await page.waitForSelector('[data-testid="note-sheet"]', { state: "detached", timeout: 15_000 });
   await page.waitForFunction(
-    () => document.querySelector('[data-testid="trip-content"]')?.innerText?.includes("Erste Notiz"),
+    () => document.querySelector('[data-testid="trip-content"]')?.textContent?.includes("Erste Notiz"),
     null,
     { timeout: 15_000 }
   );
@@ -507,7 +515,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 8d tests OK (Build 68)");
+  console.log("Playwright 8d tests OK (Build 69)");
 }
 
 main().catch((err) => {

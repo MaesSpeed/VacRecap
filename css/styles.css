@@ -1471,6 +1471,10 @@ body {
   gap: 8px;
   width: 100%;
   overflow-x: auto;
+  overflow-y: hidden;
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: none;
   padding: 4px 0;
   position: relative;
   z-index: 1;

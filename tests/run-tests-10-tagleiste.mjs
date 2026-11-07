@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, devices, webkit } from "playwright";
+import { ensureTripDetailDay } from "./trip-detail-helpers.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -205,7 +206,7 @@ async function login(page, baseUrl) {
   await page.goto(baseUrl);
   await page.waitForSelector('[data-testid="login-screen"]');
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 68, `Build ${build}, erwartet 68`);
+  assert(Number(build) === 69, `Build ${build}, erwartet 69`);
   await page.fill('input[name="email"]', "test@example.com");
   await page.click('form[data-step="email"] button[type="submit"]');
   await page.waitForSelector('form[data-step="otp"]');
@@ -231,6 +232,7 @@ async function createTrip(page, title, start, end, days) {
   await page.click('button[data-action="apply"]');
   await page.click('button[type="submit"]');
   await page.waitForSelector('[data-testid="trip-content"]');
+  await ensureTripDetailDay(page, start);
   await page.waitForFunction((n) => document.querySelectorAll(".day-chip").length === n, days);
   await page.evaluate(() => document.fonts.ready);
 }
@@ -571,7 +573,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log(`Playwright 10 Tag-Leiste OK (Build 68, Bilder in ${SHOTS})`);
+  console.log(`Playwright 10 Tag-Leiste OK (Build 69, Bilder in ${SHOTS})`);
 }
 
 main().catch((err) => {

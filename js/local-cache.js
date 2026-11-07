@@ -16,6 +16,10 @@ export function setCacheUserId(userId) {
   }
 }
 
+export function getCacheUserId() {
+  return activeUserId;
+}
+
 function cacheKey() {
   if (!activeUserId) return LEGACY_CACHE_KEY;
   return `${CACHE_KEY_PREFIX}:${activeUserId}`;

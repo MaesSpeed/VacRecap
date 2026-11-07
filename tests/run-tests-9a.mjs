@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, webkit, devices } from "playwright";
+import { ensureTripDetailDay } from "./trip-detail-helpers.mjs";
 import { parseExifTiff } from "../js/exif-taken-at.js";
 import { validateWaypointInsert } from "./waypoint-constraints.mjs";
 
@@ -486,7 +487,7 @@ async function runSuite(browserType, baseUrl, label) {
 
   await page.goto(baseUrl);
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 68, `${label}: Build ${build}`);
+  assert(Number(build) === 69, `${label}: Build ${build}`);
 
   const heicBytes = [...heicWithExif({ lat: 45.5, lng: 10.25, date: "2026:10:28 15:12:00" })];
   const heic = await page.evaluate(async (bytes) => {
@@ -511,6 +512,7 @@ async function runSuite(browserType, baseUrl, label) {
   assert(segments === 6, `${label}: Radius-Segmente ${segments}`);
   await page.click('[data-action="back"]');
   await page.waitForSelector('[data-testid="trip-content"]');
+  await ensureTripDetailDay(page, TODAY);
 
   const hafenId = await seedPlace(page, {
     vacationId,
@@ -694,6 +696,7 @@ async function runSuite(browserType, baseUrl, label) {
   await closeOverlay(page);
   await page.locator('[data-testid="library-back"]').click();
   await page.waitForSelector('[data-testid="trip-content"]');
+  await ensureTripDetailDay(page, TODAY);
 
   await selectPlace(page, hafenId);
   await page.setInputFiles('[data-testid="gallery-input"]', [
@@ -809,7 +812,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 9a tests OK (Build 68)");
+  console.log("Playwright 9a tests OK (Build 69)");
 }
 
 main().catch((err) => {

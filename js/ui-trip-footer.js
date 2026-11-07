@@ -13,20 +13,27 @@ const ACTIONS = [
 ];
 
 export function mountTripFooter(container, handlers = {}) {
+  const readOnly = Boolean(handlers.readOnly);
   const bar = document.createElement("footer");
-  bar.className = "trip-footer";
+  bar.className = "trip-footer" + (readOnly ? " trip-footer--readonly" : "");
   bar.setAttribute("role", "toolbar");
-  bar.innerHTML = ACTIONS.map(
-    (a) => `
+  const visible = readOnly ? ACTIONS.filter((a) => a.id === "gallery") : ACTIONS;
+  bar.innerHTML = visible
+    .map(
+      (a) => `
     <button type="button" class="trip-footer__btn ${a.className}" data-footer-action="${a.id}" aria-label="${a.label}">
       <span class="trip-footer__icon" data-testid="footer-icon">${a.html}</span>
     </button>`
-  ).join("");
+    )
+    .join("");
 
   container.appendChild(bar);
 
   let pressTimer = null;
   let hintEl = null;
+  if (readOnly) {
+    return bar;
+  }
 
   const clearHint = () => {
     if (pressTimer) clearTimeout(pressTimer);
