@@ -3,6 +3,7 @@ import { CloudOfflineError } from "./cloud-errors.js";
 import { clearTripPeople, loadTripPeople, personLetter } from "./trip-people.js";
 import { displayColorMap } from "./trip-people.js";
 import { ROLE_LABEL } from "./trip-role.js";
+import { getRoute } from "./router.js";
 import { openConfirmDialog } from "./ui-confirm.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
 import { showToast } from "./toast.js";
@@ -13,6 +14,22 @@ const draftStore = new Map();
 
 function cloneDrafts(list) {
   return (list || []).map((draft) => ({ ...draft }));
+}
+
+/** True while the trip-edit share field must not be torn down by a background render. */
+export function shareInviteComposeActive() {
+  if (getRoute().name !== "urlaub-form") return false;
+  if (!document.querySelector('[data-testid="share-section"]')) return false;
+  const emailInput = document.querySelector('[data-testid="share-email-input"]');
+  const nameInput = document.querySelector('[data-testid="share-name-input"]');
+  const focus = document.activeElement;
+  if (emailInput && (focus === emailInput || emailInput.value.trim())) return true;
+  if (nameInput && (focus === nameInput || nameInput.value.trim())) return true;
+  if (document.querySelector('[data-testid="share-chip"]')) return true;
+  for (const list of draftStore.values()) {
+    if (list?.length) return true;
+  }
+  return false;
 }
 const DOTS = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="19" cy="12" r="1.3" fill="currentColor"/></svg>`;
 

@@ -172,6 +172,8 @@ async function startApp() {
   window.addEventListener("vacrecap:data-changed", () => {
     if (document.querySelector("[data-testid='cover-sheet']")) return;
     if (document.getElementById("app")?.dataset.formSaving === "1") return;
+    const route = getRoute();
+    if (route.name === "urlaub-form") return;
     scheduleRender();
   });
   window.addEventListener("online", () => {
