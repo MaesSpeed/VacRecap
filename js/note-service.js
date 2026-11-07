@@ -11,6 +11,8 @@ export async function createNote({ place, vacationId, day, text }) {
     text: text.trim(),
   };
   await putNote(record);
+  const waitPatch = window.__vacrecapTripListPatch;
+  if (typeof waitPatch === "function") await waitPatch();
   return record;
 }
 

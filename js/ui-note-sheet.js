@@ -10,6 +10,17 @@ import { watchPresence, presenceBannerHtml } from "./trip-presence.js";
 import { showToast, showWarnToast } from "./toast.js";
 import { escapeHtml } from "./utils.js";
 
+async function awaitTripDetailPatch() {
+  for (let attempt = 0; attempt < 80; attempt++) {
+    const wait = window.__vacrecapTripListPatch;
+    if (typeof wait === "function") {
+      await wait();
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
 const PIN_ICON = `<svg width="18" height="18" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M16 2.8c-5.8 0-10 4.3-10 9.7 0 6.9 10 15.7 10 15.7s10-8.8 10-15.7c0-5.4-4.2-9.7-10-9.7z" fill="#d4523e"/><circle cx="16" cy="12.6" r="3.8" fill="#fff"/></svg>`;
 
 const MIC_ICON = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3z" stroke="#5B6B7A" stroke-width="1.8"/><path d="M19 11v1a7 7 0 0 1-14 0v-1M12 18v3" stroke="#5B6B7A" stroke-width="1.8" stroke-linecap="round"/></svg>`;
@@ -293,6 +304,7 @@ export function openNoteSheet({
         await createNote({ place: placeToUse, vacationId, day, text });
         showToast("Notiz gespeichert");
       }
+      await awaitTripDetailPatch();
       closeOverlayHistory(activeClose);
       await onSaved?.(captureResult);
     } catch (err) {
@@ -318,6 +330,7 @@ export function openNoteSheet({
       if (!ok) return;
       saving = true;
       await removeNote(note.id);
+      await awaitTripDetailPatch();
       closeOverlayHistory(activeClose);
       showToast("Notiz gelöscht");
       onSaved?.();

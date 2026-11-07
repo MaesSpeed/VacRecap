@@ -413,23 +413,10 @@ export async function renderUrlaubDetail(appEl, id) {
           /* ignorieren */
         }
         await mergeDayBundleFromRemote(dayIso, warmPlaces);
-        if (dayIso !== state.activeDay) return;
-        let built = await buildDayHtml(state.activeDay, warmPlaces, { selection: false });
-        if (built?.stale) built = await buildDayHtml(state.activeDay, warmPlaces, { selection: false });
-        if (!built?.stale) warmHtml.set(state.activeDay, built);
-        if (built?.html && contentEl.isConnected) queuePaint(built, state.listRefreshToken, { keepScroll: true });
-        void prefetchNeighbors(state.listRefreshToken);
-        scheduleIdleNeighborPrefetch();
         return;
       }
 
-      try {
-        warmPlaces = await getPlacesForVacation(id);
-      } catch {
-        /* warmPlaces bleibt */
-      }
-      await mergeDayBundleFromRemote(state.activeDay, warmPlaces);
-      await refreshDayList({ reuse: true });
+      return;
     } catch {
       showWarnToast("Neu laden hat nicht geklappt. Bitte gleich nochmal versuchen.");
     }
@@ -1274,7 +1261,6 @@ export async function renderUrlaubDetail(appEl, id) {
     const page = contentEl.querySelector("[data-page='current']");
     if (typeof built.patchDom === "function" && page) {
       built.patchDom(page);
-      normalizeDaySwipePages(contentEl);
     } else if (built.html) {
       setDaySwipePage(contentEl, built.html, { keepScroll });
       bindBrokenThumbs(contentEl);
@@ -1282,6 +1268,8 @@ export async function renderUrlaubDetail(appEl, id) {
       return;
     }
     bindBrokenThumbs(contentEl);
+    tagPlaceRootStamps();
+    applySelectionDom();
     if (previousThumbUrls && previousThumbUrls !== state.thumbUrls) revokeThumbUrls(previousThumbUrls);
   }
 
@@ -1402,6 +1390,35 @@ export async function renderUrlaubDetail(appEl, id) {
     return items.find((i) => i.place?.id === placeId) ?? null;
   }
 
+  async function repaintSelectionCards(prevId, nextId) {
+    const ids = [...new Set([prevId, nextId].filter(Boolean))];
+    if (!ids.length) return;
+    const page = contentEl.querySelector("[data-page='current']");
+    if (!page) return;
+    try {
+      if (!warmPlaces) warmPlaces = await getPlacesForVacation(id);
+      await mergeDayBundleFromRemote(state.activeDay, warmPlaces);
+      let built = await buildDayHtml(state.activeDay, warmPlaces, { selection: false });
+      if (built?.stale) built = await buildDayHtml(state.activeDay, warmPlaces, { selection: false });
+      if (!built?.stale) warmHtml.set(state.activeDay, built);
+      for (const pid of ids) {
+        const patch = patchPlaceListForDay(built, pid, { keepScroll: true });
+        patch?.patchDom?.(page);
+      }
+      applySelectionDom();
+    } catch {
+      /* Auswahl bleibt */
+    }
+  }
+
+  function tagPlaceRootStamps(root = contentEl) {
+    const page = root?.querySelector?.("[data-page='current']") || root;
+    if (!page) return;
+    for (const oc of page.querySelectorAll(".oc[data-place-id]")) {
+      if (!oc.dataset.vrRootStamp) oc.dataset.vrRootStamp = crypto.randomUUID();
+    }
+  }
+
   function applySelectionDom() {
     const selectedId = state.selectedByDay[state.activeDay];
     const page = contentEl.querySelector("[data-page='current']");
@@ -1474,27 +1491,32 @@ export async function renderUrlaubDetail(appEl, id) {
         const oldArticle = li.querySelector(`.oc[data-place-id="${CSS.escape(placeId)}"]`);
         const newArticle = nextLi.querySelector(`.oc[data-place-id="${CSS.escape(placeId)}"]`);
         if (oldArticle && newArticle) {
-          const imgByMedia = new Map();
-          for (const img of oldArticle.querySelectorAll("img[data-media-id]")) {
-            imgByMedia.set(img.dataset.mediaId, img);
+          const imgByKey = new Map();
+          for (const img of oldArticle.querySelectorAll("img")) {
+            const key =
+              img.dataset.mediaId ||
+              img.getAttribute("data-testid") ||
+              img.getAttribute("src") ||
+              "";
+            if (key) imgByKey.set(key, img);
           }
+          const rootStamp = oldArticle.dataset.vrRootStamp;
           oldArticle.className = newArticle.className;
           oldArticle.innerHTML = newArticle.innerHTML;
-          for (const img of oldArticle.querySelectorAll("img[data-media-id]")) {
-            const prev = imgByMedia.get(img.dataset.mediaId);
+          if (rootStamp) oldArticle.dataset.vrRootStamp = rootStamp;
+          for (const img of oldArticle.querySelectorAll("img")) {
+            const key =
+              img.dataset.mediaId ||
+              img.getAttribute("data-testid") ||
+              img.getAttribute("src") ||
+              "";
+            const prev = key ? imgByKey.get(key) : null;
             if (prev && prev.getAttribute("src") === img.getAttribute("src")) {
               img.replaceWith(prev);
             }
           }
-        } else {
-          li.replaceWith(nextLi);
         }
-        for (const oc of host.querySelectorAll(`.oc[data-place-id]`)) {
-          const pid = oc.dataset.placeId;
-          oc.classList.toggle("oc--selected", pid === selectedId);
-          oc.classList.toggle("oc--dim", Boolean(selectedId && pid !== selectedId));
-          oc.querySelector(".pinb")?.classList.toggle("pinb--selected", pid === selectedId);
-        }
+        applySelectionDom();
         bindBrokenThumbs(contentEl);
         if (!keepScroll) return;
         page.scrollTop = page.scrollTop;
@@ -1590,11 +1612,9 @@ export async function renderUrlaubDetail(appEl, id) {
       if (patchIds.length > 1) {
         const multiPatch = patchMultiplePlaceCards(built, patchIds, { keepScroll });
         if (multiPatch?.patchDom) queuePaint(multiPatch, token, { keepScroll });
-        else queuePaint(built, token, { keepScroll });
       } else if (placeId) {
         const patch = patchPlaceListForDay(built, placeId, { keepScroll });
         if (patch?.patchDom) queuePaint(patch, token, { keepScroll });
-        else queuePaint(built, token, { keepScroll });
       } else {
         if (!built?.html) return;
         const view = state.photoSelecting
@@ -2245,11 +2265,18 @@ export async function renderUrlaubDetail(appEl, id) {
 
     const tile = e.target.closest(".tile[data-media-id]");
     if (tile) {
+      const host = e.target.closest(".oc[data-place-id]");
+      const placeId = host?.dataset.placeId;
+      if (placeId && placeId !== state.selectedByDay[state.activeDay]) {
+        state.selectedByDay[state.activeDay] = placeId;
+        persistSelection(id, state);
+        applySelectionDom();
+        return;
+      }
       const status = tile.dataset.uploadStatus || "uploaded";
       if (status !== "uploaded") {
         return;
       }
-      const placeId = e.target.closest(".oc[data-place-id]")?.dataset.placeId;
       if (!placeId) return;
       const item = await getDayItemFromCacheOrRemote(placeId);
       if (!item) return;
@@ -2321,7 +2348,7 @@ export async function renderUrlaubDetail(appEl, id) {
       if (placeId !== state.selectedByDay[state.activeDay]) {
         state.selectedByDay[state.activeDay] = placeId;
         persistSelection(id, state);
-        await refreshDayList({ reuse: true });
+        applySelectionDom();
         return;
       }
     }
@@ -2335,7 +2362,7 @@ export async function renderUrlaubDetail(appEl, id) {
       if (placeId !== state.selectedByDay[state.activeDay]) {
         state.selectedByDay[state.activeDay] = placeId;
         persistSelection(id, state);
-        await refreshDayList({ reuse: true });
+        applySelectionDom();
         return;
       }
       const items = await ensureDayItemsInCache();
@@ -2487,11 +2514,17 @@ export async function renderUrlaubDetail(appEl, id) {
     }
 
     const card = e.target.closest(".oc[data-place-id]");
-    if (card && !card.classList.contains("oc--selected")) {
-      state.selectedByDay[state.activeDay] = card.dataset.placeId;
-      persistSelection(id, state);
-      applySelectionDom();
-      void refreshDayList({ reuse: true });
+    if (card) {
+      const prev = state.selectedByDay[state.activeDay];
+      const next = card.dataset.placeId;
+      if (prev !== next) {
+        state.selectedByDay[state.activeDay] = next;
+        persistSelection(id, state);
+        applySelectionDom();
+        void repaintSelectionCards(prev, next);
+      } else {
+        applySelectionDom();
+      }
     }
   });
 

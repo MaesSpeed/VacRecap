@@ -456,10 +456,14 @@ async function main() {
     if (pageEl) pageEl.scrollTop = 120;
   });
 
-  const beforeDom = await page.evaluate(() => ({
-    scroll: document.querySelector("[data-page='current']")?.scrollTop || 0,
-    placeRoot: document.querySelector(`[data-page='current'] .oc[data-place-id="${CSS.escape("place-a")}"]`),
-  }));
+  const beforeDom = await page.evaluate(() => {
+    const placeRoot = document.querySelector(`[data-page='current'] .oc[data-place-id="${CSS.escape("place-a")}"]`);
+    if (placeRoot && !placeRoot.dataset.vrRootStamp) placeRoot.dataset.vrRootStamp = crypto.randomUUID();
+    return {
+      scroll: document.querySelector("[data-page='current']")?.scrollTop || 0,
+      placeRootStamp: placeRoot?.dataset.vrRootStamp || null,
+    };
+  });
 
   const reqBeforeSave = state.requests.length;
   const authBeforeSave = state.requests.filter((r) => r.includes("/user")).length;
@@ -484,11 +488,16 @@ async function main() {
 
   const afterDom = await page.evaluate(() => ({
     scroll: document.querySelector("[data-page='current']")?.scrollTop || 0,
-    placeRoot: document.querySelector(`[data-page='current'] .oc[data-place-id="${CSS.escape("place-a")}"]`),
+    placeRootStamp:
+      document.querySelector(`[data-page='current'] .oc[data-place-id="${CSS.escape("place-a")}"]`)?.dataset
+        .vrRootStamp || null,
   }));
 
   assert(Math.abs(afterDom.scroll - beforeDom.scroll) < 32, `Scroll ${beforeDom.scroll} → ${afterDom.scroll}`);
-  assert(beforeDom.placeRoot && afterDom.placeRoot && beforeDom.placeRoot === afterDom.placeRoot, "Ort-Karte neu gebaut");
+  assert(
+    beforeDom.placeRootStamp && afterDom.placeRootStamp === beforeDom.placeRootStamp,
+    "Ort-Karte neu gebaut"
+  );
 
   const imgAfter = await page.evaluate(() =>
     [...document.querySelectorAll("[data-page='current'] img")].map((img) => img.getAttribute("src") || "")
@@ -553,7 +562,7 @@ async function main() {
   assert((await page.locator('[data-action="settings"]').getAttribute("disabled")) != null, "Betrachter: Einstellungen aus");
   assert((await page.locator('[data-testid="photo-select-start"]').count()) === 0, "Betrachter: keine Foto-Auswahl");
 
-  const migPath = path.join(root, "supabase/migrations/20260206180000_betrachter_rolle.sql");
+  const migPath = path.join(root, "supabase/migrations/20261107120000_betrachter_rolle.sql");
   const mig = await readFile(migPath, "utf8");
   assert(mig.includes("observer"), "Migration: observer");
   assert(/policy|rls|check/i.test(mig), "Migration: Policy/RLS erwähnt");

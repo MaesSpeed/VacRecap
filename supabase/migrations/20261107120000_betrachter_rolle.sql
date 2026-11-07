@@ -8,6 +8,10 @@
 /*
 begin;
 
+-- Bestehende observer-Zeilen vor engem CHECK auf viewer demoten (sonst schlägt add constraint fehl)
+update public.trip_members set role = 'viewer' where role = 'observer';
+update public.trip_invites set role = 'viewer' where role = 'observer';
+
 alter table public.trip_members drop constraint if exists trip_members_role_check;
 alter table public.trip_members
   add constraint trip_members_role_check
