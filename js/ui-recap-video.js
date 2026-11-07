@@ -1,6 +1,7 @@
 import { RecapUnavailableError } from "./cloud-errors.js";
-import { dayColorFor } from "./day-colors.js";
-import { dayChipDateLine } from "./days.js";
+import { dayColorFor, dayLegendLabel } from "./day-colors.js";
+import { dayChipDateLine, vacationDays } from "./days.js";
+import { dayMapPoints, dayMapSvg } from "./recap-daymap.js";
 import { getVacation } from "./db.js";
 import { ICON_BACK_CHEVRON } from "./icons.js";
 import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
@@ -14,13 +15,13 @@ import {
   listVideoRecaps,
   loadRecapMaterial,
 } from "./recap-service.js";
-import { buildVideoRecap, countMaterialPhotos } from "./recap-storyboard.js";
+import { buildVideoRecap, countMaterialPhotos, dayMapCaption, dayMapLegendText } from "./recap-storyboard.js";
 import { navigate } from "./router.js";
 import { resolveTripEditing, ROLE_UNKNOWN_MESSAGE, tripRoleLoadFailed } from "./trip-role.js";
 import { openConfirmDialog } from "./ui-confirm.js";
 import { resolveThumbUrlMap } from "./ui-place-list.js";
 import { showToast, showWarnToast } from "./toast.js";
-import { escapeHtml, formatDateShort, parseIsoDate } from "./utils.js";
+import { escapeHtml, formatDatePart, formatDateShort, parseIsoDate } from "./utils.js";
 
 const MONTHS = [
   "Januar",
@@ -138,6 +139,12 @@ export function recapEntryCardHtml({ canEdit, hasFinal, hasDiaryFinal = false } 
 function viewModel(content, places) {
   const byId = new Map((places || []).map((place) => [place.id, place]));
   const scenes = (content?.scenes || []).map((scene) => {
+    if (scene?.type === "daymap") {
+      const ids = Array.isArray(scene.waypoint_ids) ? scene.waypoint_ids : [];
+      const ordered = ids.map((id) => byId.get(id) || {});
+      const points = dayMapPoints(ordered);
+      return { ...scene, waypointIds: ids, points, placeCount: ids.length, mediaIds: [], noteIds: [] };
+    }
     if (scene?.type !== "place") return { ...scene, mediaIds: [], noteIds: [] };
     const place = byId.get(scene.waypoint_id);
     return {
@@ -163,23 +170,56 @@ function sceneMeta(scene) {
   return `${photoLabel} · ${countWord(notes, "Notiz", "Notizen")}`;
 }
 
-function moreLine(scenes) {
-  if (scenes.length <= SHOWN_SCENES) return "";
-  const rest = scenes.slice(SHOWN_SCENES);
-  const places = rest.filter((scene) => scene.type === "place");
-  const parts = [];
-  if (places.length === 1) parts.push(places[0].name);
-  else if (places.length > 1) parts.push(`${places[0].name} … ${places[places.length - 1].name}`);
-  if (rest.some((scene) => scene.type === "outro")) parts.push("Schluss");
-  const n = rest.length;
-  const noun = n === 1 ? "Szene" : "Szenen";
-  const inner = parts.join(", ");
-  return `+ ${n} ${noun}${inner ? ` (${inner})` : ""}`;
+function dayMapDateLabel(iso) {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return "";
+  return formatDatePart(iso, false);
+}
+
+function dayMapLegend(vacation, iso) {
+  if (!iso || !vacation || !vacationDays(vacation).includes(iso)) return "";
+  return dayMapLegendText(dayLegendLabel(vacation, iso));
+}
+
+function dayMapCopy(scene, vacation) {
+  const count = scene.placeCount ?? scene.waypointIds?.length ?? 0;
+  return dayMapCaption(dayMapDateLabel(scene.date), dayMapLegend(vacation, scene.date), count);
+}
+
+function sceneColor(scene, vacation) {
+  if ((scene.type === "place" || scene.type === "daymap") && scene.date) return dayColorFor(vacation, scene.date);
+  if (scene.type === "title") return "#163a78";
+  return "#5b6b7a";
+}
+
+function dayMapMount(points, color, height, className) {
+  return `<div class="${className}" data-daymap data-height="${height}" data-color="${escapeHtml(color)}" data-points="${escapeHtml(JSON.stringify(points || []))}"></div>`;
+}
+
+function fillDayMaps(root) {
+  root?.querySelectorAll("[data-daymap]").forEach((el) => {
+    const width = Math.max(240, Math.round(el.clientWidth || 340));
+    const height = Number(el.dataset.height) || 120;
+    let points = [];
+    try {
+      points = JSON.parse(el.dataset.points || "[]");
+    } catch {
+      points = [];
+    }
+    const pad = Math.max(22, Math.round(Math.min(width, height) * 0.16));
+    const radius = height >= 160 ? 12 : 9;
+    const svg = dayMapSvg(points, el.dataset.color, { width, height, pad, r: radius, fitWidth: width });
+    if (!svg) {
+      el.remove();
+      return;
+    }
+    el.innerHTML = `${svg}<a class="recap-daymap__credit" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap</a>`;
+  });
 }
 
 function sceneTitle(scene, vacation) {
   if (scene.type === "title") return "Titel";
   if (scene.type === "outro") return "Schluss";
+  if (scene.type === "daymap") return dayMapCopy(scene, vacation).title;
   const day = scene.date ? dayChipDateLine(scene.date) : "";
   return day ? `${day} · ${scene.name}` : scene.name;
 }
@@ -190,6 +230,7 @@ function sceneSub(scene, vacation) {
     return month ? `${vacation.title} · ${month}` : vacation.title;
   }
   if (scene.type === "outro") return "Ende der Reise";
+  if (scene.type === "daymap") return dayMapCopy(scene, vacation).subtitle;
   return sceneMeta(scene);
 }
 
@@ -466,23 +507,30 @@ export async function renderRecapVideo(appEl, tripId, { recapId = "" } = {}) {
     const photosUsed = view.scenes.reduce((sum, scene) => sum + (scene.mediaIds?.length || 0), 0);
     const perPhoto = view.formula.perPhotoS ?? P.perPhotoS;
     const perNote = view.formula.perNoteS ?? P.perNoteS;
-    const visible = view.scenes.slice(0, SHOWN_SCENES);
-    const extra = moreLine(view.scenes);
-    const rowsHtml = visible
-      .map((scene, index) => {
-        const color =
-          scene.type === "place" && scene.date
-            ? dayColorFor(current, scene.date)
-            : scene.type === "title"
-              ? "#163a78"
-              : "#5b6b7a";
-        const thumb = scene.mediaIds?.[0] ? thumbs[scene.mediaIds[0]] : "";
-        const thumbHtml = thumb
-          ? `<img class="recap-scene__thumb" src="${escapeHtml(thumb)}" alt="" />`
-          : `<span class="recap-scene__thumb recap-scene__thumb--empty" style="background:${color}">${
-              scene.type === "title" ? escapeHtml(monthName(current.startDate) || "") : ""
-            }</span>`;
+    function sceneCard(scene, index) {
+      const color = sceneColor(scene, current);
+      if (scene.type === "daymap") {
+        const map = scene.points?.length ? dayMapMount(scene.points, color, 120, "recap-daymap__map") : "";
         return `
+          <article class="settings-card recap-scene recap-scene--daymap" data-testid="recap-scene" data-kind="tageskarte" style="border-left-color:${color}">
+            ${map}
+            <div class="settings-item recap-scene__row">
+              <span class="recap-scene__no">${index + 1}</span>
+              <span class="recap-scene__text">
+                <strong>${escapeHtml(sceneTitle(scene, current))}</strong>
+                <span>${escapeHtml(sceneSub(scene, current))}</span>
+              </span>
+              <span class="recap-scene__time" data-testid="recap-scene-seconds">${escapeHtml(formatSeconds(scene.seconds))}</span>
+            </div>
+          </article>`;
+      }
+      const thumb = scene.mediaIds?.[0] ? thumbs[scene.mediaIds[0]] : "";
+      const thumbHtml = thumb
+        ? `<img class="recap-scene__thumb" src="${escapeHtml(thumb)}" alt="" />`
+        : `<span class="recap-scene__thumb recap-scene__thumb--empty" style="background:${color}">${
+            scene.type === "title" ? escapeHtml(monthName(current.startDate) || "") : ""
+          }</span>`;
+      return `
           <article class="settings-card recap-scene" data-testid="recap-scene" style="border-left-color:${color}">
             <div class="settings-item recap-scene__row">
               <span class="recap-scene__no">${index + 1}</span>
@@ -494,8 +542,7 @@ export async function renderRecapVideo(appEl, tripId, { recapId = "" } = {}) {
               <span class="recap-scene__time" data-testid="recap-scene-seconds">${escapeHtml(formatSeconds(scene.seconds))}</span>
             </div>
           </article>`;
-      })
-      .join("");
+    }
     const actions = readonly
       ? offerNewDraft
         ? `<button type="button" class="btn btn-emaille btn-emaille--block" data-testid="recap-new-draft">Neuer Entwurf</button>`
@@ -534,10 +581,28 @@ export async function renderRecapVideo(appEl, tripId, { recapId = "" } = {}) {
             ? `<p class="recap-hint" data-testid="recap-thumb-hint">Vorschau gerade nicht verfügbar</p>`
             : ""
         }
-        <div data-testid="recap-scenes">${rowsHtml}</div>
-        ${extra ? `<p class="recap-more" data-testid="recap-more">${escapeHtml(extra)}</p>` : ""}
+        <div data-testid="recap-scenes"></div>
         ${actions}
       </div>`;
+    let showAll = false;
+    const paintSceneList = () => {
+      const host = main.querySelector('[data-testid="recap-scenes"]');
+      if (!host) return;
+      const visible = showAll ? view.scenes : view.scenes.slice(0, SHOWN_SCENES);
+      const toggle =
+        view.scenes.length > SHOWN_SCENES
+          ? `<button type="button" class="recap-show-all" data-testid="recap-show-all" aria-expanded="${showAll ? "true" : "false"}">${showAll ? "Weniger zeigen" : "Alle Szenen zeigen"}</button>`
+          : "";
+      host.innerHTML = visible.map((scene, index) => sceneCard(scene, index)).join("") + toggle;
+      fillDayMaps(host);
+    };
+    paintSceneList();
+    main.addEventListener("click", (event) => {
+      const button = event.target?.closest?.('[data-testid="recap-show-all"]');
+      if (!button) return;
+      showAll = !showAll;
+      paintSceneList();
+    });
     appEl.querySelector('[data-action="preview"]')?.addEventListener("click", () => {
       openPreview(current, view, thumbs);
     });
@@ -639,10 +704,23 @@ export async function renderRecapVideo(appEl, tripId, { recapId = "" } = {}) {
     const show = () => {
       const frame = frames[index] || frames[0];
       if (!frame || !stage) return;
-      stage.classList.remove("recap-stage--on");
-      stage.innerHTML = `
+      stage.classList.remove("recap-stage--on", "recap-stage--day");
+      if (frame.kind === "daymap") {
+        stage.classList.add("recap-stage--day");
+        const map = frame.points?.length ? dayMapMount(frame.points, frame.color, 180, "recap-stage__map") : "";
+        stage.innerHTML = `
+          ${map}
+          <div class="recap-stage__day">
+            <span class="recap-stage__kicker">Tageskarte</span>
+            ${frame.dateLabel ? `<strong>${escapeHtml(frame.dateLabel)}</strong>` : ""}
+            <span class="recap-stage__sub">${escapeHtml(frame.subtitle || "")}</span>
+          </div>`;
+        fillDayMaps(stage);
+      } else {
+        stage.innerHTML = `
         ${frame.src ? `<img src="${escapeHtml(frame.src)}" alt="" />` : ""}
         <p>${escapeHtml(frame.title)}</p>`;
+      }
       void stage.offsetWidth;
       stage.classList.add("recap-stage--on");
     };
@@ -681,6 +759,18 @@ function framesFor(vacation, view, thumbs) {
     }
     if (scene.type === "outro") {
       frames.push({ ms: (scene.seconds || P.outroS) * 1000, title: "Schluss", src: "" });
+      continue;
+    }
+    if (scene.type === "daymap") {
+      const copy = dayMapCopy(scene, vacation);
+      frames.push({
+        kind: "daymap",
+        ms: (scene.seconds || P.dayMapS) * 1000,
+        points: scene.points || [],
+        color: scene.date ? dayColorFor(vacation, scene.date) : "#1F6DB5",
+        dateLabel: dayMapDateLabel(scene.date),
+        subtitle: copy.subtitle,
+      });
       continue;
     }
     const ids = scene.mediaIds || [];
