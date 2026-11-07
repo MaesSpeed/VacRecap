@@ -62,6 +62,7 @@ import {
   withFreeNotesHtml,
   wrapPlaceList,
   renderPlaceCardHtml,
+  renderFreeNotesHtml,
 } from "./ui-place-list.js";
 import { bindCircleTips, shareContext, showCircleTip } from "./member-marks.js";
 import { canAddOwn, canEditItem, getConfirmedTripRole, isReadOnlyTripRole, ROLE_LABEL } from "./trip-role.js";
@@ -284,6 +285,7 @@ export async function renderUrlaubDetail(appEl, id) {
   let leaveAfterSelectPop = false;
   let queuedPlacePatch = null;
   let placePatchInflight = null;
+  let listRefreshInflight = null;
 
   async function drainPlacePatchQueue() {
     for (;;) {
@@ -361,7 +363,7 @@ export async function renderUrlaubDetail(appEl, id) {
     if (appEl?.dataset?.appRenderGen !== mountGen) return;
     const detail = ev?.detail || {};
     try {
-      if (detail.mergeTrip) {
+      if (detail.mergeTrip && !detail.noteListPatch) {
         try {
           const next = await getVacation(id);
           if (next) await mergeVacationInLocalList(next);
@@ -370,7 +372,7 @@ export async function renderUrlaubDetail(appEl, id) {
         }
       }
       if (!(detail.skipFullRender && detail.tripId === id)) {
-        if (detail.mergeTrip) {
+        if (detail.mergeTrip && !detail.noteListPatch) {
           try {
             warmPlaces = await getPlacesForVacation(id);
           } catch {
@@ -386,6 +388,25 @@ export async function renderUrlaubDetail(appEl, id) {
       const placeDayOnly =
         detail.placeDay != null && String(detail.placeDay).trim() !== "" && !detail.placeId && !pids.length;
 
+      if (detail.noteListPatch) {
+        ++state.listRefreshToken;
+        dropStaleFullDayPaint();
+        if (detail.placeId) {
+          const dayIso = placeDayIso(detail.placeId);
+          hydratePlaceNotesInBundleFromCache(detail.placeId, dayIso, detail.patchedNote || null);
+          if (dayIso === state.activeDay && contentEl.isConnected) {
+            patchPlaceCardNotesOnly(detail.placeId);
+          }
+        } else if (placeDayOnly || detail.placeDay != null) {
+          const dayIso = String(detail.placeDay).slice(0, 10);
+          hydrateFreeNotesInBundleFromCache(dayIso);
+          if (dayIso === state.activeDay && contentEl.isConnected) {
+            patchFreeNotesDom();
+          }
+        }
+        return;
+      }
+
       if (pids.length && state.moveBusy) return;
 
       if (pids.length) {
@@ -394,6 +415,7 @@ export async function renderUrlaubDetail(appEl, id) {
             reuse: true,
             placeId: pids[0],
             mergeTrip: Boolean(detail.mergeTrip),
+            bundleFresh: true,
           });
         } else {
           await refreshDayList({
@@ -407,12 +429,10 @@ export async function renderUrlaubDetail(appEl, id) {
 
       if (placeDayOnly) {
         const dayIso = String(detail.placeDay).slice(0, 10);
-        try {
-          if (!warmPlaces) warmPlaces = await getPlacesForVacation(id);
-        } catch {
-          /* ignorieren */
+        hydrateFreeNotesInBundleFromCache(dayIso);
+        if (dayIso === state.activeDay && contentEl.isConnected) {
+          patchFreeNotesDom();
         }
-        await mergeDayBundleFromRemote(dayIso, warmPlaces);
         return;
       }
 
@@ -985,6 +1005,157 @@ export async function renderUrlaubDetail(appEl, id) {
     bundle.items[idx] = next;
   }
 
+  function sameNoteDay(noteDay, day) {
+    return String(noteDay || "").slice(0, 10) === String(day || "").slice(0, 10);
+  }
+
+  function freeNotesForDayFromCache(dayIso) {
+    const list = readCache()?.notes?.[id] || [];
+    return list.filter((n) => (n.placeId == null || n.placeId === "") && sameNoteDay(n.day, dayIso));
+  }
+
+  function placeNotesFromCache(placeId) {
+    const list = readCache()?.notes?.[id] || [];
+    return list
+      .filter((n) => n.placeId === placeId && !n.deletedAt)
+      .slice()
+      .sort((a, b) => (b.createdAt ?? b.ts ?? 0) - (a.createdAt ?? a.ts ?? 0));
+  }
+
+  function placeDayIso(placeId) {
+    const fromWarm = warmPlaces?.find((p) => p.id === placeId);
+    if (fromWarm) return String(fromWarm.day || fromWarm.dayDate).slice(0, 10);
+    const wps = readCache()?.waypoints?.[id] || [];
+    const hit = wps.find((p) => p.id === placeId);
+    if (hit) return String(hit.day || hit.dayDate).slice(0, 10);
+    return state.activeDay;
+  }
+
+  function hydratePlaceNotesInBundleFromCache(placeId, dayIso, patchedNote = null) {
+    const day = String(dayIso || placeDayIso(placeId)).slice(0, 10);
+    let bundle = dayCache.get(day);
+    if (!bundle) {
+      bundle = { items: [], freeNotes: [] };
+      dayCache.set(day, bundle);
+    }
+    let notes = placeNotesFromCache(placeId);
+    if (patchedNote?.id && patchedNote.placeId === placeId) {
+      const rest = notes.filter((n) => n.id !== patchedNote.id);
+      notes = [...rest, patchedNote].sort((a, b) => (b.createdAt ?? b.ts ?? 0) - (a.createdAt ?? a.ts ?? 0));
+    }
+    const idx = bundle.items.findIndex((entry) => entry.place?.id === placeId);
+    if (idx >= 0) {
+      bundle.items[idx].notes = notes;
+    } else {
+      const place =
+        warmPlaces?.find((p) => p.id === placeId) ||
+        (readCache()?.waypoints?.[id] || []).find((p) => p.id === placeId);
+      if (place) {
+        bundle.items.push({
+          place,
+          photos: 0,
+          videos: 0,
+          notes,
+          media: [],
+          mediaLoadError: false,
+        });
+      }
+    }
+  }
+
+  function hydrateFreeNotesInBundleFromCache(dayIso) {
+    const day = String(dayIso).slice(0, 10);
+    let bundle = dayCache.get(day);
+    if (!bundle) {
+      bundle = { items: [], freeNotes: [] };
+      dayCache.set(day, bundle);
+    }
+    bundle.freeNotes = freeNotesForDayFromCache(day);
+  }
+
+  function dropStaleFullDayPaint() {
+    if (pendingPaint?.fullDay) pendingPaint = null;
+  }
+
+  function imgReuseMediaId(img) {
+    return img?.dataset?.mediaId || "";
+  }
+
+  function patchPlaceCardNotesOnly(placeId) {
+    const page = contentEl.querySelector("[data-page='current']");
+    if (!page) return;
+    const bundle = dayCache.get(state.activeDay);
+    const item = bundle?.items?.find((entry) => entry.place?.id === placeId);
+    if (!item?.place) return;
+    const oc = page.querySelector(`.oc[data-place-id="${CSS.escape(placeId)}"]`);
+    if (!oc) return;
+    const selectedId = state.selectedByDay[state.activeDay];
+    const roleNow = tripRoleNow;
+    const liHtml = renderPlaceCardHtml(item, {
+      selectedId,
+      notesExpanded: state.notesExpanded,
+      thumbUrls: state.thumbUrls,
+      canEditMedia: canAddOwn(roleNow),
+      freshPlaceIds: state.freshPlaceIds,
+      share,
+      canEditPlace: (place) => canEditItem(roleNow, place, state.userId),
+      canEditNotesInPlace,
+      readOnlyTrip: tripReadOnly,
+      photoSelect: {
+        active: state.photoSelecting,
+        selectedIds: state.photoSelected || new Set(),
+        userId: state.userId,
+      },
+    });
+    const wrap = document.createElement("div");
+    wrap.innerHTML = liHtml.trim();
+    const newOc = wrap.querySelector(`.oc[data-place-id="${CSS.escape(placeId)}"]`);
+    if (!newOc) return;
+    const newMeta = newOc.querySelector(".oc__meta");
+    const oldMeta = oc.querySelector(".oc__meta");
+    if (newMeta && oldMeta) oldMeta.innerHTML = newMeta.innerHTML;
+    const newNp = newOc.querySelector(".np");
+    const oldNp = oc.querySelector(".np");
+    if (newNp) {
+      if (oldNp) oldNp.replaceWith(newNp);
+      else oc.querySelector(".oc__body")?.appendChild(newNp);
+    } else if (oldNp) oldNp.remove();
+    applySelectionDom();
+  }
+
+  function patchFreeNotesDom() {
+    const page = contentEl.querySelector("[data-page='current']");
+    if (!page) return;
+    const dayIso = state.activeDay;
+    const bundle = dayCache.get(dayIso);
+    const freeNotes = bundle?.freeNotes ?? freeNotesForDayFromCache(dayIso);
+    const html = renderFreeNotesHtml(freeNotes, {
+      expanded: state.freeNotesExpanded,
+      share,
+      canEditFreeNotes: canEditNotesInPlace,
+    });
+    const existing = page.querySelector('[data-testid="free-notes"]');
+    if (existing) {
+      if (html) {
+        const wrap = document.createElement("div");
+        wrap.innerHTML = html.trim();
+        const next = wrap.firstElementChild;
+        if (next) existing.replaceWith(next);
+      } else {
+        existing.remove();
+      }
+      return;
+    }
+    if (!html) return;
+    const wrap = document.createElement("div");
+    wrap.innerHTML = html.trim();
+    const section = wrap.firstElementChild;
+    if (!section) return;
+    const listWrap = page.querySelector(".place-list-wrap") || page.querySelector('[data-testid="place-list"]')?.closest(".place-list-wrap");
+    if (listWrap) listWrap.parentElement.insertBefore(section, listWrap);
+    else page.prepend(section);
+  }
+
   async function mergeVacationInLocalList(nextVacation) {
     if (!nextVacation?.id) return;
     vacation = nextVacation;
@@ -1268,7 +1439,6 @@ export async function renderUrlaubDetail(appEl, id) {
       return;
     }
     bindBrokenThumbs(contentEl);
-    tagPlaceRootStamps();
     applySelectionDom();
     if (previousThumbUrls && previousThumbUrls !== state.thumbUrls) revokeThumbUrls(previousThumbUrls);
   }
@@ -1278,14 +1448,15 @@ export async function renderUrlaubDetail(appEl, id) {
       if (!contentEl.isConnected) pendingPaint = null;
       return;
     }
-    if (pendingPaint.token !== state.listRefreshToken) {
+    if (pendingPaint.fullDay && pendingPaint.token !== state.listRefreshToken) {
       pendingPaint = null;
       return;
     }
     if (paintBlocked()) return;
     const { built, keepScroll } = pendingPaint;
     pendingPaint = null;
-    if (built.html && !keepScroll && pageShows(built.html)) return;
+    const isPatch = typeof built.patchDom === "function";
+    if (!isPatch && built.html && pageShows(built.html)) return;
     const page = contentEl.querySelector("[data-page='current']");
     paintDay(built, { keepScroll: keepScroll || (page?.scrollTop || 0) > 0 });
   }
@@ -1308,18 +1479,22 @@ export async function renderUrlaubDetail(appEl, id) {
   }
 
   function queuePaint(built, token, { keepScroll = false } = {}) {
-    if (built.html && !keepScroll && pageShows(built.html)) {
+    const isPatch = typeof built.patchDom === "function";
+    const fullDay = !isPatch && Boolean(built.html);
+    if (fullDay && token !== state.listRefreshToken) return;
+    if (fullDay && pageShows(built.html)) {
       syncDayEdges();
-      if (pendingPaint?.token === token) pendingPaint = null;
+      if (pendingPaint?.token === token && pendingPaint.fullDay) pendingPaint = null;
       return;
     }
     if (!paintBlocked()) {
+      if (fullDay && token !== state.listRefreshToken) return;
       pendingPaint = null;
       const page = contentEl.querySelector("[data-page='current']");
       paintDay(built, { keepScroll: keepScroll || (page?.scrollTop || 0) > 0 });
       return;
     }
-    pendingPaint = { built, token, keepScroll };
+    pendingPaint = { built, token, keepScroll, fullDay };
     armPaintFlush();
   }
 
@@ -1390,33 +1565,20 @@ export async function renderUrlaubDetail(appEl, id) {
     return items.find((i) => i.place?.id === placeId) ?? null;
   }
 
-  async function repaintSelectionCards(prevId, nextId) {
+  function repaintSelectionCards(prevId, nextId) {
     const ids = [...new Set([prevId, nextId].filter(Boolean))];
     if (!ids.length) return;
     const page = contentEl.querySelector("[data-page='current']");
     if (!page) return;
-    try {
-      if (!warmPlaces) warmPlaces = await getPlacesForVacation(id);
-      await mergeDayBundleFromRemote(state.activeDay, warmPlaces);
-      let built = await buildDayHtml(state.activeDay, warmPlaces, { selection: false });
-      if (built?.stale) built = await buildDayHtml(state.activeDay, warmPlaces, { selection: false });
-      if (!built?.stale) warmHtml.set(state.activeDay, built);
-      for (const pid of ids) {
-        const patch = patchPlaceListForDay(built, pid, { keepScroll: true });
-        patch?.patchDom?.(page);
-      }
-      applySelectionDom();
-    } catch {
-      /* Auswahl bleibt */
+    const scrollTop = page.scrollTop;
+    let built = warmHtml.get(state.activeDay);
+    if (!built) built = { thumbUrls: state.thumbUrls || {} };
+    for (const pid of ids) {
+      const patch = patchPlaceListForDay(built, pid, { keepScroll: true });
+      patch?.patchDom?.(page);
     }
-  }
-
-  function tagPlaceRootStamps(root = contentEl) {
-    const page = root?.querySelector?.("[data-page='current']") || root;
-    if (!page) return;
-    for (const oc of page.querySelectorAll(".oc[data-place-id]")) {
-      if (!oc.dataset.vrRootStamp) oc.dataset.vrRootStamp = crypto.randomUUID();
-    }
+    applySelectionDom();
+    page.scrollTop = scrollTop;
   }
 
   function applySelectionDom() {
@@ -1493,23 +1655,13 @@ export async function renderUrlaubDetail(appEl, id) {
         if (oldArticle && newArticle) {
           const imgByKey = new Map();
           for (const img of oldArticle.querySelectorAll("img")) {
-            const key =
-              img.dataset.mediaId ||
-              img.getAttribute("data-testid") ||
-              img.getAttribute("src") ||
-              "";
+            const key = imgReuseMediaId(img);
             if (key) imgByKey.set(key, img);
           }
-          const rootStamp = oldArticle.dataset.vrRootStamp;
           oldArticle.className = newArticle.className;
           oldArticle.innerHTML = newArticle.innerHTML;
-          if (rootStamp) oldArticle.dataset.vrRootStamp = rootStamp;
           for (const img of oldArticle.querySelectorAll("img")) {
-            const key =
-              img.dataset.mediaId ||
-              img.getAttribute("data-testid") ||
-              img.getAttribute("src") ||
-              "";
+            const key = imgReuseMediaId(img);
             const prev = key ? imgByKey.get(key) : null;
             if (prev && prev.getAttribute("src") === img.getAttribute("src")) {
               img.replaceWith(prev);
@@ -1539,7 +1691,13 @@ export async function renderUrlaubDetail(appEl, id) {
     };
   }
 
-  async function refreshDayList({ reuse = false, placeId = null, placeIds = null, mergeTrip = false } = {}) {
+  async function refreshDayListOnce({
+    reuse = false,
+    placeId = null,
+    placeIds = null,
+    mergeTrip = false,
+    bundleFresh = false,
+  } = {}) {
     const token = ++state.listRefreshToken;
     const patchIds =
       placeIds?.length > 1 ? placeIds : placeId ? [placeId] : [];
@@ -1573,6 +1731,8 @@ export async function renderUrlaubDetail(appEl, id) {
             if (!state.moveBusy) {
               await refreshPlaceItemsInCache(dayIso, onDay.length ? onDay : patchIds, warmPlaces);
             }
+          } else if (bundleFresh) {
+            await refreshPlaceItemsInCache(dayIso, patchIds, warmPlaces);
           } else {
             await mergeDayBundleFromRemote(dayIso, warmPlaces);
           }
@@ -1633,6 +1793,25 @@ export async function renderUrlaubDetail(appEl, id) {
         showWarnToast("Neu laden hat nicht geklappt. Bitte gleich nochmal versuchen.");
       }
     }
+  }
+
+  let listRefreshQueued = null;
+
+  async function refreshDayList(opts = {}) {
+    listRefreshQueued = { ...(listRefreshQueued || {}), ...opts };
+    if (!listRefreshInflight) {
+      listRefreshInflight = (async () => {
+        while (listRefreshQueued) {
+          const runOpts = listRefreshQueued;
+          listRefreshQueued = null;
+          await refreshDayListOnce(runOpts);
+        }
+      })().finally(() => {
+        listRefreshInflight = null;
+        if (listRefreshQueued) void refreshDayList();
+      });
+    }
+    return listRefreshInflight;
   }
 
   function setActiveDay(dayIso) {
@@ -2359,15 +2538,23 @@ export async function renderUrlaubDetail(appEl, id) {
       const placeHost = e.target.closest(".oc[data-place-id]");
       if (!noteRow || !placeHost) return;
       const placeId = placeHost.dataset.placeId;
-      if (placeId !== state.selectedByDay[state.activeDay]) {
+      const prevSelected = state.selectedByDay[state.activeDay];
+      if (placeId !== prevSelected) {
         state.selectedByDay[state.activeDay] = placeId;
         persistSelection(id, state);
         applySelectionDom();
-        return;
+        repaintSelectionCards(prevSelected, placeId);
       }
-      const items = await ensureDayItemsInCache();
-      const item = items.find((i) => i.place.id === placeHost.dataset.placeId);
-      const note = item?.notes.find((n) => n.id === noteRow.dataset.noteId);
+      hydratePlaceNotesInBundleFromCache(placeId, state.activeDay);
+      let item = getCachedDayItem(placeId);
+      let note =
+        item?.notes?.find((n) => n.id === noteRow.dataset.noteId) ||
+        (readCache()?.notes?.[id] || []).find((n) => n.id === noteRow.dataset.noteId);
+      if (!note || !item) {
+        const items = await ensureDayItemsInCache();
+        item = items.find((i) => i.place.id === placeId);
+        note = note || item?.notes?.find((n) => n.id === noteRow.dataset.noteId);
+      }
       if (!note || !item) return;
       openNoteSheet({
         place: item.place,
@@ -2393,12 +2580,14 @@ export async function renderUrlaubDetail(appEl, id) {
     if (freeHost) {
       if (e.target.closest('[data-action="expand-free-notes"]')) {
         state.freeNotesExpanded = true;
-        await refreshDayList({ reuse: true });
+        hydrateFreeNotesInBundleFromCache(state.activeDay);
+        patchFreeNotesDom();
         return;
       }
       if (e.target.closest('[data-action="collapse-free-notes"]')) {
         state.freeNotesExpanded = false;
-        await refreshDayList({ reuse: true });
+        hydrateFreeNotesInBundleFromCache(state.activeDay);
+        patchFreeNotesDom();
         return;
       }
       const editFree =
@@ -2482,10 +2671,10 @@ export async function renderUrlaubDetail(appEl, id) {
         });
       } else if (expandBtn) {
         state.notesExpanded.add(placeId);
-        await refreshDayList({ reuse: true });
+        repaintSelectionCards(null, placeId);
       } else if (collapseBtn) {
         state.notesExpanded.delete(placeId);
-        await refreshDayList({ reuse: true });
+        repaintSelectionCards(null, placeId);
       }
       return;
     }
@@ -2521,7 +2710,7 @@ export async function renderUrlaubDetail(appEl, id) {
         state.selectedByDay[state.activeDay] = next;
         persistSelection(id, state);
         applySelectionDom();
-        void repaintSelectionCards(prev, next);
+        repaintSelectionCards(prev, next);
       } else {
         applySelectionDom();
       }
@@ -2720,6 +2909,16 @@ export async function renderUrlaubDetail(appEl, id) {
     requestAnimationFrame(() => openNativeCamera());
   }
 
-  window.__vacrecapTripListPatch = () => placePatchInflight || Promise.resolve();
+  window.__vacrecapTripListPatch = async () => {
+    const waits = [];
+    if (listRefreshInflight) waits.push(listRefreshInflight);
+    if (placePatchInflight) waits.push(placePatchInflight);
+    if (waits.length) await Promise.all(waits);
+    for (let i = 0; i < 24; i++) {
+      flushPendingPaint();
+      if (!pendingPaint && !paintBlocked()) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  };
 }
 

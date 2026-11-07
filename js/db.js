@@ -624,7 +624,8 @@ export async function putNote(record) {
     tripId: mapped.vacationId,
     placeId: mapped.placeId || null,
     placeDay: !mapped.placeId ? mapped.day : null,
-    mergeTrip: true,
+    noteListPatch: Boolean(mapped.placeId),
+    patchedNote: mapped.placeId ? mapped : null,
   });
   return mapped;
 }
@@ -665,6 +666,7 @@ export async function deleteNote(id) {
           tripId: cachedMeta.tripId,
           placeId: cachedMeta.placeId || null,
           placeDay: !cachedMeta.placeId ? cachedMeta.day : null,
+          noteListPatch: Boolean(cachedMeta.placeId),
         }
       : {}
   );
