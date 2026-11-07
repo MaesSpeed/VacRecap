@@ -342,7 +342,7 @@ function captionAriaLabel(index, item) {
 function captionThumbHtml(item, thumbUrls, testId) {
   const thumb = thumbUrls?.[item.id];
   if (!thumb) return `<span class="photo-cap-row__ph" aria-hidden="true"></span>`;
-  return `<img class="credits-list__thumb" src="${thumb}" alt="" data-testid="${testId}" />`;
+  return `<img class="credits-list__thumb" src="${thumb}" alt="" data-media-id="${item.id}" data-testid="${testId}" />`;
 }
 
 function renderPhotoCaptionEdits(media, canEditMedia, userId, thumbUrls) {

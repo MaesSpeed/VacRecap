@@ -7,7 +7,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, devices } from "playwright";
-import { ensureTripDetailDay } from "./trip-detail-helpers.mjs";
+import { ensureTripDetailDay, waitTripListPatch } from "./trip-detail-helpers.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -456,14 +456,22 @@ async function main() {
     if (pageEl) pageEl.scrollTop = 120;
   });
 
-  const beforeDom = await page.evaluate(() => {
-    const placeRoot = document.querySelector(`[data-page='current'] .oc[data-place-id="${CSS.escape("place-a")}"]`);
-    if (placeRoot && !placeRoot.dataset.vrRootStamp) placeRoot.dataset.vrRootStamp = crypto.randomUUID();
-    return {
-      scroll: document.querySelector("[data-page='current']")?.scrollTop || 0,
-      placeRootStamp: placeRoot?.dataset.vrRootStamp || null,
-    };
+  await waitTripListPatch(page);
+
+  await page.evaluate(() => {
+    const placeId = "place-a";
+    const placeRoot = document.querySelector(
+      `[data-page='current'] .oc[data-place-id="${CSS.escape(placeId)}"]`
+    );
+    const imgs = [...document.querySelectorAll("[data-page='current'] img")].filter(
+      (img) => !img.closest(`.oc[data-place-id="${CSS.escape(placeId)}"]`)
+    );
+    window.__vacrecapSuite13Dom = { placeRoot, imgs };
   });
+
+  const beforeDom = await page.evaluate(() => ({
+    scroll: document.querySelector("[data-page='current']")?.scrollTop || 0,
+  }));
 
   const reqBeforeSave = state.requests.length;
   const authBeforeSave = state.requests.filter((r) => r.includes("/user")).length;
@@ -486,18 +494,32 @@ async function main() {
   const authAfterSave = state.requests.filter((r) => r.includes("/user")).length;
   assert(authAfterSave === authBeforeSave, `Auth beim Speichern ${authAfterSave} vs ${authBeforeSave}`);
 
-  const afterDom = await page.evaluate(() => ({
-    scroll: document.querySelector("[data-page='current']")?.scrollTop || 0,
-    placeRootStamp:
-      document.querySelector(`[data-page='current'] .oc[data-place-id="${CSS.escape("place-a")}"]`)?.dataset
-        .vrRootStamp || null,
-  }));
+  await waitTripListPatch(page);
+
+  const afterDom = await page.evaluate(() => {
+    const stash = window.__vacrecapSuite13Dom;
+    const placeRoot = document.querySelector(`[data-page='current'] .oc[data-place-id="${CSS.escape("place-a")}"]`);
+    const samePlaceRoot = Boolean(
+      stash?.placeRoot && placeRoot === stash.placeRoot && stash.placeRoot.isConnected && placeRoot?.isConnected
+    );
+    const placeId = "place-a";
+    const imgsNow = [...document.querySelectorAll("[data-page='current'] img")].filter(
+      (img) => !img.closest(`.oc[data-place-id="${CSS.escape(placeId)}"]`)
+    );
+    const sameImgs =
+      !Array.isArray(stash?.imgs) ||
+      !stash.imgs.length ||
+      stash.imgs.every((img) => img.isConnected && imgsNow.includes(img));
+    return {
+      scroll: document.querySelector("[data-page='current']")?.scrollTop || 0,
+      samePlaceRoot,
+      sameImgs,
+    };
+  });
 
   assert(Math.abs(afterDom.scroll - beforeDom.scroll) < 32, `Scroll ${beforeDom.scroll} → ${afterDom.scroll}`);
-  assert(
-    beforeDom.placeRootStamp && afterDom.placeRootStamp === beforeDom.placeRootStamp,
-    "Ort-Karte neu gebaut"
-  );
+  assert(afterDom.samePlaceRoot, "Ort-Karte neu gebaut");
+  assert(afterDom.sameImgs, "Bild-Knoten neu gebaut");
 
   const imgAfter = await page.evaluate(() =>
     [...document.querySelectorAll("[data-page='current'] img")].map((img) => img.getAttribute("src") || "")

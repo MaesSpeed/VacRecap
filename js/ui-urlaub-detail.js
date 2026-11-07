@@ -389,12 +389,14 @@ export async function renderUrlaubDetail(appEl, id) {
         detail.placeDay != null && String(detail.placeDay).trim() !== "" && !detail.placeId && !pids.length;
 
       if (detail.noteListPatch) {
-        ++state.listRefreshToken;
         dropStaleFullDayPaint();
         if (detail.placeId) {
           const dayIso = placeDayIso(detail.placeId);
           hydratePlaceNotesInBundleFromCache(detail.placeId, dayIso, detail.patchedNote || null);
-          if (dayIso === state.activeDay && contentEl.isConnected) {
+          if (
+            contentEl.isConnected &&
+            contentEl.querySelector(`[data-page='current'] .oc[data-place-id="${CSS.escape(detail.placeId)}"]`)
+          ) {
             patchPlaceCardNotesOnly(detail.placeId);
           }
         } else if (placeDayOnly || detail.placeDay != null) {
@@ -415,7 +417,6 @@ export async function renderUrlaubDetail(appEl, id) {
             reuse: true,
             placeId: pids[0],
             mergeTrip: Boolean(detail.mergeTrip),
-            bundleFresh: true,
           });
         } else {
           await refreshDayList({
@@ -1078,7 +1079,8 @@ export async function renderUrlaubDetail(appEl, id) {
   }
 
   function imgReuseMediaId(img) {
-    return img?.dataset?.mediaId || "";
+    if (img?.dataset?.mediaId) return img.dataset.mediaId;
+    return img?.closest("[data-media-id]")?.dataset?.mediaId || "";
   }
 
   function patchPlaceCardNotesOnly(placeId) {

@@ -619,14 +619,19 @@ export async function putNote(record) {
   }
   const mapped = noteRowToApp(data);
   mergeNoteCache(mapped);
-  emitDataChanged({
-    skipFullRender: true,
-    tripId: mapped.vacationId,
-    placeId: mapped.placeId || null,
-    placeDay: !mapped.placeId ? mapped.day : null,
-    noteListPatch: Boolean(mapped.placeId),
-    patchedNote: mapped.placeId ? mapped : null,
-  });
+  const guardedEdit = Boolean(record.id && record.remoteUpdatedAt);
+  if (guardedEdit) {
+    emitDataChanged({ tripId: mapped.vacationId });
+  } else {
+    emitDataChanged({
+      skipFullRender: true,
+      tripId: mapped.vacationId,
+      placeId: mapped.placeId || null,
+      placeDay: !mapped.placeId ? mapped.day : null,
+      noteListPatch: Boolean(mapped.placeId),
+      patchedNote: mapped.placeId ? mapped : null,
+    });
+  }
   return mapped;
 }
 

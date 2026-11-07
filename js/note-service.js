@@ -11,13 +11,16 @@ export async function createNote({ place, vacationId, day, text }) {
     text: text.trim(),
   };
   await putNote(record);
-  const waitPatch = window.__vacrecapTripListPatch;
-  if (typeof waitPatch === "function") await waitPatch();
   return record;
 }
 
 export async function updateNoteText(note, text) {
-  const record = { ...note, text: text.trim(), ts: note.ts ?? Date.now() };
+  const record = {
+    ...note,
+    text: text.trim(),
+    ts: note.ts ?? Date.now(),
+    remoteUpdatedAt: note.remoteUpdatedAt || null,
+  };
   await putNote(record);
   return record;
 }

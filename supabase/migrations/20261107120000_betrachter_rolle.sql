@@ -8,9 +8,9 @@
 /*
 begin;
 
--- Bestehende observer-Zeilen vor engem CHECK auf viewer demoten (sonst schlägt add constraint fehl)
-update public.trip_members set role = 'viewer' where role = 'observer';
-update public.trip_invites set role = 'viewer' where role = 'observer';
+-- Vor engem CHECK: observer-Zeilen entfernen (nicht auf viewer setzen — sonst Schreibrechte).
+delete from public.trip_members where role = 'observer';
+delete from public.trip_invites where role = 'observer';
 
 alter table public.trip_members drop constraint if exists trip_members_role_check;
 alter table public.trip_members
