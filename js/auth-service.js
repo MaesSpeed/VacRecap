@@ -1,12 +1,19 @@
 import { mapAuthError } from "./cloud-errors.js";
+import { resetDataScope, syncDataScopeUser } from "./data-scope.js";
 import { clearReadCache, setCacheUserId } from "./local-cache.js";
+import { resetInflightRequests } from "./request-dedupe.js";
 import { getSupabase } from "./supabase-client.js";
 
 let cachedUserId;
 let authListenerInstalled = false;
 
 function applySessionUser(session) {
-  cachedUserId = session?.user?.id ?? null;
+  const nextId = session?.user?.id ?? null;
+  if (nextId !== cachedUserId) {
+    resetInflightRequests();
+    syncDataScopeUser(nextId);
+  }
+  cachedUserId = nextId;
   if (cachedUserId) setCacheUserId(cachedUserId);
   else if (session === null) setCacheUserId(null);
 }
@@ -60,9 +67,11 @@ export async function verifyEmailOtp(email, token) {
 }
 
 export async function signOut() {
+  resetInflightRequests();
+  resetDataScope();
   clearReadCache();
   setCacheUserId(null);
-  cachedUserId = null;
+  cachedUserId = undefined;
   const { clearTripSelectionStore } = await import("./trip-selection-store.js");
   await clearTripSelectionStore();
   const { clearSignedUrlCache } = await import("./media-signed-url-cache.js");

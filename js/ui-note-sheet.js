@@ -262,6 +262,7 @@ export function openNoteSheet({
         return;
       }
 
+      let savedNote = null;
       if (isEdit) {
         let updated;
         try {
@@ -283,18 +284,20 @@ export function openNoteSheet({
         }
         const nextPlaceId = freeChosen ? null : placeToUse.id;
         if (nextPlaceId !== (note.placeId || null)) {
-          await moveNoteToPlace(updated, freeChosen ? null : placeToUse, { day, vacationId });
+          savedNote = await moveNoteToPlace(updated, freeChosen ? null : placeToUse, { day, vacationId });
+        } else {
+          savedNote = updated;
         }
         showToast("Notiz gespeichert");
       } else if (freeChosen) {
-        await createNote({ place: null, vacationId, day, text });
+        savedNote = await createNote({ place: null, vacationId, day, text });
         showToast("Notiz gespeichert");
       } else {
-        await createNote({ place: placeToUse, vacationId, day, text });
+        savedNote = await createNote({ place: placeToUse, vacationId, day, text });
         showToast("Notiz gespeichert");
       }
       closeOverlayHistory(activeClose);
-      await onSaved?.(captureResult);
+      await onSaved?.(savedNote ?? captureResult);
     } catch (err) {
       if (err instanceof CloudOfflineError || err instanceof CloudNetworkError) {
         showWarnToast(err.message);

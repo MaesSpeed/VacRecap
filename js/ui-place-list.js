@@ -44,10 +44,12 @@ export async function loadDayPlacesEnriched(vacationId, day, knownPlaces) {
   const places = sortPlacesChronologicalDesc(source);
   const hardPlaces = places.filter((p) => !p.soft);
   const waypointIds = hardPlaces.map((p) => p.id);
-  const [mediaByPlace, notesByPlace] = await Promise.all([
+  const [mediaPack, notesByPlace] = await Promise.all([
     fetchMediaForWaypoints(waypointIds),
     fetchNotesForWaypoints(vacationId, waypointIds),
   ]);
+  const mediaByPlace = mediaPack.byPlace || new Map();
+  const batchMediaError = Boolean(mediaPack.error);
   const enriched = places.map((p) => {
     if (p.soft) return { place: p, photos: 0, videos: 0, notes: [], media: [], mediaLoadError: false };
     const media = mediaByPlace.get(p.id) || [];
@@ -61,7 +63,7 @@ export async function loadDayPlacesEnriched(vacationId, day, knownPlaces) {
       videos,
       notes: sortNotesNewestFirst(notes),
       media: sortedMedia,
-      mediaLoadError: false,
+      mediaLoadError: batchMediaError && !media.length,
     };
   });
   return filterSoftPointsHidden(enriched, vacationId, day);

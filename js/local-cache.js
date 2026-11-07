@@ -1,3 +1,5 @@
+import { captureDataScope, dataScopeStillValid } from "./data-scope.js";
+
 const CACHE_KEY_PREFIX = "vr-cloud-read-cache";
 const LEGACY_CACHE_KEY = "vr-cloud-read-cache";
 const MAX_BYTES = 500 * 1024;
@@ -73,6 +75,7 @@ export function readCache() {
 
 export function writeCache(partial) {
   if (!activeUserId) return;
+  const scopeAtStart = captureDataScope();
   try {
     const prev = readCache() || { trips: [], waypoints: {}, notes: {}, media: {} };
     const next = {
@@ -82,6 +85,7 @@ export function writeCache(partial) {
       media: { ...prev.media, ...(partial.media || {}) },
       savedAt: Date.now(),
     };
+    if (!dataScopeStillValid(scopeAtStart)) return;
     localStorage.setItem(cacheKey(), JSON.stringify(trimPayload(next)));
   } catch {
     /* quota */

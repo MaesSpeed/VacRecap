@@ -7,6 +7,7 @@ import {
   installSupabaseMocks,
   startServer,
 } from "./run-tests-12b-recap-video.mjs";
+import { runIsolationRefreshTest } from "./isolation-refresh.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SUPABASE_HOST = "hgboqdovlfeuqfhfeykn.supabase.co";
@@ -160,6 +161,16 @@ function patchMockRpc(state) {
       Object.assign(row, JSON.parse(body || "{}"), { updated_at: new Date().toISOString() });
       return { status: 200, json: [row] };
     }
+    if (table === "waypoints" && method === "PATCH") {
+      const id = (url.searchParams.get("id") || "").replace(/^eq\./, "");
+      const row = state.waypoints.find((wp) => wp.id === id);
+      if (!row) return { status: 406, json: { message: "0 rows" } };
+      const patch = JSON.parse(body || "{}");
+      if (patch.title != null) patch.title = patch.title;
+      if (patch.title == null && patch.name != null) patch.title = patch.name;
+      Object.assign(row, patch, { updated_at: new Date().toISOString() });
+      return { status: 200, json: [row] };
+    }
     return rest(url, method, body, headers);
   };
 }
@@ -172,6 +183,7 @@ async function openTripDay(page, dayIso) {
 }
 
 async function runPerfScenario() {
+  await runIsolationRefreshTest();
   const { server, baseUrl } = await startServer();
   const browser = await chromium.launch({ headless: true });
   const ctx = await browser.newContext({ ...devices["iPhone 8"], baseURL: baseUrl });
@@ -195,11 +207,18 @@ async function runPerfScenario() {
   await openTripDay(page, "2026-10-30");
   await page.waitForTimeout(1200);
 
+  const beforePick = await page.locator(".oc--selected").getAttribute("data-place-id");
   meter.reset();
-  const unselected = page.locator('.oc[data-place-id]:not(.oc--selected)').first();
-  await unselected.click();
-  await page.waitForSelector(".oc--selected");
-  await page.waitForTimeout(400);
+  const target = page.locator('.oc[data-place-id]:not(.oc--selected)').first();
+  const targetId = await target.getAttribute("data-place-id");
+  assert(targetId && targetId !== beforePick, "need a different card to tap");
+  await target.click();
+  await page.waitForFunction(
+    (id) => document.querySelector(".oc.oc--selected")?.dataset.placeId === id,
+    targetId,
+    { timeout: 10_000 }
+  );
+  await page.waitForTimeout(300);
   const cardTap = meter.snapshot();
 
   await page.waitForSelector('.oc--selected [data-action="add-note"]', { timeout: 15_000 });
@@ -211,14 +230,28 @@ async function runPerfScenario() {
   await page.locator('[data-testid="note-sheet"] [data-action="cancel"]').click();
 
   meter.reset();
-  await page.locator('[data-action="edit-note"]').first().click({ timeout: 10_000 });
+  await page.locator('.oc--selected [data-action="edit-note"]').click({ timeout: 10_000 });
   await page.waitForSelector('[data-testid="note-sheet"]');
   const textarea = page.locator('[data-testid="note-sheet"] textarea');
   await textarea.fill(`${await textarea.inputValue()} (perf)`);
   await page.locator('[data-testid="note-sheet"] [data-action="save"]').click();
-  await page.waitForSelector('[data-testid="note-sheet"]', { state: "detached", timeout: 15_000 }).catch(() => {});
-  await page.waitForTimeout(600);
+  await page.waitForSelector('[data-testid="note-sheet"]', { state: "detached", timeout: 15_000 });
+  await page.waitForTimeout(400);
   const save = meter.snapshot();
+
+  const RENAMED = "Perf Renamed Ort";
+  await page.locator('.oc--selected [data-action="edit-place"]').click();
+  await page.waitForSelector(".sheet--place-edit");
+  await page.locator('.sheet--place-edit [data-role="name"]').fill(RENAMED);
+  await page.locator('.sheet--place-edit [data-action="save"]').click();
+  await page.waitForSelector(".sheet--place-edit", { state: "detached", timeout: 15_000 });
+  const cardTitle = (await page.locator(".oc--selected .oc__title span").first().textContent()) || "";
+  assert(cardTitle.includes(RENAMED), `card still shows «${cardTitle.trim()}» after save`);
+  await page.locator('.oc--selected [data-action="edit-place"]').click();
+  await page.waitForSelector(".sheet--place-edit");
+  const sheetName = await page.locator('.sheet--place-edit [data-role="name"]').inputValue();
+  assert(sheetName === RENAMED, `sheet name «${sheetName}»`);
+  await page.locator('.sheet--place-edit [data-action="cancel"]').click();
 
   assert(errors.length === 0, `page errors: ${errors.join(" | ")}`);
   assert(

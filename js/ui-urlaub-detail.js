@@ -802,11 +802,65 @@ export async function renderUrlaubDetail(appEl, id) {
   function invalidateDayBundle(dayIso) {
     if (!dayIso) return;
     dayCache.delete(dayIso);
+    dropWarmPaint(dayIso);
+    cacheEpoch += 1;
+    state.dayCacheEpoch = cacheEpoch;
+  }
+
+  function dropWarmPaint(dayIso) {
+    if (!dayIso) return;
     const built = warmHtml.get(dayIso);
     if (built?.thumbUrls) revokeThumbUrls(built.thumbUrls);
     warmHtml.delete(dayIso);
-    cacheEpoch += 1;
-    state.dayCacheEpoch = cacheEpoch;
+  }
+
+  function mergePlaceInMemory(place) {
+    if (!place?.id) return;
+    const day = place.day || place.dayDate;
+    if (warmPlaces) {
+      const idx = warmPlaces.findIndex((p) => p.id === place.id);
+      if (idx >= 0) warmPlaces[idx] = { ...warmPlaces[idx], ...place };
+      state.warmPlaces = warmPlaces;
+    }
+    for (const bundle of dayCache.values()) {
+      for (const item of bundle.items || []) {
+        if (item.place?.id === place.id) item.place = { ...item.place, ...place };
+      }
+    }
+    dropWarmPaint(day);
+  }
+
+  function mergeNoteInMemory(note) {
+    if (!note?.id) return;
+    const day = String(note.day || "").slice(0, 10);
+    const placeId = note.placeId || null;
+    const bundle = dayCache.get(day);
+    if (bundle) {
+      for (const item of bundle.items || []) {
+        if (!item.notes?.length) continue;
+        item.notes = item.notes.filter((n) => n.id !== note.id);
+      }
+      bundle.freeNotes = (bundle.freeNotes || []).filter((n) => n.id !== note.id);
+      if (!placeId) {
+        bundle.freeNotes = [...bundle.freeNotes, note];
+      } else {
+        const item = bundle.items?.find((entry) => entry.place.id === placeId);
+        if (item) {
+          item.notes = [note, ...(item.notes || [])];
+          item.notes.sort((a, b) => (b.ts ?? b.createdAt ?? 0) - (a.ts ?? a.createdAt ?? 0));
+        }
+      }
+    }
+    dropWarmPaint(day);
+  }
+
+  async function afterDayMutation({ place, note, invalidateDay = false } = {}) {
+    if (invalidateDay) invalidateDayBundle(state.activeDay);
+    else {
+      if (place) mergePlaceInMemory(place);
+      if (note) mergeNoteInMemory(note);
+    }
+    await refreshDayList({ reuse: true });
   }
 
   async function activeDayItems() {
@@ -1170,23 +1224,21 @@ export async function renderUrlaubDetail(appEl, id) {
         state.warmPlaces = warmPlaces;
       }
       if (token !== state.listRefreshToken) return;
-      let built = reuse ? warmHtml.get(state.activeDay) : null;
-      if (!built) {
-        built = await buildDayHtml(state.activeDay, warmPlaces, { selection: false });
-        if (token !== state.listRefreshToken) {
-          revokeThumbUrls(built?.thumbUrls);
-          return;
-        }
-        if (built?.stale) {
-          built = await buildDayHtml(state.activeDay, warmPlaces, { selection: false });
-        }
-        if (!built?.stale) warmHtml.set(state.activeDay, built);
+      let built = await buildDayHtml(state.activeDay, warmPlaces, {
+        selection: Boolean(state.photoSelecting),
+      });
+      if (token !== state.listRefreshToken) {
+        revokeThumbUrls(built?.thumbUrls);
+        return;
       }
+      if (built?.stale) {
+        built = await buildDayHtml(state.activeDay, warmPlaces, {
+          selection: Boolean(state.photoSelecting),
+        });
+      }
+      if (!built?.stale) warmHtml.set(state.activeDay, built);
       if (!contentEl.isConnected || !built?.html) return;
-      const view = state.photoSelecting
-        ? await buildDayHtml(state.activeDay, warmPlaces, { selection: true })
-        : built;
-      queuePaint(view?.html && !view.stale ? view : built, token, { keepScroll: reuse });
+      queuePaint(built, token, { keepScroll: reuse });
       persistSelection(id, state);
       if (token !== state.listRefreshToken || !contentEl.isConnected) return;
       if (prefetch) void prefetchNeighbors(token);
@@ -1564,12 +1616,13 @@ export async function renderUrlaubDetail(appEl, id) {
         persistSelection(id, state);
         return r;
       },
-      onSaved: async (captureResult) => {
-        if (captureResult?.toast?.line) {
-          showCaptureResultToast(captureResult, "note");
+      onSaved: async (payload) => {
+        if (payload?.toast?.line) {
+          showCaptureResultToast(payload, "note");
         }
-        invalidateDayBundle(state.activeDay);
-        await refreshDayList({ reuse: true });
+        if (payload?.place) await afterDayMutation({ place: payload.place });
+        else if (payload?.id) await afterDayMutation({ note: payload });
+        else await afterDayMutation({ invalidateDay: true });
       },
       onPlaceChange: (placeId) => {
         state.selectedByDay[state.activeDay] = placeId;
@@ -1856,10 +1909,7 @@ export async function renderUrlaubDetail(appEl, id) {
         if (!media || !canCaptionMedia(media, role, state.userId)) return;
         await openPhotoCaptionSheet({
           media,
-          onSaved: async () => {
-          invalidateDayBundle(state.activeDay);
-          await refreshDayList({ reuse: true });
-        },
+          onSaved: async () => afterDayMutation({ invalidateDay: true }),
         });
       } finally {
         state.captionBusy = false;
@@ -1936,9 +1986,9 @@ export async function renderUrlaubDetail(appEl, id) {
         dayIndex: dayIndexInTrip(vacation, state.activeDay),
         placesForDay: () => placesForDayFromCache(),
         note,
-        onSaved: async () => {
-          invalidateDayBundle(state.activeDay);
-          await refreshDayList({ reuse: true });
+        onSaved: async (saved) => {
+          if (saved?.id) await afterDayMutation({ note: saved });
+          else await afterDayMutation({ invalidateDay: true });
         },
         onPlaceChange: (pid) => {
           state.selectedByDay[state.activeDay] = pid;
@@ -1978,9 +2028,9 @@ export async function renderUrlaubDetail(appEl, id) {
           dayIndex: dayIndexInTrip(vacation, state.activeDay),
           placesForDay: () => placesForDayFromCache(),
           note: note || undefined,
-          onSaved: async () => {
-            invalidateDayBundle(state.activeDay);
-            await refreshDayList({ reuse: true });
+          onSaved: async (saved) => {
+            if (saved?.id) await afterDayMutation({ note: saved });
+            else await afterDayMutation({ invalidateDay: true });
           },
           onPlaceChange: (pid) => {
             if (!pid) return;
@@ -2009,9 +2059,9 @@ export async function renderUrlaubDetail(appEl, id) {
         day: state.activeDay,
         dayIndex: dayIndexInTrip(vacation, state.activeDay),
         placesForDay: () => placesForDayFromCache(),
-        onSaved: async () => {
-          invalidateDayBundle(state.activeDay);
-          await refreshDayList({ reuse: true });
+        onSaved: async (saved) => {
+          if (saved?.id) await afterDayMutation({ note: saved });
+          else await afterDayMutation({ invalidateDay: true });
         },
         onPlaceChange: (pid) => {
           state.selectedByDay[state.activeDay] = pid;
@@ -2033,10 +2083,7 @@ export async function renderUrlaubDetail(appEl, id) {
       if (!item) return;
       if (editBtn) {
         openEditPlaceSheet(item.place, {
-          onSaved: async () => {
-            invalidateDayBundle(state.activeDay);
-            await refreshDayList({ reuse: true });
-          },
+          onSaved: async (updated) => afterDayMutation({ place: updated }),
           onDeleted: async (pid) => {
             if (state.selectedByDay[state.activeDay] === pid) {
               delete state.selectedByDay[state.activeDay];

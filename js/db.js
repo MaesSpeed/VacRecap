@@ -8,6 +8,7 @@ import {
 } from "./cloud-errors.js";
 import { deleteMediaStorageObjects } from "./cloud-media-storage.js";
 import { getCachedUserId, getUserId } from "./auth-service.js";
+import { captureDataScope, dataScopeStillValid, StaleDataScopeError } from "./data-scope.js";
 import { dedupeRequest } from "./request-dedupe.js";
 import {
   mediaRowToApp,
@@ -237,6 +238,7 @@ export async function getVacation(id) {
 }
 
 async function getAllVacationsUncached() {
+  const scope = captureDataScope();
   if (!navigator.onLine) {
     const cached = readCache()?.trips || [];
     return cached.map(normalizeVacation);
@@ -251,8 +253,10 @@ async function getAllVacationsUncached() {
       if (cached?.length) return cached.map(normalizeVacation);
       throw mapApiError(error);
     }
+    if (!dataScopeStillValid(scope)) throw new StaleDataScopeError();
     return cacheTrips(data || []).map(normalizeVacation);
   } catch (err) {
+    if (err instanceof StaleDataScopeError) throw err;
     const cached = readCache()?.trips;
     if (cached?.length) return cached.map(normalizeVacation);
     if (err instanceof CloudOfflineError || err instanceof CloudNetworkError) throw err;
@@ -324,6 +328,7 @@ export async function putRouteCacheRecord(entry) {
 }
 
 async function fetchWaypointsForTripUncached(tripId) {
+  const scope = captureDataScope();
   if (!navigator.onLine) {
     return (readCache()?.waypoints?.[tripId] || []).map((p) => normalizePlace(p));
   }
@@ -338,6 +343,7 @@ async function fetchWaypointsForTripUncached(tripId) {
     if (cached) return cached.map((p) => normalizePlace(p));
     throw mapApiError(error);
   }
+  if (!dataScopeStillValid(scope)) throw new StaleDataScopeError();
   const places = (data || []).map((r) => normalizePlace(waypointRowToPlace(r)));
   writeCache({ waypoints: { [tripId]: places } });
   return places;
@@ -986,10 +992,11 @@ function groupMediaByWaypoint(rows) {
 
 export async function fetchMediaForWaypoints(waypointIds) {
   const ids = [...new Set((waypointIds || []).filter(Boolean))];
-  if (!ids.length) return new Map();
+  if (!ids.length) return { byPlace: new Map(), error: null };
   const key = `media:wpbatch:${ids.sort().join(",")}`;
   return dedupeRequest(key, async () => {
-    if (!navigator.onLine) return new Map();
+    const scope = captureDataScope();
+    if (!navigator.onLine) return { byPlace: new Map(), error: new CloudOfflineError() };
     try {
       const { data, error } = await runMediaRead((columns) =>
         getSupabase()
@@ -1001,6 +1008,7 @@ export async function fetchMediaForWaypoints(waypointIds) {
           .order("taken_at", { ascending: true })
       );
       if (error) throw mapApiError(error);
+      if (!dataScopeStillValid(scope)) throw new StaleDataScopeError();
       const reconciled = await reconcileStalePendingRows(data || []);
       const byWaypoint = groupMediaByWaypoint(reconciled);
       const out = new Map();
@@ -1008,11 +1016,14 @@ export async function fetchMediaForWaypoints(waypointIds) {
         const list = byWaypoint.get(waypointId) || [];
         out.set(waypointId, list.map(mediaRowToApp));
       }
-      return out;
+      return { byPlace: out, error: null };
     } catch (err) {
-      if (err instanceof CloudOfflineError || err instanceof CloudNetworkError) return new Map();
-      if (isFetchNetworkFailure(err)) return new Map();
-      return new Map();
+      if (err instanceof StaleDataScopeError) throw err;
+      if (err instanceof CloudOfflineError || err instanceof CloudNetworkError) {
+        return { byPlace: new Map(), error: err };
+      }
+      if (isFetchNetworkFailure(err)) return { byPlace: new Map(), error: new CloudNetworkError() };
+      throw err;
     }
   });
 }
