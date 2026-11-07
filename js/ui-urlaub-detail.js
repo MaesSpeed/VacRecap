@@ -80,6 +80,9 @@ const tripUiState = new Map();
 export function clearTripUiState(vacationId) {
   const state = tripUiState.get(vacationId);
   if (state?.thumbUrls) revokeThumbUrls(state.thumbUrls);
+  if (state?.warmHtml) {
+    for (const built of state.warmHtml.values()) revokeThumbUrls(built?.thumbUrls);
+  }
   tripUiState.delete(vacationId);
 }
 
@@ -135,9 +138,18 @@ async function getState(id, vacation) {
       userId: null,
       moveBusy: false,
       captionBusy: false,
+      dayBundles: new Map(),
+      warmHtml: new Map(),
+      warmPlaces: null,
+      thumbPool: {},
+      dayCacheEpoch: 0,
     };
     tripUiState.set(id, state);
   }
+  if (!state.dayBundles) state.dayBundles = new Map();
+  if (!state.warmHtml) state.warmHtml = new Map();
+  if (!state.thumbPool) state.thumbPool = Object.create(null);
+  if (state.dayCacheEpoch == null) state.dayCacheEpoch = 0;
   if (!days.includes(state.activeDay)) state.activeDay = defaultActiveDay(vacation);
   if (!state.freshPlaceIds) state.freshPlaceIds = new Set();
   if (!state.photoSelected) state.photoSelected = new Set();
@@ -781,11 +793,39 @@ export async function renderUrlaubDetail(appEl, id) {
           </ul>
         </div>`;
 
-  let warmHtml = new Map();
-  let warmPlaces = null;
-  let dayCache = new Map();
-  let cacheEpoch = 0;
-  const thumbPool = {};
+  let warmHtml = state.warmHtml;
+  let warmPlaces = state.warmPlaces;
+  const dayCache = state.dayBundles;
+  let cacheEpoch = state.dayCacheEpoch;
+  const thumbPool = state.thumbPool;
+
+  function invalidateDayBundle(dayIso) {
+    if (!dayIso) return;
+    dayCache.delete(dayIso);
+    const built = warmHtml.get(dayIso);
+    if (built?.thumbUrls) revokeThumbUrls(built.thumbUrls);
+    warmHtml.delete(dayIso);
+    cacheEpoch += 1;
+    state.dayCacheEpoch = cacheEpoch;
+  }
+
+  async function activeDayItems() {
+    const bundle = dayCache.get(state.activeDay);
+    if (bundle?.items?.length) return bundle.items;
+    if (!warmPlaces) {
+      warmPlaces = await getPlacesForVacation(id);
+      state.warmPlaces = warmPlaces;
+    }
+    return loadDayPlacesEnriched(id, state.activeDay, warmPlaces);
+  }
+
+  function placesForDayFromCache() {
+    const bundle = dayCache.get(state.activeDay);
+    if (bundle?.items) {
+      return bundle.items.map((entry) => entry.place).filter((p) => !p.soft);
+    }
+    return activeDayItems().then((items) => items.map((entry) => entry.place).filter((p) => !p.soft));
+  }
 
   function stripTestIds(html) {
     return String(html || "").replace(/\sdata-testid="[^"]*"/g, "");
@@ -912,9 +952,10 @@ export async function renderUrlaubDetail(appEl, id) {
 
   function clearWarm() {
     for (const built of warmHtml.values()) revokeThumbUrls(built?.thumbUrls);
-    warmHtml = new Map();
+    warmHtml.clear();
     warmPlaces = null;
-    dayCache = new Map();
+    state.warmPlaces = null;
+    dayCache.clear();
     for (const key of Object.keys(thumbPool)) delete thumbPool[key];
   }
 
@@ -1118,13 +1159,16 @@ export async function renderUrlaubDetail(appEl, id) {
     setDaySwipePage(contentEl, dayErrorHtml);
   }
 
-  async function refreshDayList({ reuse = false } = {}) {
+  async function refreshDayList({ reuse = false, prefetch = !reuse } = {}) {
     const token = ++state.listRefreshToken;
     try {
       await maybeSoftOnOpen();
       if (token !== state.listRefreshToken) return;
       if (!reuse) clearWarm();
-      if (!warmPlaces) warmPlaces = await getPlacesForVacation(id);
+      if (!warmPlaces) {
+        warmPlaces = await getPlacesForVacation(id);
+        state.warmPlaces = warmPlaces;
+      }
       if (token !== state.listRefreshToken) return;
       let built = reuse ? warmHtml.get(state.activeDay) : null;
       if (!built) {
@@ -1145,7 +1189,7 @@ export async function renderUrlaubDetail(appEl, id) {
       queuePaint(view?.html && !view.stale ? view : built, token, { keepScroll: reuse });
       persistSelection(id, state);
       if (token !== state.listRefreshToken || !contentEl.isConnected) return;
-      void prefetchNeighbors(token);
+      if (prefetch) void prefetchNeighbors(token);
     } catch {
       if (token !== state.listRefreshToken || !contentEl.isConnected) return;
       showDayLoadError();
@@ -1488,7 +1532,7 @@ export async function renderUrlaubDetail(appEl, id) {
 
   async function onNoteFooter() {
     if (state.captureBusy) return;
-    const items = await loadDayPlacesEnriched(id, state.activeDay);
+    const items = await activeDayItems();
     const selectedId = await ensureSelectedForDay(items);
     const initialPlace = selectedId
       ? items.find((i) => i.place.id === selectedId)?.place ?? null
@@ -1500,7 +1544,7 @@ export async function renderUrlaubDetail(appEl, id) {
       day: state.activeDay,
       dayIndex: dayIndexInTrip(vacation, state.activeDay),
       placesForDay: async () => {
-        const items = await loadDayPlacesEnriched(id, state.activeDay);
+        const items = await activeDayItems();
         return items.map((i) => i.place).filter((p) => !p.soft);
       },
       previewPlaceLabel: () =>
@@ -1520,11 +1564,12 @@ export async function renderUrlaubDetail(appEl, id) {
         persistSelection(id, state);
         return r;
       },
-      onSaved: (captureResult) => {
+      onSaved: async (captureResult) => {
         if (captureResult?.toast?.line) {
           showCaptureResultToast(captureResult, "note");
         }
-        return refreshDayList();
+        invalidateDayBundle(state.activeDay);
+        await refreshDayList({ reuse: true });
       },
       onPlaceChange: (placeId) => {
         state.selectedByDay[state.activeDay] = placeId;
@@ -1579,7 +1624,10 @@ export async function renderUrlaubDetail(appEl, id) {
     }
     state.moveBusy = true;
     try {
-      if (!warmPlaces) warmPlaces = await getPlacesForVacation(id);
+      if (!warmPlaces) {
+        warmPlaces = await getPlacesForVacation(id);
+        state.warmPlaces = warmPlaces;
+      }
       const blockedPlaceId = chosen.every((media) => media.placeId === chosen[0].placeId) ? chosen[0].placeId : null;
       const place = await openPhotoMoveSheet({
         vacation,
@@ -1784,7 +1832,7 @@ export async function renderUrlaubDetail(appEl, id) {
       }
       const placeId = e.target.closest(".oc[data-place-id]")?.dataset.placeId;
       if (!placeId) return;
-      const items = await loadDayPlacesEnriched(id, state.activeDay);
+      const items = await activeDayItems();
       const item = items.find((i) => i.place.id === placeId);
       if (!item) return;
       const viewable = filterViewableMedia(item.media);
@@ -1808,7 +1856,10 @@ export async function renderUrlaubDetail(appEl, id) {
         if (!media || !canCaptionMedia(media, role, state.userId)) return;
         await openPhotoCaptionSheet({
           media,
-          onSaved: () => refreshDayList(),
+          onSaved: async () => {
+          invalidateDayBundle(state.activeDay);
+          await refreshDayList({ reuse: true });
+        },
         });
       } finally {
         state.captionBusy = false;
@@ -1822,7 +1873,7 @@ export async function renderUrlaubDetail(appEl, id) {
       const placeId = e.target.closest(".oc[data-place-id]")?.dataset.placeId;
       const mediaId = openCaption.dataset.mediaId;
       if (!placeId || !mediaId) return;
-      const items = await loadDayPlacesEnriched(id, state.activeDay);
+      const items = await activeDayItems();
       const item = items.find((entry) => entry.place.id === placeId);
       if (!item) return;
       const viewable = filterViewableMedia(item.media);
@@ -1856,7 +1907,7 @@ export async function renderUrlaubDetail(appEl, id) {
       if (placeId !== state.selectedByDay[state.activeDay]) {
         state.selectedByDay[state.activeDay] = placeId;
         persistSelection(id, state);
-        await refreshDayList();
+        await refreshDayList({ reuse: true });
         return;
       }
     }
@@ -1870,10 +1921,10 @@ export async function renderUrlaubDetail(appEl, id) {
       if (placeId !== state.selectedByDay[state.activeDay]) {
         state.selectedByDay[state.activeDay] = placeId;
         persistSelection(id, state);
-        await refreshDayList();
+        await refreshDayList({ reuse: true });
         return;
       }
-      const items = await loadDayPlacesEnriched(id, state.activeDay);
+      const items = await activeDayItems();
       const item = items.find((i) => i.place.id === placeHost.dataset.placeId);
       const note = item?.notes.find((n) => n.id === noteRow.dataset.noteId);
       if (!note || !item) return;
@@ -1883,12 +1934,12 @@ export async function renderUrlaubDetail(appEl, id) {
         vacation,
         day: state.activeDay,
         dayIndex: dayIndexInTrip(vacation, state.activeDay),
-        placesForDay: async () => {
-          const list = await loadDayPlacesEnriched(id, state.activeDay);
-          return list.map((i) => i.place).filter((p) => !p.soft);
-        },
+        placesForDay: () => placesForDayFromCache(),
         note,
-        onSaved: () => refreshDayList(),
+        onSaved: async () => {
+          invalidateDayBundle(state.activeDay);
+          await refreshDayList({ reuse: true });
+        },
         onPlaceChange: (pid) => {
           state.selectedByDay[state.activeDay] = pid;
           persistSelection(id, state);
@@ -1901,12 +1952,12 @@ export async function renderUrlaubDetail(appEl, id) {
     if (freeHost) {
       if (e.target.closest('[data-action="expand-free-notes"]')) {
         state.freeNotesExpanded = true;
-        await refreshDayList();
+        await refreshDayList({ reuse: true });
         return;
       }
       if (e.target.closest('[data-action="collapse-free-notes"]')) {
         state.freeNotesExpanded = false;
-        await refreshDayList();
+        await refreshDayList({ reuse: true });
         return;
       }
       const editFree =
@@ -1925,12 +1976,12 @@ export async function renderUrlaubDetail(appEl, id) {
           vacation,
           day: state.activeDay,
           dayIndex: dayIndexInTrip(vacation, state.activeDay),
-          placesForDay: async () => {
-            const list = await loadDayPlacesEnriched(id, state.activeDay);
-            return list.map((i) => i.place).filter((p) => !p.soft);
-          },
+          placesForDay: () => placesForDayFromCache(),
           note: note || undefined,
-          onSaved: () => refreshDayList(),
+          onSaved: async () => {
+            invalidateDayBundle(state.activeDay);
+            await refreshDayList({ reuse: true });
+          },
           onPlaceChange: (pid) => {
             if (!pid) return;
             state.selectedByDay[state.activeDay] = pid;
@@ -1946,7 +1997,7 @@ export async function renderUrlaubDetail(appEl, id) {
       const host = e.target.closest(".oc[data-place-id]");
       if (!host) return;
       const placeId = host.dataset.placeId;
-      const items = await loadDayPlacesEnriched(id, state.activeDay);
+      const items = await activeDayItems();
       const item = items.find((i) => i.place.id === placeId);
       if (!item) return;
       state.selectedByDay[state.activeDay] = placeId;
@@ -1957,11 +2008,11 @@ export async function renderUrlaubDetail(appEl, id) {
         vacation,
         day: state.activeDay,
         dayIndex: dayIndexInTrip(vacation, state.activeDay),
-        placesForDay: async () => {
-          const list = await loadDayPlacesEnriched(id, state.activeDay);
-          return list.map((i) => i.place).filter((p) => !p.soft);
+        placesForDay: () => placesForDayFromCache(),
+        onSaved: async () => {
+          invalidateDayBundle(state.activeDay);
+          await refreshDayList({ reuse: true });
         },
-        onSaved: () => refreshDayList(),
         onPlaceChange: (pid) => {
           state.selectedByDay[state.activeDay] = pid;
           persistSelection(id, state);
@@ -1977,12 +2028,15 @@ export async function renderUrlaubDetail(appEl, id) {
       const host = e.target.closest(".oc[data-place-id]");
       if (!host) return;
       const placeId = host.dataset.placeId;
-      const items = await loadDayPlacesEnriched(id, state.activeDay);
+      const items = await activeDayItems();
       const item = items.find((i) => i.place.id === placeId);
       if (!item) return;
       if (editBtn) {
         openEditPlaceSheet(item.place, {
-          onSaved: async () => refreshDayList(),
+          onSaved: async () => {
+            invalidateDayBundle(state.activeDay);
+            await refreshDayList({ reuse: true });
+          },
           onDeleted: async (pid) => {
             if (state.selectedByDay[state.activeDay] === pid) {
               delete state.selectedByDay[state.activeDay];
@@ -1992,10 +2046,10 @@ export async function renderUrlaubDetail(appEl, id) {
         });
       } else if (expandBtn) {
         state.notesExpanded.add(placeId);
-        await refreshDayList();
+        await refreshDayList({ reuse: true });
       } else if (collapseBtn) {
         state.notesExpanded.delete(placeId);
-        await refreshDayList();
+        await refreshDayList({ reuse: true });
       }
       return;
     }
@@ -2003,7 +2057,7 @@ export async function renderUrlaubDetail(appEl, id) {
     const soft = e.target.closest(".soft[data-place-id]");
     if (soft) {
       const placeId = soft.dataset.placeId;
-      const items = await loadDayPlacesEnriched(id, state.activeDay);
+      const items = await activeDayItems();
       const item = items.find((i) => i.place.id === placeId);
       if (!item) return;
       openSoftPointSheet(item.place, {
@@ -2028,7 +2082,7 @@ export async function renderUrlaubDetail(appEl, id) {
     if (card && !card.classList.contains("oc--selected")) {
       state.selectedByDay[state.activeDay] = card.dataset.placeId;
       persistSelection(id, state);
-      await refreshDayList();
+      await refreshDayList({ reuse: true });
     }
   });
 

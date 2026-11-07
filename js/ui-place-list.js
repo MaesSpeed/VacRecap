@@ -1,4 +1,4 @@
-import { fetchMediaForPlace, getNotesForPlace } from "./db.js";
+import { fetchMediaForWaypoints, fetchNotesForWaypoints } from "./db.js";
 import { formatTimeFromTs } from "./geo.js";
 import { formatMediaDuration } from "./media-process.js";
 import { photoBadges, noteMarkup } from "./member-marks.js";
@@ -42,26 +42,28 @@ export async function loadDayPlacesEnriched(vacationId, day, knownPlaces) {
     ? knownPlaces.filter((p) => (p.day || p.dayDate) === day)
     : await getPlacesForDay(vacationId, day);
   const places = sortPlacesChronologicalDesc(source);
-  const enriched = await Promise.all(
-    places.map(async (p) => {
-      if (p.soft) return { place: p, photos: 0, videos: 0, notes: [], media: [], mediaLoadError: false };
-      const [mediaResult, notes] = await Promise.all([
-        fetchMediaForPlace(p.id),
-        getNotesForPlace(p.id),
-      ]);
-      const sortedMedia = mediaResult.media.slice().sort((a, b) => a.ts - b.ts);
-      const photos = mediaResult.media.filter(isUploadedPhoto).length;
-      const videos = mediaResult.media.filter((m) => m.type === "video").length;
-      return {
-        place: p,
-        photos,
-        videos,
-        notes: sortNotesNewestFirst(notes),
-        media: sortedMedia,
-        mediaLoadError: Boolean(mediaResult.error),
-      };
-    })
-  );
+  const hardPlaces = places.filter((p) => !p.soft);
+  const waypointIds = hardPlaces.map((p) => p.id);
+  const [mediaByPlace, notesByPlace] = await Promise.all([
+    fetchMediaForWaypoints(waypointIds),
+    fetchNotesForWaypoints(vacationId, waypointIds),
+  ]);
+  const enriched = places.map((p) => {
+    if (p.soft) return { place: p, photos: 0, videos: 0, notes: [], media: [], mediaLoadError: false };
+    const media = mediaByPlace.get(p.id) || [];
+    const notes = notesByPlace.get(p.id) || [];
+    const sortedMedia = media.slice().sort((a, b) => a.ts - b.ts);
+    const photos = media.filter(isUploadedPhoto).length;
+    const videos = media.filter((m) => m.type === "video").length;
+    return {
+      place: p,
+      photos,
+      videos,
+      notes: sortNotesNewestFirst(notes),
+      media: sortedMedia,
+      mediaLoadError: false,
+    };
+  });
   return filterSoftPointsHidden(enriched, vacationId, day);
 }
 

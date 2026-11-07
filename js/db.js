@@ -7,7 +7,8 @@ import {
   mapApiError,
 } from "./cloud-errors.js";
 import { deleteMediaStorageObjects } from "./cloud-media-storage.js";
-import { getUserId } from "./auth-service.js";
+import { getCachedUserId, getUserId } from "./auth-service.js";
+import { dedupeRequest } from "./request-dedupe.js";
 import {
   mediaRowToApp,
   mediaToRow,
@@ -235,7 +236,7 @@ export async function getVacation(id) {
   return normalizeVacation(tripRowToVacation(data));
 }
 
-export async function getAllVacations() {
+async function getAllVacationsUncached() {
   if (!navigator.onLine) {
     const cached = readCache()?.trips || [];
     return cached.map(normalizeVacation);
@@ -258,6 +259,10 @@ export async function getAllVacations() {
     if (isFetchNetworkFailure(err)) throw new CloudNetworkError();
     throw err;
   }
+}
+
+export function getAllVacations() {
+  return dedupeRequest("trips:all", () => getAllVacationsUncached());
 }
 
 export async function deleteVacation(id) {
@@ -318,7 +323,7 @@ export async function putRouteCacheRecord(entry) {
   await putSetting(`route:${entry.key}`, entry);
 }
 
-async function fetchWaypointsForTrip(tripId) {
+async function fetchWaypointsForTripUncached(tripId) {
   if (!navigator.onLine) {
     return (readCache()?.waypoints?.[tripId] || []).map((p) => normalizePlace(p));
   }
@@ -336,6 +341,11 @@ async function fetchWaypointsForTrip(tripId) {
   const places = (data || []).map((r) => normalizePlace(waypointRowToPlace(r)));
   writeCache({ waypoints: { [tripId]: places } });
   return places;
+}
+
+function fetchWaypointsForTrip(tripId) {
+  if (!tripId) return Promise.resolve([]);
+  return dedupeRequest(`waypoints:${tripId}`, () => fetchWaypointsForTripUncached(tripId));
 }
 
 export async function getPlacesForVacation(vacationId) {
@@ -434,7 +444,7 @@ export async function deletePlacesForVacation() {
   /* Reise-Löschung über trips cascade */
 }
 
-async function fetchNotesForWaypoint(waypointId) {
+async function fetchNotesForWaypointUncached(waypointId) {
   if (!navigator.onLine) {
     return notesForWaypointFromCache(waypointId);
   }
@@ -461,6 +471,11 @@ async function fetchNotesForWaypoint(waypointId) {
   }
 }
 
+function fetchNotesForWaypoint(waypointId) {
+  if (!waypointId) return Promise.resolve([]);
+  return dedupeRequest(`notes:wp:${waypointId}`, () => fetchNotesForWaypointUncached(waypointId));
+}
+
 function cacheNotesForWaypoint(waypointId, notes, tripId) {
   if (!tripId) return;
   const cache = readCache() || { trips: [], waypoints: {}, notes: {} };
@@ -473,6 +488,61 @@ export async function getNotesForPlace(placeId) {
   return fetchNotesForWaypoint(placeId);
 }
 
+function groupNotesByWaypoint(notes) {
+  const map = new Map();
+  for (const note of notes) {
+    const key = note.placeId;
+    if (!key) continue;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(note);
+  }
+  return map;
+}
+
+export async function fetchNotesForWaypoints(tripId, waypointIds) {
+  const ids = [...new Set((waypointIds || []).filter(Boolean))];
+  if (!ids.length) return new Map();
+  const key = `notes:wpbatch:${tripId}:${ids.sort().join(",")}`;
+  return dedupeRequest(key, async () => {
+    if (!navigator.onLine) {
+      const map = new Map();
+      for (const waypointId of ids) {
+        map.set(waypointId, notesForWaypointFromCache(waypointId));
+      }
+      return map;
+    }
+    try {
+      const { data, error } = await getSupabase()
+        .from("notes")
+        .select("*")
+        .in("waypoint_id", ids)
+        .is("deleted_at", null)
+        .order("updated_at", { ascending: true });
+      if (error) throw mapApiError(error);
+      const notes = (data || []).map(noteRowToApp);
+      const byWaypoint = groupNotesByWaypoint(notes);
+      for (const waypointId of ids) {
+        const list = byWaypoint.get(waypointId) || [];
+        if (tripId) cacheNotesForWaypoint(waypointId, list, tripId);
+        byWaypoint.set(waypointId, list);
+      }
+      return byWaypoint;
+    } catch (err) {
+      const map = new Map();
+      let anyCached = false;
+      for (const waypointId of ids) {
+        const cached = notesForWaypointFromCache(waypointId);
+        if (cached.length) anyCached = true;
+        map.set(waypointId, cached);
+      }
+      if (anyCached) return map;
+      if (err instanceof CloudOfflineError || err instanceof CloudNetworkError) return map;
+      if (isFetchNetworkFailure(err)) return map;
+      throw err;
+    }
+  });
+}
+
 function notesFromCache(tripId) {
   const list = readCache()?.notes?.[tripId];
   if (!Array.isArray(list) || !list.length) return null;
@@ -480,7 +550,7 @@ function notesFromCache(tripId) {
   return list;
 }
 
-export async function getNotesForVacation(tripId) {
+async function getNotesForVacationUncached(tripId) {
   if (!tripId) return [];
   if (!navigator.onLine) {
     const cached = notesFromCache(tripId);
@@ -502,6 +572,11 @@ export async function getNotesForVacation(tripId) {
     if (cached) return cached;
     throw err;
   }
+}
+
+export function getNotesForVacation(tripId) {
+  if (!tripId) return Promise.resolve([]);
+  return dedupeRequest(`notes:trip:${tripId}`, () => getNotesForVacationUncached(tripId));
 }
 
 /** Wirft bei Netzwerkfehlern, statt eine leere Liste vorzutäuschen. */
@@ -831,11 +906,15 @@ const STALE_PENDING_MS = 10 * 60 * 1000;
 
 async function reconcileStalePendingRows(rows) {
   if (!rows?.length || !navigator.onLine) return rows;
-  let userId = null;
-  try {
-    userId = await getUserId();
-  } catch {
-    return rows;
+  const needsAuth = rows.some((row) => row.upload_status === "pending" && row.created_by);
+  if (!needsAuth) return rows;
+  let userId = getCachedUserId();
+  if (userId == null) {
+    try {
+      userId = await getUserId();
+    } catch {
+      return rows;
+    }
   }
   if (!userId) return rows;
   const now = Date.now();
@@ -860,7 +939,7 @@ async function reconcileStalePendingRows(rows) {
   return out;
 }
 
-export async function fetchMediaForPlace(placeId) {
+async function fetchMediaForPlaceUncached(placeId) {
   if (!placeId) return { media: [], error: null };
   if (!navigator.onLine) {
     return { media: [], error: null };
@@ -887,6 +966,55 @@ export async function fetchMediaForPlace(placeId) {
     }
     return { media: [], error: err };
   }
+}
+
+export function fetchMediaForPlace(placeId) {
+  if (!placeId) return Promise.resolve({ media: [], error: null });
+  return dedupeRequest(`media:wp:${placeId}`, () => fetchMediaForPlaceUncached(placeId));
+}
+
+function groupMediaByWaypoint(rows) {
+  const map = new Map();
+  for (const row of rows || []) {
+    const waypointId = row.waypoint_id;
+    if (!waypointId) continue;
+    if (!map.has(waypointId)) map.set(waypointId, []);
+    map.get(waypointId).push(row);
+  }
+  return map;
+}
+
+export async function fetchMediaForWaypoints(waypointIds) {
+  const ids = [...new Set((waypointIds || []).filter(Boolean))];
+  if (!ids.length) return new Map();
+  const key = `media:wpbatch:${ids.sort().join(",")}`;
+  return dedupeRequest(key, async () => {
+    if (!navigator.onLine) return new Map();
+    try {
+      const { data, error } = await runMediaRead((columns) =>
+        getSupabase()
+          .from("media")
+          .select(columns)
+          .in("waypoint_id", ids)
+          .eq("kind", "photo")
+          .is("deleted_at", null)
+          .order("taken_at", { ascending: true })
+      );
+      if (error) throw mapApiError(error);
+      const reconciled = await reconcileStalePendingRows(data || []);
+      const byWaypoint = groupMediaByWaypoint(reconciled);
+      const out = new Map();
+      for (const waypointId of ids) {
+        const list = byWaypoint.get(waypointId) || [];
+        out.set(waypointId, list.map(mediaRowToApp));
+      }
+      return out;
+    } catch (err) {
+      if (err instanceof CloudOfflineError || err instanceof CloudNetworkError) return new Map();
+      if (isFetchNetworkFailure(err)) return new Map();
+      return new Map();
+    }
+  });
 }
 
 const LIBRARY_PAGE = 400;

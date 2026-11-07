@@ -1,8 +1,9 @@
-import { getSession, onAuthStateChange } from "./auth-service.js";
+import { getSession, onAuthStateChange, syncAuthFromSession } from "./auth-service.js";
+import { hasActiveOverlay } from "./overlay-stack.js";
 import { flushPendingMediaPurges, getAllVacations } from "./db.js";
 import { installGestureGuards } from "./gesture-guard.js";
 import { runLegacyCleanup } from "./legacy-cleanup.js";
-import { isOfflineReadOnly, setCacheUserId, setOfflineReadOnly } from "./local-cache.js";
+import { isOfflineReadOnly, setOfflineReadOnly } from "./local-cache.js";
 import { getRoute, navigate, onRouteChange, startRouter } from "./router.js";
 import { renderLoginScreen } from "./ui-login.js";
 import { renderUrlaubDetail } from "./ui-urlaub-detail.js";
@@ -151,7 +152,7 @@ async function startApp() {
   if (appStarted) return;
   appStarted = true;
   const session = await getSession();
-  if (session?.user?.id) setCacheUserId(session.user.id);
+  if (session) syncAuthFromSession(session);
   onRouteChange(() => {
     dismissOverlayOnly();
     scheduleRender();
@@ -160,6 +161,7 @@ async function startApp() {
   window.addEventListener("vacrecap:data-changed", () => {
     if (document.querySelector("[data-testid='cover-sheet']")) return;
     if (document.getElementById("app")?.dataset.formSaving === "1") return;
+    if (getRoute().name === "urlaub-detail" && hasActiveOverlay()) return;
     scheduleRender();
   });
   window.addEventListener("online", () => {
@@ -185,12 +187,12 @@ async function boot() {
   if (!session) {
     renderLoginScreen(appEl, () => startApp());
     onAuthStateChange((s) => {
-      if (s?.user?.id) setCacheUserId(s.user.id);
+      syncAuthFromSession(s);
       if (s) startApp();
     });
     return;
   }
-  setCacheUserId(session.user.id);
+  syncAuthFromSession(session);
   startApp();
 }
 

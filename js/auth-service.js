@@ -2,12 +2,36 @@ import { mapAuthError } from "./cloud-errors.js";
 import { clearReadCache, setCacheUserId } from "./local-cache.js";
 import { getSupabase } from "./supabase-client.js";
 
+let cachedUserId;
+let authListenerInstalled = false;
+
+function applySessionUser(session) {
+  cachedUserId = session?.user?.id ?? null;
+  if (cachedUserId) setCacheUserId(cachedUserId);
+  else if (session === null) setCacheUserId(null);
+}
+
+function ensureAuthListener() {
+  if (authListenerInstalled) return;
+  authListenerInstalled = true;
+  getSupabase().auth.onAuthStateChange((_event, session) => {
+    applySessionUser(session);
+  });
+}
+
 export async function getSession() {
   const { data } = await getSupabase().auth.getSession();
   return data.session ?? null;
 }
 
+/** Prime the session-backed user id cache (no auth.getUser network round-trip). */
+export function syncAuthFromSession(session) {
+  ensureAuthListener();
+  applySessionUser(session);
+}
+
 export function onAuthStateChange(cb) {
+  ensureAuthListener();
   const { data } = getSupabase().auth.onAuthStateChange((_event, session) => {
     cb(session);
   });
@@ -31,12 +55,14 @@ export async function verifyEmailOtp(email, token) {
     type: "email",
   });
   if (error) throw new Error(mapAuthError(error));
+  applySessionUser(data.session);
   return data.session;
 }
 
 export async function signOut() {
   clearReadCache();
   setCacheUserId(null);
+  cachedUserId = null;
   const { clearTripSelectionStore } = await import("./trip-selection-store.js");
   await clearTripSelectionStore();
   const { clearSignedUrlCache } = await import("./media-signed-url-cache.js");
@@ -48,6 +74,14 @@ export async function signOut() {
   await getSupabase().auth.signOut();
 }
 
-export function getUserId() {
-  return getSupabase().auth.getUser().then(({ data }) => data.user?.id ?? null);
+export function getCachedUserId() {
+  return cachedUserId !== undefined ? cachedUserId : null;
+}
+
+export async function getUserId() {
+  ensureAuthListener();
+  if (cachedUserId !== undefined) return cachedUserId;
+  const session = await getSession();
+  applySessionUser(session);
+  return cachedUserId;
 }

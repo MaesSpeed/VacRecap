@@ -1,4 +1,4 @@
-import { getAllMediaForVacation, getNotesForPlace, getPlacesForVacation } from "./db.js";
+import { getAllMediaForVacation, getNotesForVacation, getPlacesForVacation } from "./db.js";
 
 export function formatCountLabel(n, singular, plural) {
   return `${n} ${n === 1 ? singular : plural}`;
@@ -12,10 +12,9 @@ export async function computeVacationStats(vacationId) {
   } catch {
     media = [];
   }
-  let notes = 0;
-  for (const p of places) {
-    notes += (await getNotesForPlace(p.id)).length;
-  }
+  const allNotes = await getNotesForVacation(vacationId);
+  const placeIds = new Set(places.map((p) => p.id));
+  const notes = allNotes.filter((n) => n.placeId && placeIds.has(n.placeId)).length;
   const photos = media.filter((m) => m.type !== "video" && (m.uploadStatus || "uploaded") === "uploaded").length;
   const videos = media.filter((m) => m.type === "video").length;
   return {

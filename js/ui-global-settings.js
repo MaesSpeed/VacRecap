@@ -1,4 +1,4 @@
-import { getUserId, signOut } from "./auth-service.js";
+import { getSession, getUserId, signOut } from "./auth-service.js";
 import { getSupabase } from "./supabase-client.js";
 import { showToast } from "./toast.js";
 import { escapeHtml } from "./utils.js";
@@ -53,9 +53,9 @@ export function openGlobalSettingsSheet(hostEl) {
   let profileColor = "";
   void (async () => {
     try {
-      const user = await getSupabase().auth.getUser();
-      const id = user?.data?.user?.id;
-      const email = user?.data?.user?.email || "";
+      const session = await getSession();
+      const id = session?.user?.id;
+      const email = session?.user?.email || "";
       const fallback = email.split("@")[0] || "Ich";
       if (!id) return;
       const { data } = await getSupabase().from("profiles").select("display_name, avatar_color").eq("id", id).maybeSingle();
