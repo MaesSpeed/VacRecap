@@ -207,7 +207,7 @@ export async function updatePlaceDetails(place, { name, ts } = {}) {
     updatedAt: Date.now(),
   });
   updated.forceSave = Boolean(place.forceSave);
-  const saved = await putPlace(updated);
+  const saved = await putPlace(updated, { notify: false });
   if (saved?.remoteUpdatedAt) updated.remoteUpdatedAt = saved.remoteUpdatedAt;
   if (Number.isFinite(Number(saved?.ts))) updated.ts = saved.ts;
   if (saved?.updatedAt) updated.updatedAt = saved.updatedAt;

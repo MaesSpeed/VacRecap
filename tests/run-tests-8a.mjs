@@ -485,6 +485,7 @@ async function runSuite(browserType, baseUrl, label) {
         });
         await new Promise((r) => setTimeout(r, 20));
       }
+      window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
     },
     { placeId }
   );
@@ -726,6 +727,7 @@ async function runSuite(browserType, baseUrl, label) {
         ts: Date.now(),
       });
     }
+    window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
   });
   await page.click('[data-day="2026-11-07"]');
   await page.click('[data-day="2026-11-06"]');

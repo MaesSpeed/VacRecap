@@ -10,13 +10,13 @@ export async function createNote({ place, vacationId, day, text }) {
     ts: Date.now(),
     text: text.trim(),
   };
-  await putNote(record);
+  await putNote(record, { notify: false });
   return record;
 }
 
 export async function updateNoteText(note, text) {
   const record = { ...note, text: text.trim(), ts: note.ts ?? Date.now() };
-  await putNote(record);
+  await putNote(record, { notify: false });
   return record;
 }
 
@@ -28,10 +28,10 @@ export async function moveNoteToPlace(note, place, { day, vacationId } = {}) {
     vacationId: vacationId ?? note.vacationId,
     ts: note.ts ?? Date.now(),
   };
-  await putNote(record);
+  await putNote(record, { notify: false });
   return record;
 }
 
 export async function removeNote(noteId) {
-  await deleteNote(noteId);
+  await deleteNote(noteId, { notify: false });
 }

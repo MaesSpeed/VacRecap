@@ -382,7 +382,7 @@ export async function getPlace(id) {
   return data ? normalizePlace(waypointRowToPlace(data)) : null;
 }
 
-export async function putPlace(place) {
+export async function putPlace(place, { notify = true } = {}) {
   assertWritable();
   const p = normalizePlace(place);
   const supabase = getSupabase();
@@ -401,7 +401,7 @@ export async function putPlace(place) {
   }
   const mapped = normalizePlace(waypointRowToPlace(data));
   mergeWaypointCache(mapped);
-  window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  if (notify) window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
   return mapped;
 }
 
@@ -645,7 +645,7 @@ export async function getFreeNotesForDay(tripId, day) {
   }
 }
 
-export async function putNote(record) {
+export async function putNote(record, { notify = true } = {}) {
   assertWritable();
   const row = noteToRow(record);
   const supabase = getSupabase();
@@ -663,7 +663,7 @@ export async function putNote(record) {
   }
   const mapped = noteRowToApp(data);
   mergeNoteCache(mapped);
-  window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  if (notify) window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
   return mapped;
 }
 
@@ -675,7 +675,7 @@ function mergeNoteCache(note) {
   writeCache({ notes: { [note.vacationId]: next } });
 }
 
-export async function deleteNote(id) {
+export async function deleteNote(id, { notify = true } = {}) {
   assertWritable();
   const { data, error } = await getSupabase()
     .from("notes")
@@ -685,7 +685,7 @@ export async function deleteNote(id) {
   if (error) throw mapApiError(error);
   if (!rowsOf(data).length) throw new Error("Dafür fehlt die Berechtigung.");
   removeNoteFromCache(id);
-  window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+  if (notify) window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
 }
 
 function removeNoteFromCache(noteId) {
