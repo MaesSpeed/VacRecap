@@ -338,6 +338,8 @@ async function loginAndCreateTrip(page) {
   await page.click('.calendar-day[data-date="2026-11-09"]');
   await page.click('button[data-action="apply"]');
   await page.click('button[type="submit"]');
+  await page.waitForSelector('[data-testid="trip-content"]', { timeout: 15_000 });
+  await page.click('[data-day="2026-11-06"]');
   await page.waitForFunction(
     () => document.querySelector('[data-testid="trip-content"]')?.dataset.activeDay === "2026-11-06",
     null,
@@ -485,7 +487,7 @@ async function runSuite(browserType, baseUrl, label) {
   await page.locator('[data-testid="note-sheet"] [data-action="save"]').click();
   await page.waitForSelector('[data-testid="note-sheet"]', { state: "detached", timeout: 15_000 });
   await page.waitForFunction(
-    () => document.querySelector('[data-testid="trip-content"]')?.innerText?.includes("Erste Notiz"),
+    () => document.querySelector('[data-testid="trip-content"]')?.textContent?.includes("Erste Notiz"),
     null,
     { timeout: 15_000 }
   );

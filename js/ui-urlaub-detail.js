@@ -8,8 +8,10 @@ import {
 } from "./days.js";
 import { getSession, getUserId } from "./auth-service.js";
 import {
+  fetchMediaForPlace,
   fetchUploadedPhotosForTrip,
   getFreeNotesForDay,
+  getNotesForPlace,
   getPlace,
   getPlacesForDay,
   getPlacesForVacation,
@@ -323,16 +325,13 @@ export async function renderUrlaubDetail(appEl, id) {
     const moveOpen = Boolean(document.querySelector('[data-testid="photo-move-sheet"]'));
     if (!moveOpen && !state.photoSelecting) return;
     event.preventDefault();
-    if (moveOpen) {
-      exitSelectAfterOverlayPop = Boolean(state.photoSelecting);
-      const closed = requestOverlayDismiss();
-      if (!closed || (exitSelectAfterOverlayPop && !history.state?.vacrecapOverlay)) {
+    void (async () => {
+      if (moveOpen) {
         exitSelectAfterOverlayPop = false;
-        if (state.photoSelecting) void exitPhotoSelect();
+        requestOverlayDismiss();
       }
-      return;
-    }
-    void exitPhotoSelect();
+      if (state.photoSelecting) await exitPhotoSelect();
+    })();
   };
 
   async function onTripDataChanged(ev) {
@@ -347,12 +346,60 @@ export async function renderUrlaubDetail(appEl, id) {
           /* ignorieren */
         }
       }
-      if (detail.skipFullRender && detail.tripId === id) {
-        try {
-          warmPlaces = await getPlacesForVacation(id);
-        } catch {
-          /* warmPlaces bleibt */
+      if (!(detail.skipFullRender && detail.tripId === id)) {
+        if (detail.mergeTrip) {
+          try {
+            warmPlaces = await getPlacesForVacation(id);
+          } catch {
+            /* ignorieren */
+          }
+          await mergeDayBundleFromRemote(state.activeDay, warmPlaces);
+          await refreshDayList({ reuse: true });
         }
+        return;
+      }
+
+      const pids = detail.placeIds?.length ? detail.placeIds : detail.placeId ? [detail.placeId] : [];
+      const placeDayOnly =
+        detail.placeDay != null && String(detail.placeDay).trim() !== "" && !detail.placeId && !pids.length;
+
+      if (pids.length && state.moveBusy) return;
+
+      if (pids.length) {
+        if (pids.length === 1) {
+          await refreshDayList({ reuse: true, placeId: pids[0], mergeTrip: Boolean(detail.mergeTrip) });
+        } else {
+          await refreshDayList({
+            reuse: true,
+            placeIds: pids,
+            mergeTrip: Boolean(detail.mergeTrip),
+          });
+        }
+        return;
+      }
+
+      if (placeDayOnly) {
+        const dayIso = String(detail.placeDay).slice(0, 10);
+        try {
+          if (!warmPlaces) warmPlaces = await getPlacesForVacation(id);
+        } catch {
+          /* ignorieren */
+        }
+        await mergeDayBundleFromRemote(dayIso, warmPlaces);
+        if (dayIso !== state.activeDay) return;
+        let built = await buildDayHtml(state.activeDay, warmPlaces, { selection: false });
+        if (built?.stale) built = await buildDayHtml(state.activeDay, warmPlaces, { selection: false });
+        if (!built?.stale) warmHtml.set(state.activeDay, built);
+        if (built?.html && contentEl.isConnected) queuePaint(built, state.listRefreshToken, { keepScroll: true });
+        void prefetchNeighbors(state.listRefreshToken);
+        scheduleIdleNeighborPrefetch();
+        return;
+      }
+
+      try {
+        warmPlaces = await getPlacesForVacation(id);
+      } catch {
+        /* warmPlaces bleibt */
       }
       await mergeDayBundleFromRemote(state.activeDay, warmPlaces);
       await refreshDayList({ reuse: true });
@@ -879,6 +926,41 @@ export async function renderUrlaubDetail(appEl, id) {
     }
   }
 
+  function isUploadedPhotoEntry(m) {
+    return m.type !== "video" && (m.uploadStatus || "uploaded") === "uploaded";
+  }
+
+  async function refreshPlaceItemsInCache(dayIso, placeIds, knownPlaces) {
+    if (!dayIso || !placeIds?.length) return;
+    let bundle = dayCache.get(dayIso);
+    if (!bundle?.items?.length) {
+      await mergeDayBundleFromRemote(dayIso, knownPlaces);
+      bundle = dayCache.get(dayIso);
+    }
+    if (!bundle?.items?.length) return;
+    for (const pid of placeIds) {
+      const idx = bundle.items.findIndex((entry) => entry.place?.id === pid);
+      if (idx < 0) continue;
+      const place = bundle.items[idx].place;
+      if (place?.soft) continue;
+      const [mediaResult, notes] = await Promise.all([fetchMediaForPlace(pid), getNotesForPlace(pid)]);
+      const sortedMedia = mediaResult.media.slice().sort((a, b) => a.ts - b.ts);
+      const photos = mediaResult.media.filter(isUploadedPhotoEntry).length;
+      const videos = mediaResult.media.filter((m) => m.type === "video").length;
+      const sortedNotes = notes
+        .slice()
+        .sort((a, b) => (b.createdAt ?? b.ts ?? 0) - (a.createdAt ?? a.ts ?? 0));
+      bundle.items[idx] = {
+        place,
+        photos,
+        videos,
+        notes: sortedNotes,
+        media: sortedMedia,
+        mediaLoadError: Boolean(mediaResult.error),
+      };
+    }
+  }
+
   function patchPlaceInDayCache(dayIso, placeId, fn) {
     const bundle = dayCache.get(dayIso);
     if (!bundle?.items?.length || !placeId) return;
@@ -1006,6 +1088,7 @@ export async function renderUrlaubDetail(appEl, id) {
         share,
         canEditPlace: (place) => canEditItem(roleNow, place, state.userId),
         canEditFreeNotes: canEditNotesInPlace,
+        readOnlyTrip: tripReadOnly,
         photoSelect: {
           active: selecting,
           selectedIds: state.photoSelected || new Set(),
@@ -1084,7 +1167,10 @@ export async function renderUrlaubDetail(appEl, id) {
   function clearPhotoSelect() {
     state.photoSelecting = false;
     state.photoSelected = new Set();
-    if (contentEl?.isConnected) contentEl.dataset.photoSelecting = "0";
+    if (contentEl?.isConnected) {
+      contentEl.dataset.photoSelecting = "0";
+      contentEl.querySelector('[data-testid="photo-select-bar"]')?.remove();
+    }
     syncPhotoSelectMark();
   }
 
@@ -1184,7 +1270,7 @@ export async function renderUrlaubDetail(appEl, id) {
     if (paintBlocked()) return;
     const { built, keepScroll } = pendingPaint;
     pendingPaint = null;
-    if (built.html && pageShows(built.html)) return;
+    if (built.html && !keepScroll && pageShows(built.html)) return;
     const page = contentEl.querySelector("[data-page='current']");
     paintDay(built, { keepScroll: keepScroll || (page?.scrollTop || 0) > 0 });
   }
@@ -1207,7 +1293,7 @@ export async function renderUrlaubDetail(appEl, id) {
   }
 
   function queuePaint(built, token, { keepScroll = false } = {}) {
-    if (built.html && pageShows(built.html)) {
+    if (built.html && !keepScroll && pageShows(built.html)) {
       syncDayEdges();
       if (pendingPaint?.token === token) pendingPaint = null;
       return;
@@ -1308,6 +1394,11 @@ export async function renderUrlaubDetail(appEl, id) {
     if (!bundle?.items?.length || !built?.thumbUrls) return null;
     const item = bundle.items.find((entry) => entry.place?.id === placeId);
     if (!item) return null;
+    const pageNow = contentEl.querySelector("[data-page='current']");
+    const listHost = pageNow?.querySelector(".place-list");
+    if (!listHost || !listHost.querySelector(`[data-place-id="${CSS.escape(placeId)}"]`)) {
+      return null;
+    }
     const active = dayIso === state.activeDay;
     const selectedId = state.selectedByDay[dayIso];
     const selecting = state.photoSelecting;
@@ -1342,6 +1433,7 @@ export async function renderUrlaubDetail(appEl, id) {
           share,
           canEditPlace: (place) => canEditItem(roleNow, place, state.userId),
           canEditNotesInPlace,
+          readOnlyTrip: tripReadOnly,
           photoSelect: {
             active: selecting,
             selectedIds: state.photoSelected || new Set(),
@@ -1383,21 +1475,60 @@ export async function renderUrlaubDetail(appEl, id) {
     };
   }
 
-  async function refreshDayList({ reuse = false, placeId = null, mergeTrip = false } = {}) {
+  function patchMultiplePlaceCards(built, placeIds, { keepScroll } = {}) {
+    const patches = placeIds
+      .map((pid) => patchPlaceListForDay(built, pid, { keepScroll }))
+      .filter((patch) => patch?.patchDom);
+    if (!patches.length) return null;
+    const thumbUrls = { ...(built.thumbUrls || {}) };
+    for (const patch of patches) Object.assign(thumbUrls, patch.thumbUrls || {});
+    return {
+      thumbUrls,
+      patchDom: (page) => {
+        for (const patch of patches) patch.patchDom(page);
+      },
+    };
+  }
+
+  async function refreshDayList({ reuse = false, placeId = null, placeIds = null, mergeTrip = false } = {}) {
     const token = ++state.listRefreshToken;
-    const keepScroll = reuse || Boolean(placeId);
+    const patchIds =
+      placeIds?.length > 1 ? placeIds : placeId ? [placeId] : [];
+    if (state.moveBusy && patchIds.length) return;
+    const keepScroll = reuse || patchIds.length > 0;
     try {
       await maybeSoftOnOpen();
       if (token !== state.listRefreshToken) return;
       if (!warmPlaces) warmPlaces = await getPlacesForVacation(id);
       if (token !== state.listRefreshToken) return;
-      if (placeId) {
-        const placeRow = await getPlace(placeId);
-        if (placeRow) {
-          warmPlaces = (warmPlaces || []).map((p) => (p.id === placeId ? placeRow : p));
-          const pid = placeRow.day || placeRow.dayDate;
-          if (pid) await mergeDayBundleFromRemote(pid, warmPlaces);
+      if (patchIds.length) {
+        const daysTouched = new Set();
+        for (const pid of patchIds) {
+          const placeRow = await getPlace(pid);
+          if (!placeRow) continue;
+          const list = warmPlaces || [];
+          warmPlaces = list.some((p) => p.id === pid)
+            ? list.map((p) => (p.id === pid ? placeRow : p))
+            : [...list, placeRow];
+          const dayIso = placeRow.day || placeRow.dayDate;
+          if (dayIso) daysTouched.add(String(dayIso).slice(0, 10));
         }
+        for (const dayIso of daysTouched) {
+          if (dayIso !== state.activeDay && patchIds.length <= 1) continue;
+          if (patchIds.length > 1) {
+            const onDay = patchIds.filter((pid) => {
+              const row = warmPlaces.find((p) => p.id === pid);
+              const d = String(row?.day || row?.dayDate || "").slice(0, 10);
+              return d === dayIso;
+            });
+            if (!state.moveBusy) {
+              await refreshPlaceItemsInCache(dayIso, onDay.length ? onDay : patchIds, warmPlaces);
+            }
+          } else {
+            await mergeDayBundleFromRemote(dayIso, warmPlaces);
+          }
+        }
+        placeId = patchIds[patchIds.length - 1];
         if (mergeTrip) {
           try {
             const next = await getVacation(id);
@@ -1414,17 +1545,26 @@ export async function renderUrlaubDetail(appEl, id) {
         warmPlaces = await getPlacesForVacation(id);
       }
       if (token !== state.listRefreshToken) return;
-      let built = await buildDayHtml(state.activeDay, warmPlaces, { selection: false });
+      const dayBuildOpts = {
+        selection: false,
+        fresh: patchIds.length === 1 && Boolean(placeId),
+      };
+      if (patchIds.length > 1) dayBuildOpts.fresh = false;
+      let built = await buildDayHtml(state.activeDay, warmPlaces, dayBuildOpts);
       if (token !== state.listRefreshToken) {
         revokeThumbUrls(built?.thumbUrls);
         return;
       }
       if (built?.stale) {
-        built = await buildDayHtml(state.activeDay, warmPlaces, { selection: false });
+        built = await buildDayHtml(state.activeDay, warmPlaces, dayBuildOpts);
       }
       if (!built?.stale) warmHtml.set(state.activeDay, built);
       if (!contentEl.isConnected) return;
-      if (placeId) {
+      if (patchIds.length > 1) {
+        const multiPatch = patchMultiplePlaceCards(built, patchIds, { keepScroll });
+        if (multiPatch?.patchDom) queuePaint(multiPatch, token, { keepScroll });
+        else queuePaint(built, token, { keepScroll });
+      } else if (placeId) {
         const patch = patchPlaceListForDay(built, placeId, { keepScroll });
         if (patch?.patchDom) queuePaint(patch, token, { keepScroll });
         else queuePaint(built, token, { keepScroll });
@@ -1817,8 +1957,6 @@ export async function renderUrlaubDetail(appEl, id) {
         if (captureResult?.toast?.line) {
           showCaptureResultToast(captureResult, "note");
         }
-        const pid = captureResult?.place?.id || state.selectedByDay[state.activeDay];
-        await refreshDayList({ reuse: true, placeId: pid, mergeTrip: true });
       },
       onPlaceChange: (placeId) => {
         state.selectedByDay[state.activeDay] = placeId;
@@ -1843,6 +1981,7 @@ export async function renderUrlaubDetail(appEl, id) {
   }
 
   async function enterPhotoSelect({ mediaId = null, placeId = null } = {}) {
+    if (tripReadOnly) return;
     if (placeId) {
       state.selectedByDay[state.activeDay] = placeId;
       persistSelection(id, state);
@@ -1880,13 +2019,16 @@ export async function renderUrlaubDetail(appEl, id) {
         places: warmPlaces.filter((entry) => !entry.soft),
         initialDay: state.activeDay,
         blockedPlaceId,
+        onDismiss: () => {
+          void exitPhotoSelect({ fromPop: true });
+        },
       });
       if (!place || !contentEl.isConnected) return;
       const targetDay = place.day || place.dayDate;
       if (!targetDay || chosen.every((media) => media.placeId === place.id)) return;
       const previous = chosen.map((media) => ({ id: media.id, placeId: media.placeId, day: media.day }));
       const sourceDays = [...new Set(previous.map((snap) => snap.day).filter(Boolean))];
-      await movePhotosToPlace(chosen, place);
+      await movePhotosToPlace(chosen, { ...place, vacationId: place.vacationId || id });
       cacheEpoch += 1;
       await ensureDayBundle(targetDay);
       applyPlacement(chosen, place.id, targetDay);
@@ -1952,6 +2094,7 @@ export async function renderUrlaubDetail(appEl, id) {
 
   contentEl.addEventListener("pointerdown", (event) => {
     if (event.button > 0) return;
+    if (tripReadOnly) return;
     if (!state.photoSelecting && event.target.closest("[data-kr-tip]")) return;
     const tile = event.target.closest(".tile[data-media-id], .th[data-media-id]");
     if (!tile) return;
@@ -2180,7 +2323,7 @@ export async function renderUrlaubDetail(appEl, id) {
           return list.map((i) => i.place).filter((p) => !p.soft);
         },
         note,
-        onSaved: () => refreshDayList({ reuse: true, placeId: item.place.id, mergeTrip: true }),
+        onSaved: () => {},
         onPlaceChange: (pid) => {
           state.selectedByDay[state.activeDay] = pid;
           persistSelection(id, state);
@@ -2222,7 +2365,7 @@ export async function renderUrlaubDetail(appEl, id) {
             return list.map((i) => i.place).filter((p) => !p.soft);
           },
           note: note || undefined,
-          onSaved: () => refreshDayList({ reuse: true, mergeTrip: true }),
+          onSaved: () => {},
           onPlaceChange: (pid) => {
             if (!pid) return;
             state.selectedByDay[state.activeDay] = pid;
@@ -2252,7 +2395,7 @@ export async function renderUrlaubDetail(appEl, id) {
           const list = await ensureDayItemsInCache();
           return list.map((i) => i.place).filter((p) => !p.soft);
         },
-        onSaved: () => refreshDayList({ reuse: true, placeId: item.place.id, mergeTrip: true }),
+        onSaved: () => {},
         onPlaceChange: (pid) => {
           state.selectedByDay[state.activeDay] = pid;
           persistSelection(id, state);
@@ -2317,7 +2460,7 @@ export async function renderUrlaubDetail(appEl, id) {
     if (card && !card.classList.contains("oc--selected")) {
       state.selectedByDay[state.activeDay] = card.dataset.placeId;
       persistSelection(id, state);
-      await refreshDayList({ reuse: true });
+      applySelectionDom();
     }
   });
 
@@ -2454,6 +2597,7 @@ export async function renderUrlaubDetail(appEl, id) {
   });
 
   renderChips();
+  syncDayEdges();
   await refreshDayList();
   if (appEl?.dataset?.appRenderGen !== mountGen) return;
 

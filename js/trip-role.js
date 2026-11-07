@@ -76,14 +76,13 @@ export async function getConfirmedTripRole(tripId) {
     return { role: roleCache.get(tripId), confirmed: confirmedRoles.has(tripId) };
   }
   if (roleInflight.has(tripId)) return roleInflight.get(tripId);
-  const job = loadConfirmedTripRole(tripId).finally(() => roleInflight.delete(tripId));
+  const job = loadConfirmedTripRole(tripId, uid).finally(() => roleInflight.delete(tripId));
   roleInflight.set(tripId, job);
   return job;
 }
 
-async function loadConfirmedTripRole(tripId) {
+async function loadConfirmedTripRole(tripId, uid) {
   try {
-    const uid = await getUserId();
     if (!uid) return failRole(tripId);
     const loadForUser = uid;
     const { data, error } = await getSupabase()

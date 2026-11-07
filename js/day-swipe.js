@@ -94,12 +94,19 @@ export function normalizeDaySwipePages(root) {
   const track = trackOf(root);
   if (!track) return;
   const byRole = {};
+  const scrollTops = {};
   for (const role of PAGE_ORDER) {
-    byRole[role] = track.querySelector(`[data-page='${role}']`);
+    const el = track.querySelector(`[data-page='${role}']`);
+    byRole[role] = el;
+    if (el) scrollTops[role] = el.scrollTop || 0;
   }
   if (!byRole.prev || !byRole.current || !byRole.next) return;
   for (const role of PAGE_ORDER) {
     track.appendChild(byRole[role]);
+  }
+  for (const role of PAGE_ORDER) {
+    const el = byRole[role];
+    if (el && scrollTops[role] != null) el.scrollTop = scrollTops[role];
   }
 }
 

@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, devices, webkit } from "playwright";
+import { ensureTripDetailDay } from "./trip-detail-helpers.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -320,7 +321,11 @@ function createState() {
       }
       if (table === "media") {
         if (method === "GET") return { status: 200, json: answer(applyFilters(media, url), headers) };
-        if (method === "POST") return { status: 201, json: represent(upsert(media, JSON.parse(body || "{}")), headers) };
+        if (method === "POST") {
+          const row = JSON.parse(body || "{}");
+          upsert(media, row);
+          return { status: 201, json: represent(row, headers) };
+        }
         if (method === "PATCH") {
           const rows = applyFilters(media, url);
           if (!rows[0]) return { status: 200, json: [] };
@@ -451,6 +456,7 @@ async function createTrip(page, title, start, end, days) {
   await page.click('button[data-action="apply"]');
   await page.click('button[type="submit"]');
   await page.waitForSelector('[data-testid="trip-content"]');
+  await ensureTripDetailDay(page, start);
   await page.waitForFunction((n) => document.querySelectorAll(".day-chip").length === n, days);
 }
 

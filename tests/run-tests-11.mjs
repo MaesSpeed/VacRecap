@@ -586,7 +586,7 @@ async function runFlows(page, state, label) {
 
   await page.keyboard.press("Escape");
   await page.waitForSelector('[data-testid="photo-move-sheet"]', { state: "detached" });
-  assert(await page.locator('[data-testid="photo-select-bar"]').count(), `${label}: Escape beendet die Auswahl nicht`);
+  assert(!(await page.locator('[data-testid="photo-select-bar"]').count()), `${label}: Escape beendet die Auswahl nicht`);
   assert(page.url().includes(`/urlaub/${tripId}`), `${label}: Escape verlässt die Reise`);
 
   await enterSelect(page);

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, webkit, devices } from "playwright";
+import { ensureTripDetailDay } from "./trip-detail-helpers.mjs";
 import { parseExifTiff } from "../js/exif-taken-at.js";
 import { validateWaypointInsert } from "./waypoint-constraints.mjs";
 
@@ -511,6 +512,7 @@ async function runSuite(browserType, baseUrl, label) {
   assert(segments === 6, `${label}: Radius-Segmente ${segments}`);
   await page.click('[data-action="back"]');
   await page.waitForSelector('[data-testid="trip-content"]');
+  await ensureTripDetailDay(page, TODAY);
 
   const hafenId = await seedPlace(page, {
     vacationId,
@@ -694,6 +696,7 @@ async function runSuite(browserType, baseUrl, label) {
   await closeOverlay(page);
   await page.locator('[data-testid="library-back"]').click();
   await page.waitForSelector('[data-testid="trip-content"]');
+  await ensureTripDetailDay(page, TODAY);
 
   await selectPlace(page, hafenId);
   await page.setInputFiles('[data-testid="gallery-input"]', [

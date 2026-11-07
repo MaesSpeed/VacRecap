@@ -7,6 +7,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, devices } from "playwright";
+import { ensureTripDetailDay } from "./trip-detail-helpers.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -326,6 +327,7 @@ async function createTrip(page, title, start, end) {
   await page.click('button[data-action="apply"]');
   await page.click('button[type="submit"]');
   await page.waitForSelector('[data-testid="trip-content"]');
+  await ensureTripDetailDay(page, start);
 }
 
 async function waitSwipeQuiet(page) {
@@ -443,6 +445,7 @@ async function main() {
   await page.waitForSelector(".screen--urlaube");
   await page.locator(`[data-vacation-id="${tripId}"]`).click();
   await page.waitForSelector('[data-testid="trip-content"]');
+  await ensureTripDetailDay(page, "2026-10-26");
 
   const imgBefore = await page.evaluate(() =>
     [...document.querySelectorAll("[data-page='current'] img")].map((img) => img.getAttribute("src") || "")
@@ -470,6 +473,10 @@ async function main() {
   await page.fill('[data-testid="note-sheet"] textarea', "Testnotiz Paket 13");
   await page.click('[data-testid="note-sheet"] [data-action="save"]');
   await page.waitForSelector('[data-testid="note-sheet"]', { state: "detached", timeout: 15000 });
+  await page.waitForFunction(() => {
+    const el = document.querySelector(`[data-page='current'] .oc[data-place-id="${CSS.escape("place-a")}"]`);
+    return el && el.isConnected;
+  });
 
   const reqAfterSave = state.requests.length;
   const authAfterSave = state.requests.filter((r) => r.includes("/user")).length;
@@ -544,8 +551,9 @@ async function main() {
   assert((await page.locator('[data-footer-action="camera"]').count()) === 0, "Betrachter: keine Kamera");
   assert((await page.locator('[data-footer-action="note"]').count()) === 0, "Betrachter: keine Notiz");
   assert((await page.locator('[data-action="settings"]').getAttribute("disabled")) != null, "Betrachter: Einstellungen aus");
+  assert((await page.locator('[data-testid="photo-select-start"]').count()) === 0, "Betrachter: keine Foto-Auswahl");
 
-  const migPath = path.join(root, "supabase/migrations/20251106180000_betrachter_rolle.sql");
+  const migPath = path.join(root, "supabase/migrations/20260206180000_betrachter_rolle.sql");
   const mig = await readFile(migPath, "utf8");
   assert(mig.includes("observer"), "Migration: observer");
   assert(/policy|rls|check/i.test(mig), "Migration: Policy/RLS erwähnt");

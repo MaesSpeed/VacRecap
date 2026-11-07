@@ -3,6 +3,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, webkit, devices } from "playwright";
+import { ensureTripDetailDay } from "./trip-detail-helpers.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -361,8 +362,9 @@ async function seedTripWithPlace(page) {
   await page.click('button[data-action="apply"]');
   await page.click('button[type="submit"]');
   await page.waitForSelector('[data-testid="trip-content"]');
-  const tripId = await page.locator(".screen--trip").getAttribute("data-vacation-id");
   const day = "2026-11-06";
+  await ensureTripDetailDay(page, day);
+  const tripId = await page.locator(".screen--trip").getAttribute("data-vacation-id");
   const wp = await page.evaluate(
     async ({ tripId, day }) => {
       const { putPlace } = await import("./js/db.js");

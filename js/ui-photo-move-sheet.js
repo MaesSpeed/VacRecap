@@ -9,7 +9,7 @@ import { escapeHtml } from "./utils.js";
  * Zielauswahl: Tage der Reise, darunter die Orte des gewählten Tages.
  * Abbrechen und Tippen daneben lösen null aus und ändern nichts.
  */
-export function openPhotoMoveSheet({ vacation, places, initialDay, blockedPlaceId = null }) {
+export function openPhotoMoveSheet({ vacation, places, initialDay, blockedPlaceId = null, onDismiss = null } = {}) {
   const overlay = document.getElementById("overlay-root");
   if (!overlay) return Promise.resolve(null);
   const days = vacationDays(vacation);
@@ -42,8 +42,9 @@ export function openPhotoMoveSheet({ vacation, places, initialDay, blockedPlaceI
     };
     openOverlayHistory(closeDom);
 
-    const choose = (place) => {
+    const choose = (place, { leaveSelect = false } = {}) => {
       result = place || null;
+      if (!place && leaveSelect) onDismiss?.();
       closeOverlayHistory(closeDom);
     };
 
@@ -101,7 +102,7 @@ export function openPhotoMoveSheet({ vacation, places, initialDay, blockedPlaceI
       layer.querySelector("[data-action='cancel']")?.addEventListener("click", () => choose(null));
       const moveSheet = layer.querySelector('[data-testid="photo-move-sheet"]');
       bindSheetPull(moveSheet, {
-        onClose: () => choose(null),
+        onClose: () => choose(null, { leaveSelect: true }),
         scrollEl: moveSheet?.querySelector('[data-testid="photo-move-places"]') || moveSheet,
       });
     };

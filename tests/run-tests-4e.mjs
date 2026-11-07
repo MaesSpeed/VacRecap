@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, devices } from "playwright";
+import { ensureTripDetailDay } from "./trip-detail-helpers.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -339,6 +340,7 @@ async function seedTrip(page) {
   await page.click('button[data-action="apply"]');
   await page.click('button[type="submit"]');
   await page.waitForSelector('[data-testid="trip-content"]');
+  await ensureTripDetailDay(page, dayIso);
   const vacationId = await page.locator(".screen--trip").getAttribute("data-vacation-id");
   return { vacationId, dayIso };
 }
@@ -426,6 +428,8 @@ async function runSuite(deviceName, viewport, { baseUrl, browser }) {
 
   await page.goBack();
   await page.waitForTimeout(200);
+  await page.waitForSelector('[data-testid="trip-content"]', { timeout: 15_000 });
+  await ensureTripDetailDay(page, dayIso);
   const onMediathek = await page.evaluate(() => window.location.hash.includes("/mediathek"));
   if (onMediathek) {
     throw new Error(`${deviceName}: Zurück landet noch auf Mediathek`);

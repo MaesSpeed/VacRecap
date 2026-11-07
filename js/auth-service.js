@@ -2,6 +2,16 @@ import { mapAuthError } from "./cloud-errors.js";
 import { clearReadCache, setCacheUserId } from "./local-cache.js";
 import { getSupabase } from "./supabase-client.js";
 
+let cachedUserId = undefined;
+
+export function setCachedAuthUserId(id) {
+  cachedUserId = id ?? null;
+}
+
+export function clearCachedAuthUserId() {
+  cachedUserId = undefined;
+}
+
 export async function getSession() {
   const { data } = await getSupabase().auth.getSession();
   return data.session ?? null;
@@ -9,6 +19,7 @@ export async function getSession() {
 
 export function onAuthStateChange(cb) {
   const { data } = getSupabase().auth.onAuthStateChange((_event, session) => {
+    setCachedAuthUserId(session?.user?.id ?? null);
     cb(session);
   });
   return () => data.subscription.unsubscribe();
@@ -37,6 +48,7 @@ export async function verifyEmailOtp(email, token) {
 export async function signOut() {
   clearReadCache();
   setCacheUserId(null);
+  clearCachedAuthUserId();
   const { clearTripSelectionStore } = await import("./trip-selection-store.js");
   await clearTripSelectionStore();
   const { clearSignedUrlCache } = await import("./media-signed-url-cache.js");
@@ -49,5 +61,11 @@ export async function signOut() {
 }
 
 export function getUserId() {
-  return getSupabase().auth.getUser().then(({ data }) => data.user?.id ?? null);
+  if (cachedUserId !== undefined) {
+    return Promise.resolve(cachedUserId);
+  }
+  return getSupabase().auth.getUser().then(({ data }) => {
+    cachedUserId = data.user?.id ?? null;
+    return cachedUserId;
+  });
 }

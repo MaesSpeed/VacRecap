@@ -5,7 +5,7 @@ import { getRoute, navigate, NAV_FROM_OVERVIEW_KEY } from "./router.js";
 import { clearTripUiState } from "./ui-urlaub-detail.js";
 import { CloudNetworkError, CloudOfflineError } from "./cloud-errors.js";
 import { showToast, showWarnToast } from "./toast.js";
-import { canEditAny, canManageSharing, getConfirmedTripRole } from "./trip-role.js";
+import { canEditAny, canManageSharing, getConfirmedTripRole, tripRoleLoadFailed, clearTripRoleCache } from "./trip-role.js";
 import { bindShareField, shareFieldHtml } from "./ui-share-field.js";
 import { decideStaleWrite } from "./save-conflict.js";
 import { watchPresence, presenceBannerHtml } from "./trip-presence.js";
@@ -49,8 +49,14 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
       /* ignore */
     }
   }
-  const [roleInfo, photoResult, places, myUserId] = await Promise.all([
-    isEdit ? getConfirmedTripRole(vacation.id) : Promise.resolve({ role: "owner", confirmed: true }),
+  let roleInfo = await (isEdit
+    ? getConfirmedTripRole(vacation.id)
+    : Promise.resolve({ role: "owner", confirmed: true }));
+  if (isEdit && tripRoleLoadFailed(vacation.id)) {
+    clearTripRoleCache(vacation.id);
+    roleInfo = await getConfirmedTripRole(vacation.id);
+  }
+  const [photoResult, places, myUserId] = await Promise.all([
     isEdit ? fetchUploadedPhotosForTrip(vacation.id) : Promise.resolve({ media: [] }),
     isEdit ? getPlacesForVacation(vacation.id).catch(() => []) : Promise.resolve([]),
     getUserId().catch(() => null),

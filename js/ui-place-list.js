@@ -165,6 +165,7 @@ export function renderPlaceCardHtml(
     share = null,
     canEditPlace = null,
     canEditNotesInPlace = true,
+    readOnlyTrip = false,
   }
 ) {
   const { place, photos, videos, notes, media } = item;
@@ -198,7 +199,7 @@ export function renderPlaceCardHtml(
       ? `<span class="tile__dur" data-testid="photo-caption-mark" aria-hidden="true">${ICON_NOTE}</span>`
       : "";
   const dimPicked = Boolean(photoSelect?.active && dimMedia && photoSelect.selectedIds?.has(dimMedia.id));
-  const showSelectStart = selected && uploadedPhotoCount(media) > 0 && !photoSelect?.active;
+  const showSelectStart = selected && uploadedPhotoCount(media) > 0 && !photoSelect?.active && !readOnlyTrip;
   const foreignHint =
     photoSelect?.active &&
     selected &&
@@ -286,6 +287,7 @@ export function renderPlaceListHtml(items, {
   share = null,
   canEditPlace = null,
   canEditFreeNotes = true,
+  readOnlyTrip = false,
 }) {
   if (!items.length) return { listHtml: "", mediaErrorHtml: "", selectBarHtml: "" };
 
@@ -309,6 +311,7 @@ export function renderPlaceListHtml(items, {
         share,
         canEditPlace,
         canEditNotesInPlace: canEditFreeNotes,
+        readOnlyTrip,
       })
     )
     .join("");
@@ -316,7 +319,7 @@ export function renderPlaceListHtml(items, {
   return {
     listHtml,
     mediaErrorHtml,
-    selectBarHtml: photoSelect?.active ? renderSelectBar(photoSelect) : "",
+    selectBarHtml: photoSelect?.active && !readOnlyTrip ? renderSelectBar(photoSelect) : "",
   };
 }
 

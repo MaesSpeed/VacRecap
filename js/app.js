@@ -1,4 +1,4 @@
-import { getSession, onAuthStateChange } from "./auth-service.js";
+import { getSession, onAuthStateChange, setCachedAuthUserId } from "./auth-service.js";
 import { flushPendingMediaPurges, getAllVacations } from "./db.js";
 import { installGestureGuards } from "./gesture-guard.js";
 import { runLegacyCleanup } from "./legacy-cleanup.js";
@@ -159,7 +159,10 @@ async function startApp() {
   if (appStarted) return;
   appStarted = true;
   const session = await getSession();
-  if (session?.user?.id) setCacheUserId(session.user.id);
+  if (session?.user?.id) {
+    setCacheUserId(session.user.id);
+    setCachedAuthUserId(session.user.id);
+  }
   onRouteChange(() => {
     dismissOverlayOnly();
     scheduleRender();
@@ -197,12 +200,16 @@ async function boot() {
   if (!session) {
     renderLoginScreen(appEl, () => startApp());
     onAuthStateChange((s) => {
-      if (s?.user?.id) setCacheUserId(s.user.id);
+      if (s?.user?.id) {
+        setCacheUserId(s.user.id);
+        setCachedAuthUserId(s.user.id);
+      }
       if (s) startApp();
     });
     return;
   }
   setCacheUserId(session.user.id);
+  setCachedAuthUserId(session.user.id);
   startApp();
 }
 
