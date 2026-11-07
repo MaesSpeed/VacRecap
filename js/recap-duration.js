@@ -8,8 +8,6 @@ export const P = {
   perNoteS: 1.5,
   maxNotesPerPlace: 2,
   minS: 30,
-  // Früherer Deckel. Wird nicht mehr angewendet: die Dauer darf darüber wachsen.
-  maxS: 150,
   maxPhotoS: 2.5,
   minPhotos: 6,
   dayMapS: 3,

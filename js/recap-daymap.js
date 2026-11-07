@@ -16,6 +16,24 @@ function paintColor(color) {
     : "#1F6DB5";
 }
 
+function coord(value) {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Pins nur für Orte mit echten Koordinaten. n bleibt die Besuchsreihenfolge. */
+export function dayMapPoints(places) {
+  const points = [];
+  (places || []).forEach((place, index) => {
+    const lat = coord(place?.lat);
+    const lng = coord(place?.lng);
+    if (lat == null || lng == null) return;
+    points.push({ lat, lng, n: index + 1 });
+  });
+  return points;
+}
+
 export function dayMapSvg(points, color, { width = 340, height = 180, pad = 26, r = 11, fitWidth = width } = {}) {
   const ink = paintColor(color);
   const pts = (points || []).filter((p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng));
@@ -66,14 +84,14 @@ export function dayMapSvg(points, color, { width = 340, height = 180, pad = 26, 
       );
     }
   }
-  const local = xy.map((q) => ({ x: q.x - ox, y: q.y - oy }));
+  const local = xy.map((q, i) => ({ x: q.x - ox, y: q.y - oy, n: pts[i].n }));
   const line = local.map((q) => `${q.x.toFixed(1)},${q.y.toFixed(1)}`).join(" ");
   const labelY = (r * 0.36).toFixed(1);
   const pins = local
-    .map(
-      (q, i) =>
-        `<g transform="translate(${q.x.toFixed(1)} ${q.y.toFixed(1)})"><circle r="${r}" fill="${ink}" stroke="#fff" stroke-width="2.5"/><text y="${labelY}" text-anchor="middle" font-size="${r}" font-weight="900" fill="#fff" font-family="Nunito Sans, system-ui, sans-serif">${i + 1}</text></g>`
-    )
+    .map((q, i) => {
+      const num = Number.isInteger(q.n) && q.n > 0 ? q.n : i + 1;
+      return `<g transform="translate(${q.x.toFixed(1)} ${q.y.toFixed(1)})"><circle r="${r}" fill="${ink}" stroke="#fff" stroke-width="2.5"/><text y="${labelY}" text-anchor="middle" font-size="${r}" font-weight="900" fill="#fff" font-family="Nunito Sans, system-ui, sans-serif">${num}</text></g>`;
+    })
     .join("");
   return `<svg class="recap-daymap" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
     <rect width="${w}" height="${h}" fill="#e8eef3"/>${tiles.join("")}

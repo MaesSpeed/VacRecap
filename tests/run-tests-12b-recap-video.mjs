@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, webkit, devices } from "playwright";
 import { P, fmt, plan } from "../js/recap-duration.js";
-import { dayMapSvg } from "../js/recap-daymap.js";
+import { dayMapPoints, dayMapSvg } from "../js/recap-daymap.js";
 import { buildVideoRecap, dayMapCaption } from "../js/recap-storyboard.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -73,7 +73,7 @@ function runFormulaUnitTests() {
   assert(big.photosPerPlace === 3, `groß Fotos je Ort ${big.photosPerPlace}`);
   assert(big.label === "ca. 4:05 min", big.label);
   assert(big.seconds === 246, `groß Sekunden ${big.seconds}`);
-  assert(big.seconds > P.maxS, "150-s-Deckel ist noch aktiv");
+  assert(big.seconds > 150, `150-s-Deckel ist noch aktiv (${big.seconds})`);
   const few = plan([{ photos: 3, notes: 0 }]);
   assert(few.ok === false && few.reason === "too-few-photos", "zu wenig");
   const built = buildVideoRecap(materialFrom(PLACES));
@@ -112,7 +112,32 @@ function runFormulaUnitTests() {
   assert(withTitle.title === "Tageskarte · Mo 26.10." && withTitle.subtitle === "Anreise · 5 Orte", withTitle.subtitle);
   const bare = dayMapCaption("Di 27.10.", "", 5);
   assert(bare.subtitle === "5 Orte", bare.subtitle);
+  assert(dayMapCaption("Di 17.06.", "2. Tag", 2).subtitle === "2 Orte", "Tag ohne Titel");
+  assert(dayMapCaption("Fr 20.06.", "Abreise", 1).subtitle === "Abreise · 1 Ort", "Abreise");
   assert(dayMapCaption("", "", 1).title === "Tageskarte" && dayMapCaption("", "", 1).subtitle === "1 Ort", "ein Ort");
+  const mapped = dayMapPoints([
+    { lat: 45.8, lng: 10.8 },
+    { lat: null, lng: null },
+    { lat: 45.82, lng: 10.83 },
+  ]);
+  assert(mapped.length === 2 && mapped[0].n === 1 && mapped[1].n === 3, `Pins ${JSON.stringify(mapped)}`);
+  assert(mapped.every((point) => point.lat !== 0 || point.lng !== 0), "Nullinsel");
+  assert(dayMapPoints([{ lat: null, lng: 10.8 }, { lat: undefined, lng: undefined }, {}]).length === 0, "Tag ohne Koordinaten");
+  const fitted = dayMapSvg(mapped, "#1F6DB5", { width: 340, height: 180 });
+  assert(fitted.includes(">1<") && fitted.includes(">3<") && !fitted.includes(">2<"), "Besuchsnummer bleibt");
+  const island = dayMapSvg(
+    [
+      { lat: 45.8, lng: 10.8, n: 1 },
+      { lat: 0, lng: 0, n: 2 },
+      { lat: 45.82, lng: 10.83, n: 3 },
+    ],
+    "#1F6DB5",
+    { width: 340, height: 180 }
+  );
+  const near = pinGap(fitted);
+  const squeezed = Math.min(...pinGaps(island));
+  assert(near > squeezed * 3, `Karte nicht zugeschnitten (${near} gegen ${squeezed})`);
+  assert(dayMapSvg([], "#1F6DB5") === "", "leere Karte");
   const svg = dayMapSvg(
     [
       { lat: 45.8, lng: 10.8 },
@@ -128,6 +153,24 @@ function runFormulaUnitTests() {
   assert(svg.includes('stroke="#fff" stroke-width="5"'), "weißer Hof");
   assert(!svg.includes("__recapFrames"), "kein Debug-Global");
   console.log("Dauerformel-Unit-Tests grün");
+}
+
+function pinGaps(svg) {
+  const pins = [...svg.matchAll(/translate\(([-\d.]+) ([-\d.]+)\)/g)].map((match) => ({
+    x: Number(match[1]),
+    y: Number(match[2]),
+  }));
+  const gaps = [];
+  for (let i = 0; i < pins.length; i += 1) {
+    for (let j = i + 1; j < pins.length; j += 1) {
+      gaps.push(Math.hypot(pins[i].x - pins[j].x, pins[i].y - pins[j].y));
+    }
+  }
+  return gaps;
+}
+
+function pinGap(svg) {
+  return Math.max(0, ...pinGaps(svg));
 }
 
 function assertDayMaps(scenes) {
@@ -614,7 +657,10 @@ async function runFlows(page, state, label) {
     `${label}: ${scenes[1]}`
   );
   assert(scenes[2].includes("Navene") && scenes[2].includes("9 s") && scenes[2].includes("2 Notizen"), `${label}: ${scenes[2]}`);
-  assert(scenes[3].includes("Tageskarte") && scenes[3].includes("2. Tag · 2 Orte"), `${label}: ${scenes[3]}`);
+  assert(
+    scenes[3].includes("Tageskarte") && scenes[3].includes("2 Orte") && !scenes[3].includes("2. Tag"),
+    `${label}: ${scenes[3]}`
+  );
   assert(scenes[4].includes("Hafen Malcesine") && scenes[4].includes("7,5 s"), `${label}: ${scenes[4]}`);
   const dayMaps = page.locator('[data-kind="tageskarte"]');
   assert((await dayMaps.count()) === 2, `${label}: Tageskarten in der Kurzlist`);
@@ -624,6 +670,8 @@ async function runFlows(page, state, label) {
   assert(dash === "6 5", `${label}: Linie ${dash}`);
   const border = await dayMaps.nth(0).evaluate((el) => getComputedStyle(el).borderLeftColor);
   assert(border === "rgb(31, 109, 181)", `${label}: Tagesfarbe ${border}`);
+  const credit = await dayMaps.nth(0).locator(".recap-daymap__credit").innerText();
+  assert(credit.includes("© OpenStreetMap"), `${label}: Quellenangabe «${credit}»`);
   const toggle = page.locator('[data-testid="recap-show-all"]');
   assert((await toggle.innerText()).includes("Alle Szenen zeigen"), `${label}: Knopf fehlt`);
   await toggle.click();
@@ -631,6 +679,11 @@ async function runFlows(page, state, label) {
   assert((await toggle.innerText()).includes("Weniger zeigen"), `${label}: Einklappen fehlt`);
   const allScenes = await page.locator('[data-testid="recap-scene"]').allInnerTexts();
   assert(allScenes.filter((text) => text.includes("Tageskarte")).length === 5, `${label}: nicht jede Tageskarte`);
+  assert(allScenes.some((text) => text.includes("Abreise · 1 Ort")), `${label}: Abreise ohne Titel`);
+  assert(
+    allScenes.filter((text) => text.includes("Tageskarte")).every((text) => !/\d\. Tag/.test(text)),
+    `${label}: „n. Tag“ ist kein Titel`
+  );
   assert(
     allScenes.some((text) => text.includes("Monte Baldo")) &&
       allScenes.some((text) => text.includes("Riva del Garda")) &&
@@ -660,6 +713,8 @@ async function runFlows(page, state, label) {
   });
   const daySlide = await page.locator('[data-testid="recap-slide"]').innerText();
   assert(daySlide.includes("16.06.") && daySlide.includes("Anreise · 1 Ort"), `${label}: Tageskarte «${daySlide}»`);
+  const previewCredit = await page.locator('[data-testid="recap-slide"] .recap-daymap__credit').innerText();
+  assert(previewCredit.includes("© OpenStreetMap"), `${label}: Vorschau-Quelle «${previewCredit}»`);
   assert((await page.locator('[data-testid="recap-slide"] circle').count()) === 1, `${label}: Vorschau-Pin`);
   const previewDash = await page.locator('[data-testid="recap-slide"] polyline').nth(1).getAttribute("stroke-dasharray");
   assert(previewDash === "6 5", `${label}: Vorschau-Linie ${previewDash}`);
