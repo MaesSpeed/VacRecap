@@ -1,5 +1,4 @@
 import { getSession, onAuthStateChange, syncAuthFromSession } from "./auth-service.js";
-import { hasActiveOverlay } from "./overlay-stack.js";
 import { flushPendingMediaPurges, getAllVacations } from "./db.js";
 import { installGestureGuards } from "./gesture-guard.js";
 import { runLegacyCleanup } from "./legacy-cleanup.js";
@@ -15,7 +14,7 @@ import { renderUrlaubSettings } from "./ui-urlaub-settings.js";
 import { renderUrlaubForm } from "./ui-urlaub-form.js";
 import { renderUrlaubeScreen } from "./ui-urlaube.js";
 import { installVisualViewportKeyboard } from "./visual-viewport.js";
-import { dismissOverlayOnly, initOverlayHistory } from "./overlay-stack.js";
+import { dismissOverlayOnly, initOverlayHistory, stripOverlayHistoryState } from "./overlay-stack.js";
 import { installToastPositionSync, showWarnToast } from "./toast.js";
 import { CloudNetworkError, CloudOfflineError } from "./cloud-errors.js";
 import { StaleDataScopeError } from "./data-scope.js";
@@ -23,6 +22,8 @@ import { StaleDataScopeError } from "./data-scope.js";
 const appEl = document.getElementById("app");
 
 let renderGeneration = 0;
+let renderCoalescePending = false;
+let renderQueued = false;
 let renderChain = Promise.resolve();
 let appStarted = false;
 let loadErrorShown = false;
@@ -72,7 +73,6 @@ async function renderNow() {
   const gen = ++renderGeneration;
   if (appEl) appEl.dataset.appRenderGen = String(gen);
 
-  const route = getRoute();
   let vacations = [];
   try {
     vacations = await getAllVacations();
@@ -87,6 +87,8 @@ async function renderNow() {
     }
   }
   if (appEl?.dataset.appRenderGen !== String(gen)) return;
+
+  const route = getRoute();
 
   if (appEl?._mapCleanup) {
     appEl._mapCleanup();
@@ -133,19 +135,27 @@ async function renderNow() {
 }
 
 function scheduleRender() {
-  renderChain = renderChain
-    .then(() => renderNow())
-    .catch((err) => {
-      if (err instanceof CloudOfflineError) {
-        showWarnToast(err.message);
-        return;
-      }
-      if (hasRenderedScreen) {
-        showWarnToast("Neu laden hat nicht geklappt. Bitte gleich nochmal versuchen.");
-        return;
-      }
-      renderCloudLoadError(scheduleRender, err);
-    });
+  renderQueued = true;
+  if (renderCoalescePending) return;
+  renderCoalescePending = true;
+  queueMicrotask(() => {
+    renderCoalescePending = false;
+    if (!renderQueued) return;
+    renderQueued = false;
+    renderChain = renderChain
+      .then(() => renderNow())
+      .catch((err) => {
+        if (err instanceof CloudOfflineError) {
+          showWarnToast(err.message);
+          return;
+        }
+        if (hasRenderedScreen) {
+          showWarnToast("Neu laden hat nicht geklappt. Bitte gleich nochmal versuchen.");
+          return;
+        }
+        renderCloudLoadError(scheduleRender, err);
+      });
+  });
 }
 
 async function startApp() {
@@ -155,13 +165,13 @@ async function startApp() {
   if (session) syncAuthFromSession(session);
   onRouteChange(() => {
     dismissOverlayOnly();
+    stripOverlayHistoryState();
     scheduleRender();
   });
   startRouter();
   window.addEventListener("vacrecap:data-changed", () => {
     if (document.querySelector("[data-testid='cover-sheet']")) return;
     if (document.getElementById("app")?.dataset.formSaving === "1") return;
-    if (getRoute().name === "urlaub-detail" && hasActiveOverlay()) return;
     scheduleRender();
   });
   window.addEventListener("online", () => {

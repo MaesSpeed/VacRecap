@@ -1,4 +1,4 @@
-import { bindOverlay, closeOverlayHistory } from "./overlay-stack.js";
+import { bindOverlay, closeOverlayHistory, releaseOverlayHistory } from "./overlay-stack.js";
 import { bindSheetPull } from "./sheet-pull.js";
 import { createNote, moveNoteToPlace, removeNote, updateNoteText } from "./note-service.js";
 import { dayRoleLabel, vacationDays } from "./days.js";
@@ -296,7 +296,7 @@ export function openNoteSheet({
         savedNote = await createNote({ place: placeToUse, vacationId, day, text });
         showToast("Notiz gespeichert");
       }
-      closeOverlayHistory(activeClose);
+      releaseOverlayHistory(activeClose);
       await onSaved?.(savedNote ?? captureResult);
     } catch (err) {
       if (err instanceof CloudOfflineError || err instanceof CloudNetworkError) {

@@ -479,6 +479,8 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
     const flushDiary = () => {
       if (!textarea.isConnected) return Promise.resolve();
       const text = clampDiaryText(textarea.value);
+      const outbox = readDiaryLocal(tripId);
+      if (outbox?.pending && outbox.text !== text) return Promise.resolve();
       if (text === lastSaved) return Promise.resolve();
       const pendingBefore = text;
       writeDiaryLocal(tripId, text, true, seenRemote);
@@ -516,7 +518,7 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
     };
     if (readDiaryLocal(tripId)?.pending) {
       showSavedLocally(true);
-      lastSaved = `\0${textarea.value}`;
+      lastSaved = textarea.value;
       scheduleDiarySave();
     }
 
