@@ -460,10 +460,11 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
     const textarea = main.querySelector('[data-testid="diary-source"]');
     const action = main.querySelector('[data-testid="diary-action"]');
     let seenRemote = serverUpdatedAt || "";
-    textarea.value = clampDiaryText(
+    const seededText = clampDiaryText(
       seededDiaryText(tripId, initial || "", serverUpdatedAt || "", serverUpdatedBy || "", myUserId || "")
     );
-    let lastSaved = textarea.value;
+    textarea.value = seededText;
+    let lastSaved = seededText;
     let saveTimer = 0;
     let holdConflict = false;
     const stopDiaryPresence = watchPresence(tripId, "diary", (rows) => {
@@ -479,8 +480,6 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
     const flushDiary = () => {
       if (!textarea.isConnected) return Promise.resolve();
       const text = clampDiaryText(textarea.value);
-      const outbox = readDiaryLocal(tripId);
-      if (outbox?.pending && outbox.text !== text) return Promise.resolve();
       if (text === lastSaved) return Promise.resolve();
       const pendingBefore = text;
       writeDiaryLocal(tripId, text, true, seenRemote);
