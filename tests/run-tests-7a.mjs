@@ -3,7 +3,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, webkit, devices } from "playwright";
-import { ensureTripDetailDay } from "./trip-detail-helpers.mjs";
+import { dispatchTripDetailRefresh, ensureTripDetailDay, waitTripListPatch } from "./trip-detail-helpers.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -381,11 +381,12 @@ async function seedTripWithPlace(page) {
           source: "test",
         })
       );
-      window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
       return place.id;
     },
     { tripId, day }
   );
+  await waitTripListPatch(page);
+  await dispatchTripDetailRefresh(page, { tripId, placeId: wp });
   await page.waitForSelector(".place-list .oc", { timeout: 20_000 });
   return { tripId, day, placeId: wp };
 }

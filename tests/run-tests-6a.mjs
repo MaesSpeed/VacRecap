@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, webkit, devices } from "playwright";
-import { ensureTripDetailDay } from "./trip-detail-helpers.mjs";
+import { dispatchTripDetailRefresh, ensureTripDetailDay, waitTripListPatch } from "./trip-detail-helpers.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -341,7 +341,6 @@ async function runFlow(page, baseUrl, label) {
             source: "test",
           })
         );
-        window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
         return { ok: true, id: place.id };
       } catch (e) {
         return { ok: false, err: String(e?.message || e) };
@@ -350,6 +349,8 @@ async function runFlow(page, baseUrl, label) {
     { tripId, day }
   );
   if (!wp?.ok) throw new Error(`${label}: Wegpunkt (${wp?.err})`);
+  await waitTripListPatch(page);
+  await dispatchTripDetailRefresh(page, { tripId, placeId: wp.id });
   await page.waitForSelector(".place-list .oc", { timeout: 20_000 });
   await page.click('[data-footer-action="note"]');
   await page.waitForSelector('[data-testid="note-sheet"]', { timeout: 20_000 });
@@ -388,7 +389,15 @@ async function runFlow(page, baseUrl, label) {
   if (noteCount < 1) throw new Error(`${label}: Notiz nicht in Cloud`);
 }
 
-async function assertPlaceListUi(page, label) {
+async function assertPlaceListUi(page, label, dayIso = "2026-11-06") {
+  await ensureTripDetailDay(page, dayIso);
+  await page.waitForFunction(
+    () =>
+      !document.querySelector('[data-testid="day-skeleton"]') &&
+      document.querySelectorAll(".place-list .oc:not(.oc--skeleton)").length > 0,
+    null,
+    { timeout: 20_000 }
+  );
   await page.waitForSelector('[data-testid="place-list"]', { timeout: 15_000 });
   await page.waitForSelector(".place-list-fade", { timeout: 15_000 });
   await page.waitForSelector(".qa__btn", { timeout: 15_000 });
@@ -424,8 +433,9 @@ async function assertPlaceListUi(page, label) {
     for (const n of notes) {
       await deleteNote(n.id);
     }
-    window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
   }, meta);
+  await waitTripListPatch(page);
+  await dispatchTripDetailRefresh(page, { tripId: meta.tripId, placeId: meta.placeId });
   await page.waitForFunction(() => document.querySelectorAll(".nr__text--btn").length === 0, null, {
     timeout: 15_000,
   });
@@ -450,8 +460,9 @@ async function assertPlaceListUi(page, label) {
       text: "Sort-Neu",
       ts: 2,
     });
-    window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
   }, meta);
+  await waitTripListPatch(page);
+  await dispatchTripDetailRefresh(page, { tripId: meta.tripId, placeId: meta.placeId });
 
   await page.waitForFunction(
     () => document.querySelector(".nr__text--btn")?.textContent?.trim() === "Sort-Neu",
@@ -493,8 +504,9 @@ async function assertPlaceListUi(page, label) {
       });
       await new Promise((r) => setTimeout(r, 30));
     }
-    window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
   }, meta);
+  await waitTripListPatch(page);
+  await dispatchTripDetailRefresh(page, { tripId: meta.tripId, placeId: meta.placeId });
 
   await page.waitForSelector('[data-action="expand-notes"]');
   await page.click('[data-action="expand-notes"]');

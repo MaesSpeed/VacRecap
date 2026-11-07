@@ -14,3 +14,32 @@ export async function ensureTripDetailDay(page, dayIso, { timeout = 15_000 } = {
     { timeout }
   );
 }
+
+/** Wait for an in-flight incremental place-list patch on the open trip detail screen. */
+export async function waitTripListPatch(page) {
+  await page.evaluate(async () => {
+    const wait = window.__vacrecapTripListPatch;
+    if (typeof wait === "function") await wait();
+  });
+}
+
+/** Mirrors db.js skipFullRender events so tests do not trigger a full app remount. */
+export async function dispatchTripDetailRefresh(page, { tripId, placeId = null, placeDay = null } = {}) {
+  await page.evaluate(
+    async ({ tripId: tid, placeId: pid, placeDay: pd }) => {
+      window.dispatchEvent(
+        new CustomEvent("vacrecap:data-changed", {
+          detail: {
+            skipFullRender: true,
+            tripId: tid,
+            ...(pid ? { placeId: pid, mergeTrip: true } : {}),
+            ...(pd && !pid ? { placeDay: pd, mergeTrip: true } : {}),
+          },
+        })
+      );
+      const wait = window.__vacrecapTripListPatch;
+      if (typeof wait === "function") await wait();
+    },
+    { tripId, placeId, placeDay }
+  );
+}

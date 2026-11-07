@@ -93,6 +93,7 @@ export function clearTripUiState(vacationId) {
   const state = tripUiState.get(vacationId);
   if (state?.thumbUrls) revokeThumbUrls(state.thumbUrls);
   tripUiState.delete(vacationId);
+  delete window.__vacrecapTripListPatch;
 }
 
 export function noteFreshPlace(vacationId, placeId) {
@@ -281,6 +282,28 @@ export async function renderUrlaubDetail(appEl, id) {
   let ignoreSelectPop = false;
   let exitSelectAfterOverlayPop = false;
   let leaveAfterSelectPop = false;
+  let queuedPlacePatch = null;
+  let placePatchInflight = null;
+
+  async function drainPlacePatchQueue() {
+    for (;;) {
+      const job = queuedPlacePatch;
+      if (!job) break;
+      queuedPlacePatch = null;
+      if (appEl?.dataset?.appRenderGen !== mountGen) return;
+      await refreshDayList(job);
+    }
+  }
+
+  async function runCoalescedPlacePatch(opts) {
+    queuedPlacePatch = { ...(queuedPlacePatch || {}), ...opts };
+    if (!placePatchInflight) {
+      placePatchInflight = drainPlacePatchQueue().finally(() => {
+        placePatchInflight = null;
+      });
+    }
+    return placePatchInflight;
+  }
 
   appEl.querySelector('[data-action="back"]').addEventListener("click", () => {
     if (history.state?.vacrecapPhotoSelect) {
@@ -367,7 +390,11 @@ export async function renderUrlaubDetail(appEl, id) {
 
       if (pids.length) {
         if (pids.length === 1) {
-          await refreshDayList({ reuse: true, placeId: pids[0], mergeTrip: Boolean(detail.mergeTrip) });
+          await runCoalescedPlacePatch({
+            reuse: true,
+            placeId: pids[0],
+            mergeTrip: Boolean(detail.mergeTrip),
+          });
         } else {
           await refreshDayList({
             reuse: true,
@@ -1582,6 +1609,9 @@ export async function renderUrlaubDetail(appEl, id) {
     } catch {
       if (token !== state.listRefreshToken || !contentEl.isConnected) return;
       showDayLoadError();
+      if (patchIds.length) {
+        showWarnToast("Neu laden hat nicht geklappt. Bitte gleich nochmal versuchen.");
+      }
     }
   }
 
@@ -2461,6 +2491,7 @@ export async function renderUrlaubDetail(appEl, id) {
       state.selectedByDay[state.activeDay] = card.dataset.placeId;
       persistSelection(id, state);
       applySelectionDom();
+      void refreshDayList({ reuse: true });
     }
   });
 
@@ -2655,5 +2686,7 @@ export async function renderUrlaubDetail(appEl, id) {
   } else if (pendingFooter === "camera") {
     requestAnimationFrame(() => openNativeCamera());
   }
+
+  window.__vacrecapTripListPatch = () => placePatchInflight || Promise.resolve();
 }
 
