@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, devices, webkit } from "playwright";
-import { ensureTripDetailDay } from "./trip-detail-helpers.mjs";
+import { ensureTripDetailDay, waitTripListPatch } from "./trip-detail-helpers.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -952,6 +952,7 @@ async function runSuite(browserType, baseUrl, label) {
   }
   await page.setViewportSize({ width: 375, height: 667 });
   await save.click();
+  await waitTripListPatch(page);
   await page.waitForFunction(
     (id) => document.querySelectorAll(".oc__title")[0]?.textContent?.includes("A") && document.querySelector(`[data-place-id="${id}"]`)?.textContent?.includes("20:00"),
     placeA
@@ -968,6 +969,7 @@ async function runSuite(browserType, baseUrl, label) {
   saved.visited_at = "2026-10-27T16:10:00.000Z";
   await page.locator('[data-testid="edit-place-time"]').fill("21:00");
   await save.click();
+  await waitTripListPatch(page);
   await page.waitForSelector('[data-testid="conflict-dialog"]');
   await page.locator('[data-testid="conflict-dialog"] [data-action="cancel"]').click();
   await page.waitForFunction(() => document.querySelector('[data-role="name"]')?.value === "Frischer Name");
