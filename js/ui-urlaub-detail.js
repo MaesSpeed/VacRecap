@@ -190,6 +190,8 @@ export async function renderUrlaubDetail(appEl, id) {
   const share = shareContext(roleInfo.role, state.userId, people);
   const liveUsers = new Set();
 
+  if (appEl?.dataset?.appRenderGen !== mountGen) return;
+
   appEl.className = "screen screen--trip screen--trip-swipe";
   appEl.dataset.vacationId = id;
 
@@ -858,7 +860,10 @@ export async function renderUrlaubDetail(appEl, id) {
     if (invalidateDay) invalidateDayBundle(state.activeDay);
     else {
       if (place) mergePlaceInMemory(place);
-      if (note) mergeNoteInMemory(note);
+      if (note) {
+        mergeNoteInMemory(note);
+        if (!note.placeId) state.freeNotesExpanded = true;
+      }
     }
     await refreshDayList({ reuse: true });
   }
@@ -2266,6 +2271,7 @@ export async function renderUrlaubDetail(appEl, id) {
   });
 
   renderChips();
+  if (appEl?.dataset?.appRenderGen !== mountGen) return;
   await refreshDayList();
   if (appEl?.dataset?.appRenderGen !== mountGen) return;
 

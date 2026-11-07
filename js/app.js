@@ -18,11 +18,12 @@ import { installVisualViewportKeyboard } from "./visual-viewport.js";
 import { dismissOverlayOnly, initOverlayHistory } from "./overlay-stack.js";
 import { installToastPositionSync, showWarnToast } from "./toast.js";
 import { CloudNetworkError, CloudOfflineError } from "./cloud-errors.js";
+import { StaleDataScopeError } from "./data-scope.js";
 
 const appEl = document.getElementById("app");
 
 let renderGeneration = 0;
-let renderCoalescePending = false;
+let renderChain = Promise.resolve();
 let appStarted = false;
 let loadErrorShown = false;
 let hasRenderedScreen = false;
@@ -79,6 +80,8 @@ async function renderNow() {
     if (err instanceof CloudOfflineError) {
       setOfflineReadOnly(true);
       vacations = await getAllVacations();
+    } else if (err instanceof StaleDataScopeError) {
+      vacations = await getAllVacations();
     } else {
       throw err;
     }
@@ -130,11 +133,9 @@ async function renderNow() {
 }
 
 function scheduleRender() {
-  if (renderCoalescePending) return;
-  renderCoalescePending = true;
-  queueMicrotask(() => {
-    renderCoalescePending = false;
-    void renderNow().catch((err) => {
+  renderChain = renderChain
+    .then(() => renderNow())
+    .catch((err) => {
       if (err instanceof CloudOfflineError) {
         showWarnToast(err.message);
         return;
@@ -145,7 +146,6 @@ function scheduleRender() {
       }
       renderCloudLoadError(scheduleRender, err);
     });
-  });
 }
 
 async function startApp() {
