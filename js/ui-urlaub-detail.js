@@ -354,6 +354,7 @@ export async function renderUrlaubDetail(appEl, id) {
   const contentEl = appEl.querySelector('[data-role="day-content"]');
   const pageSnaps = new WeakMap();
   const mountedNeighborHtml = new WeakMap();
+  const dayDataSeen = new Map();
   let chipFollowDay = null;
   let chipScrollToken = 0;
   let chipPhase = "idle";
@@ -1059,22 +1060,53 @@ export async function renderUrlaubDetail(appEl, id) {
     return "";
   }
 
+  function bundleStamp(dayIso) {
+    const bundle = dayCache.get(dayIso);
+    if (!bundle) return null;
+    const items = (bundle.items || [])
+      .map((item) => {
+        const media = (item.media || []).map((entry) => `${entry.id}:${entry.placeId || ""}:${entry.day || ""}`).join(",");
+        const notes = (item.notes || []).map((entry) => `${entry.id}:${entry.text || ""}`).join(",");
+        return `${item.place?.id || ""}#${media}#${notes}`;
+      })
+      .join(";");
+    const free = (bundle.freeNotes || []).map((entry) => `${entry.id}:${entry.text || ""}`).join(",");
+    return `${items}|${free}`;
+  }
+
+  function rememberDayData(dayIso) {
+    const stamp = bundleStamp(dayIso);
+    if (!dayIso || stamp == null) return;
+    dayDataSeen.set(dayIso, stamp);
+  }
+
   function prepareNeighborPages() {
     if (!contentEl?.isConnected) return;
+    let mounted = false;
     for (const which of ["prev", "next"]) {
       const dayIso = neighborIso(which);
       const page = contentEl.querySelector(`[data-page="${which}"]`);
-      const html = htmlForCachedDay(dayIso);
       if (!page) continue;
-      if (dayIso && page.dataset.swipeDay === dayIso && page.dataset.live === "1" && page.childElementCount) continue;
-      if (dayIso && page.dataset.swipeDay === dayIso && mountedNeighborHtml.get(page) === html && page.childElementCount) {
-        continue;
+      const html = htmlForCachedDay(dayIso);
+      const sameDay = Boolean(dayIso) && page.dataset.swipeDay === dayIso && page.childElementCount > 0;
+      const seen = dayIso ? dayDataSeen.get(dayIso) : undefined;
+      const now = dayIso ? bundleStamp(dayIso) : null;
+      const dataChanged = now != null && seen !== undefined && now !== seen;
+      if (sameDay && page.dataset.live === "1" && !dataChanged) continue;
+      if (sameDay && !dataChanged && mountedNeighborHtml.get(page) === html) continue;
+      const wrote = setDaySwipeNeighbor(contentEl, which, html, { day: dayIso, force: dataChanged });
+      if (!wrote) continue;
+      mounted = true;
+      pageSnaps.delete(page);
+      if (html) {
+        mountedNeighborHtml.set(page, html);
+        rememberDayData(dayIso);
+      } else {
+        mountedNeighborHtml.delete(page);
+        if (dayIso) dayDataSeen.delete(dayIso);
       }
-      setDaySwipeNeighbor(contentEl, which, html, { day: dayIso });
-      if (html) mountedNeighborHtml.set(page, html);
-      else mountedNeighborHtml.delete(page);
     }
-    bindBrokenThumbs(contentEl);
+    if (mounted) bindBrokenThumbs(contentEl);
   }
 
   function snapshotLeavingPage() {
@@ -1082,6 +1114,7 @@ export async function renderUrlaubDetail(appEl, id) {
     if (!page) return;
     page.dataset.live = "1";
     pageSnaps.set(page, {
+      day: page.dataset.swipeDay || state.activeDay,
       photoSelecting: Boolean(state.photoSelecting),
       photoSelected: [...(state.photoSelected || [])],
     });
@@ -1090,10 +1123,12 @@ export async function renderUrlaubDetail(appEl, id) {
   function restoreArrivingPage() {
     const page = contentEl.querySelector("[data-page='current']");
     const snap = page ? pageSnaps.get(page) : null;
-    if (snap) {
+    const day = page?.dataset.swipeDay || "";
+    if (snap && snap.day && snap.day === day) {
       state.photoSelecting = snap.photoSelecting;
       state.photoSelected = new Set(snap.photoSelected);
-    } else if (state.photoSelecting) {
+    } else {
+      if (page && snap) pageSnaps.delete(page);
       state.photoSelecting = false;
       state.photoSelected = new Set();
     }
@@ -1203,6 +1238,7 @@ export async function renderUrlaubDetail(appEl, id) {
     state.thumbUrls = built.thumbUrls || {};
     syncDayEdges();
     setDaySwipePage(contentEl, built.html, { keepScroll, day: state.activeDay });
+    rememberDayData(state.activeDay);
     bindBrokenThumbs(contentEl);
     prepareNeighborPages();
     if (previousThumbUrls && previousThumbUrls !== state.thumbUrls) revokeThumbUrls(previousThumbUrls);

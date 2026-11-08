@@ -140,20 +140,23 @@ export function setDaySwipePage(root, html, opts = {}) {
 
 export function setDaySwipeNeighbor(root, which, html, opts = {}) {
   const page = root.querySelector(`[data-page="${which}"]`);
-  if (!page) return;
+  if (!page) return false;
   const day = opts.day || "";
-  if (day && page.dataset.swipeDay === day && page.dataset.live === "1" && page.childElementCount) return;
+  const keepLive =
+    !opts.force && day && page.dataset.swipeDay === day && page.dataset.live === "1" && page.childElementCount;
+  if (keepLive) return false;
   if (!html) {
     page.innerHTML = "";
     page.dataset.swipeDay = "";
     page.dataset.live = "0";
-    return;
+    return true;
   }
   page.innerHTML = html;
   page.dataset.swipeDay = day;
   page.dataset.live = "0";
   page.scrollTop = 0;
   stashTestIds(page);
+  return true;
 }
 
 export function installDaySwipe(root, onShift, hooks = {}) {

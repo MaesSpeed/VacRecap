@@ -62,6 +62,47 @@ function seedSwipeTrip(state) {
       created_by: USER,
     });
   }
+  const photos = [
+    ["m-mon", "sw-alpha", FIRST],
+    ["m-thu", "sw-epsilon", DAYS[3]],
+  ];
+  for (const [id, placeId, day] of photos) {
+    state.media.push({
+      id,
+      trip_id: TRIP,
+      waypoint_id: placeId,
+      day,
+      taken_at: `${day}T12:00:00.000Z`,
+      kind: "photo",
+      storage_path: `orig/${id}.jpg`,
+      thumb_path: `${id}.jpg`,
+      mime: "image/jpeg",
+      upload_status: "uploaded",
+      deleted_at: null,
+      created_at: `${day}T12:00:00.000Z`,
+      updated_at: `${day}T12:00:00.000Z`,
+      created_by: USER,
+    });
+  }
+}
+
+function allowMediaMove(state) {
+  const rest = state.handleRest.bind(state);
+  state.handleRest = async (url, method, body, headers) => {
+    const table = url.pathname.split("/").filter(Boolean).pop();
+    if (table === "media" && method === "PATCH") {
+      const id = (url.searchParams.get("id") || "").replace(/^eq\./, "");
+      const row = state.media.find((item) => item.id === id);
+      if (!row) return { status: 406, json: { message: "0 rows" } };
+      const expected = (url.searchParams.get("updated_at") || "").replace(/^eq\./, "");
+      if (expected && row.updated_at && expected !== row.updated_at) return { status: 200, json: [] };
+      Object.assign(row, JSON.parse(body || "{}"));
+      row.updated_at = new Date().toISOString();
+      const accept = headers.accept || "";
+      return { status: 200, json: accept.includes("application/vnd.pgrst.object+json") ? row : [row] };
+    }
+    return rest(url, method, body, headers);
+  };
 }
 
 function iphoneContext() {
@@ -226,6 +267,7 @@ async function runSuite(browserType, baseUrl, label) {
   await installGestureHelpers(page);
   const state = createMockSupabaseState();
   seedSwipeTrip(state);
+  allowMediaMove(state);
   await installSupabaseMocks(page, state);
   const meter = meterFor(page);
 
@@ -430,6 +472,86 @@ async function runSuite(browserType, baseUrl, label) {
   assert(vertical.day === DAYS[4], `${label}: vertikaler Zug wechselt den Tag`);
   assert(Math.abs(vertical.afterX - vertical.beforeX) < 4, `${label}: vertikaler Zug verschiebt die Seite`);
   assert(vertical.scrollTop >= 40, `${label}: Tagesseite scrollt nicht vertikal`);
+
+  await page.locator(`.day-chip[data-day="${FIRST}"]`).click();
+  await page.waitForFunction(
+    (iso) => document.querySelector("[data-page='current']")?.dataset.swipeDay === iso,
+    FIRST
+  );
+  await page.locator("[data-page='current'] [data-place-id='sw-alpha']").click();
+  await page.waitForSelector("[data-page='current'] .oc--selected[data-place-id='sw-alpha'] [data-testid='photo-select-start']");
+  await page.locator("[data-page='current'] [data-testid='photo-select-start']").click();
+  await page.waitForSelector("[data-page='current'] [data-testid='photo-select-bar']");
+  await page.locator("[data-page='current'] [data-testid='place-photo'][data-media-id='m-mon']").click();
+  await page.waitForFunction(
+    () => (document.querySelector("[data-page='current'] [data-testid='photo-select-count']")?.textContent || "").includes("1 ausgewählt")
+  );
+  for (let step = 1; step <= 3; step += 1) {
+    await page.waitForFunction(() => {
+      const root = document.querySelector('[data-testid="trip-content"]');
+      return root?.dataset.swipeLock !== "1" && root?.dataset.gesture !== "1";
+    });
+    await page.evaluate(() => window.__swipeDay(-180));
+    await page.waitForFunction(
+      (iso) => document.querySelector('[data-testid="trip-content"]')?.dataset.activeDay === iso,
+      DAYS[step]
+    );
+  }
+  const leaked = await page.evaluate(() => {
+    const root = document.querySelector('[data-testid="trip-content"]');
+    const current = document.querySelector("[data-page='current']");
+    return {
+      day: root?.dataset.activeDay || "",
+      selecting: root?.dataset.photoSelecting || "",
+      bar: current?.querySelector("[data-testid='photo-select-bar']")?.textContent || "",
+    };
+  });
+  assert(leaked.day === DAYS[3], `${label}: dritter Wisch landet auf ${leaked.day}`);
+  assert(leaked.selecting !== "1", `${label}: Auswahl vom ersten Tag ist auf einem anderen Tag an`);
+  assert(!leaked.bar.includes("ausgewählt"), `${label}: alte Auswahl steht auf dem neuen Tag (${leaked.bar})`);
+  await page.locator("[data-page='current'] [data-testid='photo-select-start']").click();
+  await page.waitForSelector("[data-page='current'] [data-testid='photo-select-bar']");
+  await page.locator("[data-page='current'] [data-testid='place-photo'][data-media-id='m-thu']").click();
+  const count = await page.locator("[data-page='current'] [data-testid='photo-select-count']").innerText();
+  assert(count.includes("1 ausgewählt"), `${label}: neues Foto zählt die alte Auswahl mit (${count})`);
+  assert(!count.includes("2 ausgewählt"), `${label}: Zähler ist ${count}`);
+  await page.locator("[data-page='current'] [data-testid='photo-select-exit']").click();
+  await page.waitForSelector("[data-page='current'] [data-testid='photo-select-bar']", { state: "detached" });
+
+  await page.locator(`.day-chip[data-day="${DAYS[1]}"]`).click();
+  await page.waitForFunction(
+    (iso) => document.querySelector("[data-page='current']")?.dataset.swipeDay === iso,
+    DAYS[1]
+  );
+  await page.waitForFunction(() => {
+    const root = document.querySelector('[data-testid="trip-content"]');
+    return root?.dataset.swipeLock !== "1" && root?.dataset.canPrev === "1";
+  });
+  await page.evaluate(() => window.__swipeDay(180));
+  await page.waitForFunction(
+    (iso) => document.querySelector("[data-page='current']")?.dataset.swipeDay === iso,
+    FIRST
+  );
+  await page.locator("[data-page='current'] [data-place-id='sw-alpha']").click();
+  await page.waitForSelector("[data-page='current'] .oc--selected[data-place-id='sw-alpha'] [data-testid='photo-select-start']");
+  await page.locator("[data-page='current'] [data-testid='photo-select-start']").click();
+  await page.locator("[data-page='current'] [data-testid='place-photo'][data-media-id='m-mon']").click();
+  await page.locator("[data-page='current'] [data-testid='photo-move']").click();
+  await page.waitForSelector('[data-testid="photo-move-sheet"]');
+  await page.locator(`[data-move-day="${DAYS[1]}"]`).click();
+  await page.locator('[data-move-place="sw-gamma"]').click();
+  await page.waitForSelector('[data-testid="app-toast"]');
+  await page.waitForFunction(() => {
+    const root = document.querySelector('[data-testid="trip-content"]');
+    return root?.dataset.swipeLock !== "1" && root?.dataset.gesture !== "1";
+  });
+  await page.evaluate(() => window.__swipeDay(-180));
+  await page.waitForFunction(
+    (iso) => document.querySelector("[data-page='current']")?.dataset.swipeDay === iso,
+    DAYS[1]
+  );
+  const movedVisible = await page.locator("[data-page='current'] [data-testid='place-photo'][data-media-id='m-mon']").count();
+  assert(movedVisible > 0, `${label}: verschobenes Foto fehlt auf der schon besuchten Seite`);
 
   const realErrors = errors.filter((err) => !/access control checks/i.test(err));
   assert(realErrors.length === 0, `${label}: ${realErrors[0]}`);

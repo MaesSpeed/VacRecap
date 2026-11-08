@@ -465,9 +465,9 @@ async function runSuite(browserType, baseUrl, label) {
       );
     }
   });
-  await page.waitForSelector(".oc--selected", { timeout: 15_000 });
-  const placeId = await page.locator(".oc--selected").getAttribute("data-place-id");
-  const placeName = (await page.locator(".oc--selected .oc__title").innerText()).trim();
+  await page.waitForSelector("[data-page='current'] .oc--selected", { timeout: 15_000 });
+  const placeId = await page.locator("[data-page='current'] .oc--selected").getAttribute("data-place-id");
+  const placeName = (await page.locator("[data-page='current'] .oc--selected .oc__title").innerText()).trim();
 
   await page.evaluate(
     async ({ placeId }) => {
@@ -492,8 +492,9 @@ async function runSuite(browserType, baseUrl, label) {
   await waitForTripSettled(page);
   const noteStyles = await page
     .waitForFunction(() => {
-      const add = document.querySelector(".oc--selected [data-action='add-note']");
-      const more = document.querySelector(".oc--selected [data-action='expand-notes']");
+      const current = document.querySelector("[data-page='current']");
+      const add = current?.querySelector(".oc--selected [data-action='add-note']");
+      const more = current?.querySelector(".oc--selected [data-action='expand-notes']");
       if (!add || !more) return null;
       const a = getComputedStyle(add);
       const m = getComputedStyle(more);
