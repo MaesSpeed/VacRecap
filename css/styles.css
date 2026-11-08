@@ -1464,6 +1464,7 @@ body {
   min-width: 0;
   padding: 4px 14px;
   position: relative;
+  touch-action: pan-x;
 }
 
 .day-chips {
@@ -1471,12 +1472,14 @@ body {
   gap: 8px;
   width: 100%;
   overflow-x: auto;
+  overflow-y: hidden;
   padding: 4px 0;
   position: relative;
   z-index: 1;
   background: transparent;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
+  touch-action: pan-x;
 }
 
 .day-chips--fill .day-chip {

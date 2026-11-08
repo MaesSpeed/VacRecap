@@ -66,26 +66,94 @@ function ensureStructure(root) {
   }
 }
 
+function stashTestIds(page) {
+  if (!page) return;
+  for (const el of page.querySelectorAll("[data-testid]")) {
+    el.setAttribute("data-testid-hold", el.getAttribute("data-testid"));
+    el.removeAttribute("data-testid");
+  }
+}
+
+function restoreTestIds(page) {
+  if (!page) return;
+  for (const el of page.querySelectorAll("[data-testid-hold]")) {
+    el.setAttribute("data-testid", el.getAttribute("data-testid-hold"));
+    el.removeAttribute("data-testid-hold");
+  }
+}
+
+function tagPage(page, role) {
+  page.dataset.page = role;
+  page.classList.toggle("day-swipe__page--current", role === "current");
+  if (role === "current") {
+    page.removeAttribute("aria-hidden");
+    restoreTestIds(page);
+  } else {
+    page.setAttribute("aria-hidden", "true");
+    stashTestIds(page);
+  }
+}
+
+/** Nimmt die vorbereitete Nachbarseite als aktuelle Seite, ohne innerHTML zu kopieren. */
+function adoptDaySwipePage(root, dir) {
+  const track = trackOf(root);
+  if (!track) return false;
+  const prev = track.querySelector("[data-page='prev']");
+  const current = track.querySelector("[data-page='current']");
+  const next = track.querySelector("[data-page='next']");
+  if (!prev || !current || !next) return false;
+  const incoming = dir > 0 ? next : prev;
+  const ready = Boolean(incoming.dataset.swipeDay) && incoming.childElementCount > 0;
+  if (dir > 0) {
+    tagPage(current, "prev");
+    tagPage(next, "current");
+    tagPage(prev, "next");
+    track.appendChild(prev);
+  } else {
+    tagPage(next, "prev");
+    tagPage(prev, "current");
+    tagPage(current, "next");
+    track.insertBefore(next, track.firstChild);
+  }
+  return ready;
+}
+
 export function setDaySwipePage(root, html, opts = {}) {
   ensureStructure(root);
   const page = root.querySelector("[data-page='current']");
   const track = trackOf(root);
   const gesturing = root.dataset.gesture === "1";
+  const locked = root.dataset.swipeLock === "1";
   const scrollTop = page && (gesturing || opts.keepScroll) ? page.scrollTop : 0;
   if (page) {
     page.innerHTML = html;
+    if (opts.day) page.dataset.swipeDay = opts.day;
+    page.dataset.live = "0";
     page.scrollTop = scrollTop;
   }
-  if (track && !gesturing) {
+  if (track && !gesturing && !locked) {
     track.style.transition = "none";
     track.style.transform = REST;
     root.dataset.swipeLock = "0";
   }
 }
 
-export function setDaySwipeNeighbor(root, which, html) {
+export function setDaySwipeNeighbor(root, which, html, opts = {}) {
   const page = root.querySelector(`[data-page="${which}"]`);
-  if (page) page.innerHTML = html || "";
+  if (!page) return;
+  const day = opts.day || "";
+  if (day && page.dataset.swipeDay === day && page.dataset.live === "1" && page.childElementCount) return;
+  if (!html) {
+    page.innerHTML = "";
+    page.dataset.swipeDay = "";
+    page.dataset.live = "0";
+    return;
+  }
+  page.innerHTML = html;
+  page.dataset.swipeDay = day;
+  page.dataset.live = "0";
+  page.scrollTop = 0;
+  stashTestIds(page);
 }
 
 export function installDaySwipe(root, onShift, hooks = {}) {
@@ -160,7 +228,14 @@ export function installDaySwipe(root, onShift, hooks = {}) {
     document.addEventListener("touchmove", docMove, { passive: false });
   };
 
-  const onStart = (x, y) => {
+  const onChipBar = (event) => {
+    const target = event?.target;
+    if (!target || typeof target.closest !== "function") return false;
+    return Boolean(target.closest(".day-chips, [data-role='chips'], .day-nav"));
+  };
+
+  const onStart = (x, y, event) => {
+    if (onChipBar(event)) return;
     if (root.dataset.swipeLock === "1") return;
     if (!root.isConnected) return;
     const track = trackOf(root);
@@ -196,7 +271,7 @@ export function installDaySwipe(root, onShift, hooks = {}) {
       }
     }
     if (mode !== "h") return;
-    if (event?.pointerType && event.cancelable) event.preventDefault();
+    if (event?.cancelable) event.preventDefault();
     const now = performance.now();
     const dt = now - lastT;
     if (dt >= 16) {
@@ -240,11 +315,17 @@ export function installDaySwipe(root, onShift, hooks = {}) {
       return;
     }
     hooks.onCommit?.(dir);
-    if (reduce) {
+    const swapIn = () => {
+      hooks.beforeSwap?.();
+      adoptDaySwipePage(root, dir);
+      hooks.afterSwap?.();
       track.style.transition = "none";
       track.style.transform = REST;
       onShift(dir);
       hooks.onRest?.();
+    };
+    if (reduce) {
+      swapIn();
       return;
     }
     root.dataset.swipeLock = "1";
@@ -260,16 +341,8 @@ export function installDaySwipe(root, onShift, hooks = {}) {
       settle.timer = 0;
       if (settle.onEnd) track.removeEventListener("transitionend", settle.onEnd);
       settle.onEnd = null;
-      const incoming = root.querySelector(`[data-page="${dir > 0 ? "next" : "prev"}"]`);
-      const current = root.querySelector("[data-page='current']");
-      if (incoming && current && incoming.innerHTML.trim()) current.innerHTML = incoming.innerHTML;
-      hooks.onRest?.();
-      track.style.transition = "none";
-      track.style.transform = REST;
-      onShift(dir);
-      setTimeout(() => {
-        if (root.isConnected && root.dataset.swipeLock === "1") root.dataset.swipeLock = "0";
-      }, 900);
+      swapIn();
+      if (root.isConnected) root.dataset.swipeLock = "0";
     };
     const onEnd = (ev) => {
       if (ev.propertyName !== "transform") return;
@@ -277,14 +350,14 @@ export function installDaySwipe(root, onShift, hooks = {}) {
     };
     settle.onEnd = onEnd;
     track.addEventListener("transitionend", onEnd);
-    settle.timer = setTimeout(done, 420);
+    settle.timer = setTimeout(done, DAY_SWIPE_MS + 60);
   };
 
   root.addEventListener(
     "touchstart",
     (e) => {
       if (e.touches.length !== 1) return;
-      onStart(e.touches[0].clientX, e.touches[0].clientY);
+      onStart(e.touches[0].clientX, e.touches[0].clientY, e);
     },
     { passive: true }
   );
@@ -295,7 +368,7 @@ export function installDaySwipe(root, onShift, hooks = {}) {
       if (!tracking || e.touches.length !== 1) return;
       onMove(e.touches[0].clientX, e.touches[0].clientY, e);
     },
-    { passive: true }
+    { passive: false }
   );
 
   root.addEventListener("touchend", (e) => {
@@ -319,7 +392,7 @@ export function installDaySwipe(root, onShift, hooks = {}) {
 
   root.addEventListener("pointerdown", (e) => {
     if (e.pointerType === "touch" || e.button !== 0) return;
-    onStart(e.clientX, e.clientY);
+    onStart(e.clientX, e.clientY, e);
   });
   root.addEventListener("pointermove", (e) => {
     if (e.pointerType === "touch") return;
