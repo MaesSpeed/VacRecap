@@ -312,6 +312,10 @@ export function createMockSupabaseState() {
       else if (value === "not.is.null") out = out.filter((row) => row[key] != null);
       else if (value.startsWith("eq.")) out = out.filter((row) => String(row[key]) === value.slice(3));
       else if (value.startsWith("neq.")) out = out.filter((row) => String(row[key]) !== value.slice(4));
+      else if (value.startsWith("in.(") && value.endsWith(")")) {
+        const set = new Set(value.slice(4, -1).split(","));
+        out = out.filter((row) => set.has(String(row[key])));
+      }
     }
     return out;
   }

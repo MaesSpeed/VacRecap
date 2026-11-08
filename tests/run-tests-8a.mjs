@@ -134,6 +134,9 @@ function createMockSupabaseState() {
           return { status: 201, json: [upsertRow(waypoints, row, { deleted_at: null })] };
         }
       }
+      if (table === "media" && method === "GET") {
+        return { status: 200, json: [] };
+      }
       if (table === "notes") {
         if (method === "GET") {
           const wpRaw = url.searchParams.get("waypoint_id");
@@ -141,7 +144,10 @@ function createMockSupabaseState() {
           const day = qp(url, "day");
           let rows = notes.filter((n) => !n.deleted_at);
           if (wpRaw === "is.null") rows = rows.filter((n) => n.waypoint_id == null);
-          else if (wpRaw) rows = rows.filter((n) => n.waypoint_id === wpRaw.replace(/^eq\./, ""));
+          else if (wpRaw?.startsWith("in.(") && wpRaw.endsWith(")")) {
+            const set = new Set(wpRaw.slice(4, -1).split(","));
+            rows = rows.filter((n) => set.has(n.waypoint_id));
+          } else if (wpRaw) rows = rows.filter((n) => n.waypoint_id === wpRaw.replace(/^eq\./, ""));
           if (tripId) rows = rows.filter((n) => n.trip_id === tripId);
           if (day) rows = rows.filter((n) => String(n.day).slice(0, 10) === day.slice(0, 10));
           return { status: 200, json: rows };
@@ -160,6 +166,14 @@ function createMockSupabaseState() {
           Object.assign(n, row, { updated_at: new Date().toISOString() });
           return { status: 200, json: [n] };
         }
+      }
+      if (table === "waypoints" && method === "PATCH") {
+        const id = qp(url, "id");
+        const row = JSON.parse(body || "{}");
+        const w = waypoints.find((x) => x.id === id);
+        if (!w) return { status: 406, json: { code: "PGRST116", message: "0 rows" } };
+        Object.assign(w, row, { updated_at: new Date().toISOString() });
+        return { status: 200, json: [w] };
       }
       return { status: 404, json: { message: "not found" } };
     },
@@ -471,6 +485,7 @@ async function runSuite(browserType, baseUrl, label) {
         });
         await new Promise((r) => setTimeout(r, 20));
       }
+      window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
     },
     { placeId }
   );
@@ -712,6 +727,7 @@ async function runSuite(browserType, baseUrl, label) {
         ts: Date.now(),
       });
     }
+    window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
   });
   await page.click('[data-day="2026-11-07"]');
   await page.click('[data-day="2026-11-06"]');

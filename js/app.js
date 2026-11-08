@@ -1,8 +1,8 @@
-import { getSession, onAuthStateChange } from "./auth-service.js";
+import { getSession, onAuthStateChange, syncAuthFromSession } from "./auth-service.js";
 import { flushPendingMediaPurges, getAllVacations } from "./db.js";
 import { installGestureGuards } from "./gesture-guard.js";
 import { runLegacyCleanup } from "./legacy-cleanup.js";
-import { isOfflineReadOnly, setCacheUserId, setOfflineReadOnly } from "./local-cache.js";
+import { isOfflineReadOnly, setOfflineReadOnly } from "./local-cache.js";
 import { getRoute, navigate, onRouteChange, startRouter } from "./router.js";
 import { renderLoginScreen } from "./ui-login.js";
 import { renderUrlaubDetail } from "./ui-urlaub-detail.js";
@@ -14,14 +14,17 @@ import { renderUrlaubSettings } from "./ui-urlaub-settings.js";
 import { renderUrlaubForm } from "./ui-urlaub-form.js";
 import { renderUrlaubeScreen } from "./ui-urlaube.js";
 import { installVisualViewportKeyboard } from "./visual-viewport.js";
-import { dismissOverlayOnly, initOverlayHistory } from "./overlay-stack.js";
+import { dismissOverlayOnly, initOverlayHistory, stripOverlayHistoryState } from "./overlay-stack.js";
 import { installToastPositionSync, showWarnToast } from "./toast.js";
 import { CloudNetworkError, CloudOfflineError } from "./cloud-errors.js";
+import { StaleDataScopeError } from "./data-scope.js";
 
 const appEl = document.getElementById("app");
 
 let renderGeneration = 0;
 let renderCoalescePending = false;
+let renderQueued = false;
+let renderChain = Promise.resolve();
 let appStarted = false;
 let loadErrorShown = false;
 let hasRenderedScreen = false;
@@ -70,7 +73,6 @@ async function renderNow() {
   const gen = ++renderGeneration;
   if (appEl) appEl.dataset.appRenderGen = String(gen);
 
-  const route = getRoute();
   let vacations = [];
   try {
     vacations = await getAllVacations();
@@ -78,11 +80,15 @@ async function renderNow() {
     if (err instanceof CloudOfflineError) {
       setOfflineReadOnly(true);
       vacations = await getAllVacations();
+    } else if (err instanceof StaleDataScopeError) {
+      vacations = await getAllVacations();
     } else {
       throw err;
     }
   }
   if (appEl?.dataset.appRenderGen !== String(gen)) return;
+
+  const route = getRoute();
 
   if (appEl?._mapCleanup) {
     appEl._mapCleanup();
@@ -129,21 +135,26 @@ async function renderNow() {
 }
 
 function scheduleRender() {
+  renderQueued = true;
   if (renderCoalescePending) return;
   renderCoalescePending = true;
   queueMicrotask(() => {
     renderCoalescePending = false;
-    void renderNow().catch((err) => {
-      if (err instanceof CloudOfflineError) {
-        showWarnToast(err.message);
-        return;
-      }
-      if (hasRenderedScreen) {
-        showWarnToast("Neu laden hat nicht geklappt. Bitte gleich nochmal versuchen.");
-        return;
-      }
-      renderCloudLoadError(scheduleRender, err);
-    });
+    if (!renderQueued) return;
+    renderQueued = false;
+    renderChain = renderChain
+      .then(() => renderNow())
+      .catch((err) => {
+        if (err instanceof CloudOfflineError) {
+          showWarnToast(err.message);
+          return;
+        }
+        if (hasRenderedScreen) {
+          showWarnToast("Neu laden hat nicht geklappt. Bitte gleich nochmal versuchen.");
+          return;
+        }
+        renderCloudLoadError(scheduleRender, err);
+      });
   });
 }
 
@@ -151,15 +162,18 @@ async function startApp() {
   if (appStarted) return;
   appStarted = true;
   const session = await getSession();
-  if (session?.user?.id) setCacheUserId(session.user.id);
+  if (session) syncAuthFromSession(session);
   onRouteChange(() => {
     dismissOverlayOnly();
+    stripOverlayHistoryState();
     scheduleRender();
   });
   startRouter();
   window.addEventListener("vacrecap:data-changed", () => {
     if (document.querySelector("[data-testid='cover-sheet']")) return;
     if (document.getElementById("app")?.dataset.formSaving === "1") return;
+    const route = getRoute();
+    if (route.name === "urlaub-form") return;
     scheduleRender();
   });
   window.addEventListener("online", () => {
@@ -185,12 +199,12 @@ async function boot() {
   if (!session) {
     renderLoginScreen(appEl, () => startApp());
     onAuthStateChange((s) => {
-      if (s?.user?.id) setCacheUserId(s.user.id);
+      syncAuthFromSession(s);
       if (s) startApp();
     });
     return;
   }
-  setCacheUserId(session.user.id);
+  syncAuthFromSession(session);
   startApp();
 }
 

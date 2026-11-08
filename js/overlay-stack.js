@@ -124,6 +124,14 @@ export function dismissOverlayOnly() {
   syncToastRootPosition();
 }
 
+/** Drop overlay history markers without navigating back (programmatic route changes). */
+export function stripOverlayHistoryState() {
+  if (!history.state?.vacrecapOverlay) return;
+  const next = { ...history.state };
+  delete next.vacrecapOverlay;
+  history.replaceState(Object.keys(next).length ? next : null, "", window.location.href);
+}
+
 export function releaseOverlayHistory(closeFn) {
   if (activeClose === closeFn) {
     activeClose = closeStack.pop() ?? null;

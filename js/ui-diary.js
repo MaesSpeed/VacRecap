@@ -460,10 +460,11 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
     const textarea = main.querySelector('[data-testid="diary-source"]');
     const action = main.querySelector('[data-testid="diary-action"]');
     let seenRemote = serverUpdatedAt || "";
-    textarea.value = clampDiaryText(
+    const seededText = clampDiaryText(
       seededDiaryText(tripId, initial || "", serverUpdatedAt || "", serverUpdatedBy || "", myUserId || "")
     );
-    let lastSaved = textarea.value;
+    textarea.value = seededText;
+    let lastSaved = seededText;
     let saveTimer = 0;
     let holdConflict = false;
     const stopDiaryPresence = watchPresence(tripId, "diary", (rows) => {
@@ -516,7 +517,7 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
     };
     if (readDiaryLocal(tripId)?.pending) {
       showSavedLocally(true);
-      lastSaved = `\0${textarea.value}`;
+      lastSaved = textarea.value;
       scheduleDiarySave();
     }
 
