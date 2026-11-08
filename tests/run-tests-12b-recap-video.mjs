@@ -4,7 +4,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, webkit, devices } from "playwright";
 import { P, fmt, plan } from "../js/recap-duration.js";
-import { buildVideoRecap } from "../js/recap-storyboard.js";
+import { dayMapPoints, dayMapSvg } from "../js/recap-daymap.js";
+import { buildVideoRecap, dayMapCaption } from "../js/recap-storyboard.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
@@ -69,21 +70,127 @@ function runFormulaUnitTests() {
   assert(small.photosUsed === 8, `klein Fotos ${small.photosUsed}`);
   assert(small.seconds === P.minS, `klein Sekunden ${small.seconds}`);
   const big = plan(Array.from({ length: 30 }, (_, i) => ({ photos: 13 + (i < 10 ? 1 : 0), notes: i < 10 ? 2 : 1 })));
-  assert(big.photosPerPlace === 1, `groß Fotos je Ort ${big.photosPerPlace}`);
-  assert(big.label === "ca. 2:30 min", big.label);
-  assert(big.seconds === P.maxS, `groß Sekunden ${big.seconds}`);
+  assert(big.photosPerPlace === 3, `groß Fotos je Ort ${big.photosPerPlace}`);
+  assert(big.label === "ca. 4:05 min", big.label);
+  assert(big.seconds === 246, `groß Sekunden ${big.seconds}`);
+  assert(big.seconds > 150, `150-s-Deckel ist noch aktiv (${big.seconds})`);
   const few = plan([{ photos: 3, notes: 0 }]);
   assert(few.ok === false && few.reason === "too-few-photos", "zu wenig");
   const built = buildVideoRecap(materialFrom(PLACES));
-  assert(built.ok && built.content.seconds === 78, "Storyboard 78");
+  assert(built.ok && built.content.seconds === 78 + 5 * P.dayMapS, `Storyboard ${built.content.seconds}`);
   assert(built.content.counts.photos === 86 && built.content.counts.places === 9 && built.content.counts.notes === 12, "Zählung");
-  assert(built.content.scenes.length === 11, "11 Szenen");
+  assert(built.content.scenes.length === 16, `${built.content.scenes.length} Szenen`);
   assert(built.content.scenes[0].type === "title" && built.content.scenes[0].seconds === 3, "Titel");
-  assert(built.content.scenes[1].seconds === 9 && built.content.scenes[1].note_ids.length === 2, "Navene");
-  assert(built.content.scenes[2].seconds === 7.5 && built.content.scenes[2].media_ids.length === 3, "Hafen");
+  assertDayMaps(built.content.scenes);
+  const navene = built.content.scenes.find((scene) => scene.waypoint_id === "p-navene");
+  const hafen = built.content.scenes.find((scene) => scene.waypoint_id === "p-hafen");
+  assert(navene.seconds === 9 && navene.note_ids.length === 2, "Navene");
+  assert(hafen.seconds === 7.5 && hafen.media_ids.length === 3, "Hafen");
+  assert(built.content.scenes[1].type === "daymap" && built.content.scenes[1].date === "2025-06-16", "erste Tageskarte");
+  assert(built.content.scenes[2].waypoint_id === "p-navene", "Navene folgt der Tageskarte");
   assert(built.content.scenes.at(-1).type === "outro", "Schluss");
   assert(buildVideoRecap(materialFrom([["p", "Ort", "2025-06-16", 3, 0]])).ok === false, "Leerzustand");
+  const longRows = Array.from({ length: 30 }, (_, i) => {
+    const day = new Date(Date.UTC(2025, 0, 1 + i)).toISOString().slice(0, 10);
+    return [`q${i}`, `Ort ${i + 1}`, day, 6, 0];
+  });
+  const longPlan = plan(longRows.map(() => ({ photos: 6, notes: 0 })));
+  const longBuilt = buildVideoRecap(materialFrom(longRows));
+  assert(longPlan.seconds > 150, `langer Plan noch gedeckelt ${longPlan.seconds}`);
+  assert(longBuilt.content.scenes.filter((scene) => scene.type === "daymap").length === 30, "30 Tageskarten");
+  assert(longBuilt.content.seconds === longPlan.seconds + 30 * P.dayMapS, `Tageskarten fehlen ${longBuilt.content.seconds}`);
+  const sameDay = buildVideoRecap(materialFrom([
+    ["a", "A", "2025-06-16", 6, 0],
+    ["b", "B", "2025-06-16", 6, 0],
+  ]));
+  const nextDay = buildVideoRecap(materialFrom([
+    ["a", "A", "2025-06-16", 6, 0],
+    ["b", "B", "2025-06-17", 6, 0],
+  ]));
+  assert(nextDay.content.seconds === sameDay.content.seconds + P.dayMapS, "jede weitere Tageskarte +3 s");
+  const withTitle = dayMapCaption("Mo 26.10.", "Anreise", 5);
+  assert(withTitle.title === "Tageskarte · Mo 26.10." && withTitle.subtitle === "Anreise · 5 Orte", withTitle.subtitle);
+  const bare = dayMapCaption("Di 27.10.", "", 5);
+  assert(bare.subtitle === "5 Orte", bare.subtitle);
+  assert(dayMapCaption("Di 17.06.", "2. Tag", 2).subtitle === "2 Orte", "Tag ohne Titel");
+  assert(dayMapCaption("Fr 20.06.", "Abreise", 1).subtitle === "Abreise · 1 Ort", "Abreise");
+  assert(dayMapCaption("", "", 1).title === "Tageskarte" && dayMapCaption("", "", 1).subtitle === "1 Ort", "ein Ort");
+  const mapped = dayMapPoints([
+    { lat: 45.8, lng: 10.8 },
+    { lat: null, lng: null },
+    { lat: 45.82, lng: 10.83 },
+  ]);
+  assert(mapped.length === 2 && mapped[0].n === 1 && mapped[1].n === 3, `Pins ${JSON.stringify(mapped)}`);
+  assert(mapped.every((point) => point.lat !== 0 || point.lng !== 0), "Nullinsel");
+  assert(dayMapPoints([{ lat: null, lng: 10.8 }, { lat: undefined, lng: undefined }, {}]).length === 0, "Tag ohne Koordinaten");
+  const fitted = dayMapSvg(mapped, "#1F6DB5", { width: 340, height: 180 });
+  assert(fitted.includes(">1<") && fitted.includes(">3<") && !fitted.includes(">2<"), "Besuchsnummer bleibt");
+  const island = dayMapSvg(
+    [
+      { lat: 45.8, lng: 10.8, n: 1 },
+      { lat: 0, lng: 0, n: 2 },
+      { lat: 45.82, lng: 10.83, n: 3 },
+    ],
+    "#1F6DB5",
+    { width: 340, height: 180 }
+  );
+  const near = pinGap(fitted);
+  const squeezed = Math.min(...pinGaps(island));
+  assert(near > squeezed * 3, `Karte nicht zugeschnitten (${near} gegen ${squeezed})`);
+  assert(dayMapSvg([], "#1F6DB5") === "", "leere Karte");
+  const svg = dayMapSvg(
+    [
+      { lat: 45.8, lng: 10.8 },
+      { lat: 45.81, lng: 10.82 },
+    ],
+    "#1F6DB5",
+    { width: 340, height: 180 }
+  );
+  assert((svg.match(/<circle /g) || []).length === 2, "zwei Pins");
+  assert(svg.includes(">1<") && svg.includes(">2<"), "Pin-Nummern");
+  assert(svg.includes('fill="#1F6DB5"') && svg.includes('stroke="#fff"'), "Pin-Farbe");
+  assert(svg.includes('stroke-dasharray="6 5"'), "gestrichelte Linie");
+  assert(svg.includes('stroke="#fff" stroke-width="5"'), "weißer Hof");
+  assert(!svg.includes("__recapFrames"), "kein Debug-Global");
   console.log("Dauerformel-Unit-Tests grün");
+}
+
+function pinGaps(svg) {
+  const pins = [...svg.matchAll(/translate\(([-\d.]+) ([-\d.]+)\)/g)].map((match) => ({
+    x: Number(match[1]),
+    y: Number(match[2]),
+  }));
+  const gaps = [];
+  for (let i = 0; i < pins.length; i += 1) {
+    for (let j = i + 1; j < pins.length; j += 1) {
+      gaps.push(Math.hypot(pins[i].x - pins[j].x, pins[i].y - pins[j].y));
+    }
+  }
+  return gaps;
+}
+
+function pinGap(svg) {
+  return Math.max(0, ...pinGaps(svg));
+}
+
+function assertDayMaps(scenes) {
+  let current = null;
+  const days = [];
+  scenes.forEach((scene, index) => {
+    if (scene.type !== "place") return;
+    if (scene.date !== current) {
+      const prev = scenes[index - 1];
+      assert(prev?.type === "daymap" && prev.date === scene.date, `Tageskarte fehlt vor ${scene.date}`);
+      assert(prev.seconds === P.dayMapS, `Tageskarte ${prev.seconds} s`);
+      assert(prev.waypoint_ids?.[0] === scene.waypoint_id, "erster Pin");
+      current = scene.date;
+      days.push(scene.date);
+      return;
+    }
+    assert(scenes[index - 1]?.type !== "daymap", "Tageskarte mitten im Tag");
+  });
+  const maps = scenes.filter((scene) => scene.type === "daymap");
+  assert(maps.length === days.length, `${maps.length} Tageskarten, ${days.length} Tage`);
 }
 
 function materialFrom(rows) {
@@ -539,29 +646,86 @@ async function runFlows(page, state, label) {
   const formula = await page.locator('[data-testid="recap-formula-line"]').innerText();
   const kicker = await page.locator('[data-testid="recap-kicker"]').innerText();
   const startwert = await page.locator('[data-testid="recap-startwert"]').innerText();
-  assert(duration.includes("ca. 1:20 min"), `${label}: Dauer «${duration}»`);
+  assert(duration.includes("ca. 1:35 min"), `${label}: Dauer «${duration}»`);
   assert(startwert.includes("Startwert"), `${label}: Etikett fehlt`);
   assert(counts.includes("86 Fotos") && counts.includes("9 Orten") && counts.includes("12 Notizen"), `${label}: ${counts}`);
   assert(formula.includes("27 Fotos im Video") && formula.includes("1,5 s je Foto"), `${label}: ${formula}`);
-  assert(kicker.includes("Entwurf 1") && kicker.includes("11 Szenen"), `${label}: ${kicker}`);
+  assert(kicker.includes("Entwurf 1") && kicker.includes("16 Szenen"), `${label}: ${kicker}`);
   const scenes = await page.locator('[data-testid="recap-scene"]').allInnerTexts();
   assert(scenes.length === 5, `${label}: ${scenes.length} Szenen sichtbar`);
-  assert(scenes[1].includes("Navene") && scenes[1].includes("9 s") && scenes[1].includes("2 Notizen"), `${label}: ${scenes[1]}`);
-  assert(scenes[2].includes("Hafen Malcesine") && scenes[2].includes("7,5 s"), `${label}: ${scenes[2]}`);
-  const more = await page.locator('[data-testid="recap-more"]').innerText();
-  assert(more.includes("Monte Baldo") && more.includes("Riva del Garda") && more.includes("Schluss"), `${label}: ${more}`);
+  assert(
+    scenes[1].includes("Tageskarte") &&
+      scenes[1].includes("Mo 16.06.") &&
+      scenes[1].includes("Anreise · 1 Ort") &&
+      scenes[1].includes("3 s"),
+    `${label}: ${scenes[1]}`
+  );
+  assert(scenes[2].includes("Navene") && scenes[2].includes("9 s") && scenes[2].includes("2 Notizen"), `${label}: ${scenes[2]}`);
+  assert(
+    scenes[3].includes("Tageskarte") && scenes[3].includes("2 Orte") && !scenes[3].includes("2. Tag"),
+    `${label}: ${scenes[3]}`
+  );
+  assert(scenes[4].includes("Hafen Malcesine") && scenes[4].includes("7,5 s"), `${label}: ${scenes[4]}`);
+  const dayMaps = page.locator('[data-kind="tageskarte"]');
+  assert((await dayMaps.count()) === 2, `${label}: Tageskarten in der Kurzlist`);
+  assert((await dayMaps.nth(0).locator("circle").count()) === 1, `${label}: Anreise-Pins`);
+  assert((await dayMaps.nth(1).locator("circle").count()) === 2, `${label}: Pins am zweiten Tag`);
+  const dash = await dayMaps.nth(1).locator("polyline").nth(1).getAttribute("stroke-dasharray");
+  assert(dash === "6 5", `${label}: Linie ${dash}`);
+  const border = await dayMaps.nth(0).evaluate((el) => getComputedStyle(el).borderLeftColor);
+  assert(border === "rgb(31, 109, 181)", `${label}: Tagesfarbe ${border}`);
+  const credit = await dayMaps.nth(0).locator(".recap-daymap__credit").innerText();
+  assert(credit.includes("© OpenStreetMap"), `${label}: Quellenangabe «${credit}»`);
+  const toggle = page.locator('[data-testid="recap-show-all"]');
+  assert((await toggle.innerText()).includes("Alle Szenen zeigen"), `${label}: Knopf fehlt`);
+  await toggle.click();
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid="recap-scene"]').length === 16);
+  assert((await toggle.innerText()).includes("Weniger zeigen"), `${label}: Einklappen fehlt`);
+  const allScenes = await page.locator('[data-testid="recap-scene"]').allInnerTexts();
+  assert(allScenes.filter((text) => text.includes("Tageskarte")).length === 5, `${label}: nicht jede Tageskarte`);
+  assert(allScenes.some((text) => text.includes("Abreise · 1 Ort")), `${label}: Abreise ohne Titel`);
+  assert(
+    allScenes.filter((text) => text.includes("Tageskarte")).every((text) => !/\d\. Tag/.test(text)),
+    `${label}: „n. Tag“ ist kein Titel`
+  );
+  assert(
+    allScenes.some((text) => text.includes("Monte Baldo")) &&
+      allScenes.some((text) => text.includes("Riva del Garda")) &&
+      allScenes.some((text) => text.includes("Schluss")),
+    `${label}: Liste unvollständig`
+  );
+  await toggle.click();
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid="recap-scene"]').length === 5);
+  assert((await toggle.innerText()).includes("Alle Szenen zeigen"), `${label}: wieder aufklappen`);
   const draft = state.recaps.find((row) => row.status === "draft" && row.trip_id === TRIP);
   assert(draft, `${label}: kein Entwurf gespeichert`);
-  assert(draft.kind === "video" && draft.content.seconds === 78, `${label}: Inhalt ${draft.content?.seconds}`);
-  assert(draft.content.counts.photos === 86 && draft.content.scenes.length === 11, `${label}: gespeicherte Szenen`);
-  assert(draft.content.scenes[1].waypoint_id === "p-navene", `${label}: erste Ortsszene`);
-  assert(draft.content.scenes[1].media_ids.length === 3, `${label}: Navene ohne 3 Fotos`);
+  assert(draft.kind === "video" && draft.content.seconds === 93, `${label}: Inhalt ${draft.content?.seconds}`);
+  assert(draft.content.counts.photos === 86 && draft.content.scenes.length === 16, `${label}: gespeicherte Szenen`);
+  assert(draft.content.scenes[1].type === "daymap" && draft.content.scenes[1].waypoint_ids[0] === "p-navene", `${label}: Tageskarte`);
+  const naveneScene = draft.content.scenes.find((scene) => scene.waypoint_id === "p-navene");
+  assert(naveneScene?.media_ids.length === 3, `${label}: Navene ohne 3 Fotos`);
   assert(!state.recaps.some((row) => row.status === "final"), `${label}: erste Fassung ist schon final`);
 
   await page.click('[data-testid="recap-preview"]');
   await page.waitForSelector('[data-testid="recap-slideshow"]');
   const slide = await page.locator('[data-testid="recap-slide"]').innerText();
   assert(slide.includes("Gardasee"), `${label}: Vorschau «${slide}»`);
+  await page.waitForFunction(() => {
+    const node = document.querySelector('[data-testid="recap-slide"]');
+    const text = node?.innerText || "";
+    return /tageskarte/i.test(text) && node.querySelector("svg.recap-daymap");
+  });
+  const daySlide = await page.locator('[data-testid="recap-slide"]').innerText();
+  assert(daySlide.includes("16.06.") && daySlide.includes("Anreise · 1 Ort"), `${label}: Tageskarte «${daySlide}»`);
+  const previewCredit = await page.locator('[data-testid="recap-slide"] .recap-daymap__credit').innerText();
+  assert(previewCredit.includes("© OpenStreetMap"), `${label}: Vorschau-Quelle «${previewCredit}»`);
+  assert((await page.locator('[data-testid="recap-slide"] circle').count()) === 1, `${label}: Vorschau-Pin`);
+  const previewDash = await page.locator('[data-testid="recap-slide"] polyline').nth(1).getAttribute("stroke-dasharray");
+  assert(previewDash === "6 5", `${label}: Vorschau-Linie ${previewDash}`);
+  await page.waitForFunction(() => {
+    const text = document.querySelector('[data-testid="recap-slide"]')?.innerText || "";
+    return text.includes("Navene") && !/tageskarte/i.test(text);
+  });
   const loadedPhotos = (await page.locator('[data-testid="recap-slideshow"]').getAttribute("data-loaded-photos")) || "";
   assert(loadedPhotos.includes("p-navene-m0"), `${label}: erstes Foto fehlt (${loadedPhotos})`);
   assert(loadedPhotos.includes("p-navene-m1"), `${label}: zweites Foto fehlt (${loadedPhotos})`);
