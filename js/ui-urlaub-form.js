@@ -1,6 +1,7 @@
 import { normalizePresetId, presetUrl } from "./covers.js";
 import { bindCoverImage, coverStatusLabel, resolveVacationCover } from "./cover-sources.js";
 import { deleteBlob, fetchUploadedPhotosForTrip, getPlacesForVacation, getVacation, putVacation } from "./db.js";
+import { readCache, writeCache } from "./local-cache.js";
 import { getRoute, navigate } from "./router.js";
 import { clearTripUiState } from "./ui-urlaub-detail.js";
 import { CloudNetworkError, CloudOfflineError } from "./cloud-errors.js";
@@ -22,6 +23,14 @@ import {
   formatDateRangeOverlay,
 } from "./utils.js";
 import { openDateRangePicker } from "./ui-calendar.js";
+
+function newerTrip(a, b) {
+  if (!a) return b || null;
+  if (!b) return a;
+  const left = String(a.remoteUpdatedAt || "");
+  const right = String(b.remoteUpdatedAt || "");
+  return right >= left ? b : a;
+}
 
 export async function renderUrlaubForm(appEl, { mode, id }) {
   const mountGen = appEl?.dataset?.appRenderGen ?? "";
@@ -343,6 +352,42 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
     }
   }
 
+  async function applyFreshTripToForm(freshRow) {
+    const mapped = normalizeVacation(freshRow);
+    vacation.remoteUpdatedAt = mapped.remoteUpdatedAt;
+    vacation.updatedBy = mapped.updatedBy;
+    vacation.title = mapped.title;
+    vacation.startDate = mapped.startDate;
+    vacation.endDate = mapped.endDate;
+    vacation.cover = { ...mapped.cover };
+    vacation.companions = {
+      tags: mapped.companions.tags.slice(),
+      names: mapped.companions.names.slice(),
+    };
+    vacation.updatedAt = mapped.updatedAt;
+    if (titleInput) titleInput.value = mapped.title || "";
+    if (mapped.startDate && mapped.endDate) {
+      dateLabel.textContent = formatDateRange(mapped.startDate, mapped.endDate);
+      const n = dayCountInclusive(mapped.startDate, mapped.endDate);
+      dateSub.textContent = n === 1 ? "1 Tag" : `${n} Tage`;
+    } else if (dateLabel) {
+      dateLabel.textContent = "Datum wählen";
+      dateSub.textContent = "Start und Ende im Kalender";
+    }
+    refreshNames();
+    paintCompanionTags();
+    syncMeta();
+    coverInfo = await resolveVacationCover(vacation, { variant: "original" });
+    if (!appEl.isConnected) return;
+    if (coverInfo.invalid && !coverInfo.unknown && vacation.cover?.type === "media") {
+      vacation.cover = { type: "preset", presetId: normalizePresetId(vacation.cover?.presetId) };
+      coverMedia = null;
+    } else if (coverInfo.media) {
+      coverMedia = coverInfo.media;
+    }
+    paintCover();
+  }
+
   appEl.querySelector('[data-role="tag-chips"]').addEventListener("click", (e) => {
     const chip = e.target.closest("[data-tag]");
     if (!chip) return;
@@ -460,14 +505,23 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
             showToast(again?.message || "Speichern fehlgeschlagen.");
             return;
           }
-        } else if (decision === "reload" && err.fresh) {
-          const mapped = tripRowToVacation(err.fresh);
-          if (mapped) {
-            vacation.remoteUpdatedAt = mapped.remoteUpdatedAt;
-            vacation.title = mapped.title;
-            vacation.startDate = mapped.startDate;
-            vacation.endDate = mapped.endDate;
-            if (titleInput) titleInput.value = mapped.title || "";
+        } else if (decision === "reload") {
+          let freshTrip = err.fresh ? normalizeVacation(tripRowToVacation(err.fresh)) : null;
+          if (vacation.id) {
+            try {
+              const live = await getVacation(vacation.id);
+              freshTrip = newerTrip(freshTrip, live);
+            } catch {
+              /* offline oder Netz: frischer Stand aus dem Konflikt */
+            }
+          }
+          if (freshTrip) {
+            const cached = readCache()?.trips || [];
+            const idx = cached.findIndex((trip) => trip.id === freshTrip.id);
+            if (idx >= 0) {
+              writeCache({ trips: cached.map((trip, i) => (i === idx ? freshTrip : trip)) });
+            }
+            await applyFreshTripToForm(freshTrip);
           }
           delete appEl.dataset.formSaving;
           return;
