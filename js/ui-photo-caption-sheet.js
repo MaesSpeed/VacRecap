@@ -109,6 +109,9 @@ export function openPhotoCaptionSheet({ media, onSaved }) {
       saving = true;
       try {
         const previous = media.caption || null;
+        media.caption = next;
+        window.vacrecapPendingCaption = { id: media.id, caption: next };
+        window.vacrecapOwnDaySave = true;
         let updated;
         try {
           updated = await updateMediaCaption(media.id, next, {
@@ -116,6 +119,9 @@ export function openPhotoCaptionSheet({ media, onSaved }) {
             force,
           });
         } catch (err) {
+          media.caption = previous;
+          window.vacrecapPendingCaption = null;
+          window.vacrecapOwnDaySave = false;
           if (err instanceof StaleWriteError) {
             saving = false;
             const decision = await decideStaleWrite(err, { tripId: media.vacationId });
@@ -140,16 +146,20 @@ export function openPhotoCaptionSheet({ media, onSaved }) {
           showWarnToast(err?.message || "Notiz konnte nicht gespeichert werden.");
           return;
         }
-        media.caption = updated?.caption ?? null;
+        media.caption = updated?.caption ?? next;
+        if (updated?.remoteUpdatedAt) media.remoteUpdatedAt = updated.remoteUpdatedAt;
         saved = true;
+        await window.vacrecapWhenViewSettled?.();
         closeOverlayHistory(activeClose);
         showToast(cleared ? "Notiz gelöscht" : "Notiz gespeichert", {
           undoLabel: "Rückgängig",
           icon: cleared ? "trash" : "check",
           onUndo: () => {
+            media.caption = previous;
+            window.vacrecapPendingCaption = { id: media.id, caption: previous };
+            window.vacrecapOwnDaySave = true;
             void updateMediaCaption(media.id, previous)
-              .then((again) => {
-                media.caption = again?.caption ?? previous;
+              .then(() => {
                 onSaved?.(media);
               })
               .catch((err) => {

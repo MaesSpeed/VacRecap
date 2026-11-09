@@ -296,8 +296,8 @@ export function openNoteSheet({
         savedNote = await createNote({ place: placeToUse, vacationId, day, text });
         showToast("Notiz gespeichert");
       }
-      releaseOverlayHistory(activeClose);
       await onSaved?.(savedNote ?? captureResult);
+      releaseOverlayHistory(activeClose);
     } catch (err) {
       if (err instanceof CloudOfflineError || err instanceof CloudNetworkError) {
         showWarnToast(err.message);
@@ -321,9 +321,9 @@ export function openNoteSheet({
       if (!ok) return;
       saving = true;
       await removeNote(note.id);
+      await onSaved?.({ id: note.id, day: note.day, placeId: note.placeId || null, deleted: true });
       closeOverlayHistory(activeClose);
       showToast("Notiz gelöscht");
-      onSaved?.();
     });
   }
 
