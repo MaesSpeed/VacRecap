@@ -169,6 +169,12 @@ async function startApp() {
     scheduleRender();
   });
   startRouter();
+  window.vacrecapWhenViewSettled = () =>
+    new Promise((resolve) => {
+      queueMicrotask(() => {
+        renderChain.then(() => resolve(), () => resolve());
+      });
+    });
   window.addEventListener("vacrecap:data-changed", () => {
     if (document.querySelector("[data-testid='cover-sheet']")) return;
     if (document.getElementById("app")?.dataset.formSaving === "1") return;

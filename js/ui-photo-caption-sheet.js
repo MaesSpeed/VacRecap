@@ -142,6 +142,7 @@ export function openPhotoCaptionSheet({ media, onSaved }) {
         }
         media.caption = updated?.caption ?? null;
         saved = true;
+        await window.vacrecapWhenViewSettled?.();
         closeOverlayHistory(activeClose);
         showToast(cleared ? "Notiz gelöscht" : "Notiz gespeichert", {
           undoLabel: "Rückgängig",

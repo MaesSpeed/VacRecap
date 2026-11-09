@@ -42,7 +42,6 @@ import {
   setDaySwipePage,
 } from "./day-swipe.js";
 import {
-  dropDayPlaceMemory,
   dropTripPlaceMemory,
   filterViewableMedia,
   loadDayPlacesEnriched,
@@ -194,6 +193,10 @@ export async function renderUrlaubDetail(appEl, id) {
 
   if (appEl?.dataset?.appRenderGen !== mountGen) return;
 
+  const sameTrip = appEl.dataset.vacationId === id;
+  const keptDayScroll = sameTrip ? appEl.querySelector("[data-page='current']")?.scrollTop || 0 : 0;
+  const keptChipScroll = sameTrip ? appEl.querySelector("[data-role='chips']")?.scrollLeft || 0 : 0;
+
   appEl.className = "screen screen--trip screen--trip-swipe";
   appEl.dataset.vacationId = id;
 
@@ -321,10 +324,14 @@ export async function renderUrlaubDetail(appEl, id) {
         chipFollowDay = null;
       }
       prepareNeighborPages();
+      restorePageActions(contentEl.querySelector("[data-page='prev']"));
+      restorePageActions(contentEl.querySelector("[data-page='next']"));
     },
     onDrag: (info) => onChipDrag(info),
     onCancel: () => onChipCancel(),
     onRest: () => {
+      holdPageActions(contentEl.querySelector("[data-page='prev']"));
+      holdPageActions(contentEl.querySelector("[data-page='next']"));
       prepareNeighborPages();
     },
     beforeSwap: () => snapshotLeavingPage(),
@@ -693,6 +700,11 @@ export async function renderUrlaubDetail(appEl, id) {
     }
     const chip = chipsEl.querySelector(`[data-day="${state.activeDay}"]`);
     if (!chip || chipFollowDay === state.activeDay) return;
+    if (sameTrip) {
+      if (chipsEl.scrollLeft !== keptChipScroll) chipsEl.scrollLeft = keptChipScroll;
+      syncChipArrows();
+      return;
+    }
     if (Math.abs(chipsEl.scrollLeft - chipScrollTarget(chipsEl, chip)) <= CHIP_CENTER_EPS) return;
     requestAnimationFrame(() => {
       if (chipFollowDay || chipPhase !== "idle") return;
@@ -754,72 +766,14 @@ export async function renderUrlaubDetail(appEl, id) {
   let cacheEpoch = state.dayCacheEpoch;
   const thumbPool = state.thumbPool;
 
-  function invalidateDayBundle(dayIso) {
-    if (!dayIso) return;
-    dropDayPlaceMemory(id, dayIso);
-    dayCache.delete(dayIso);
-    dropWarmPaint(dayIso);
-    cacheEpoch += 1;
-    state.dayCacheEpoch = cacheEpoch;
-  }
-
-  function dropWarmPaint(dayIso) {
-    if (!dayIso) return;
-    const built = warmHtml.get(dayIso);
-    if (built?.thumbUrls) revokeThumbUrls(built.thumbUrls);
-    warmHtml.delete(dayIso);
-  }
-
-  function mergePlaceInMemory(place) {
-    if (!place?.id) return;
-    const day = place.day || place.dayDate;
-    if (warmPlaces) {
-      const idx = warmPlaces.findIndex((p) => p.id === place.id);
-      if (idx >= 0) warmPlaces[idx] = { ...warmPlaces[idx], ...place };
-      state.warmPlaces = warmPlaces;
+  // Genau ein data-changed nach dem Sheet. Der globale View-Refresh malt die
+  // Ansicht neu; ein zweites refreshDayList würde Karten und Bilder doppelt bauen.
+  function publishSaved(payload) {
+    if (payload?.id && !payload.placeId && !payload.place && typeof payload.text === "string") {
+      state.freeNotesExpanded = true;
     }
-    for (const bundle of dayCache.values()) {
-      for (const item of bundle.items || []) {
-        if (item.place?.id === place.id) item.place = { ...item.place, ...place };
-      }
-    }
-    dropWarmPaint(day);
-  }
-
-  function mergeNoteInMemory(note) {
-    if (!note?.id) return;
-    const day = String(note.day || "").slice(0, 10);
-    const placeId = note.placeId || null;
-    const bundle = dayCache.get(day);
-    if (bundle) {
-      for (const item of bundle.items || []) {
-        if (!item.notes?.length) continue;
-        item.notes = item.notes.filter((n) => n.id !== note.id);
-      }
-      bundle.freeNotes = (bundle.freeNotes || []).filter((n) => n.id !== note.id);
-      if (!placeId) {
-        bundle.freeNotes = [...bundle.freeNotes, note];
-      } else {
-        const item = bundle.items?.find((entry) => entry.place.id === placeId);
-        if (item) {
-          item.notes = [note, ...(item.notes || [])];
-          item.notes.sort((a, b) => (b.ts ?? b.createdAt ?? 0) - (a.ts ?? a.createdAt ?? 0));
-        }
-      }
-    }
-    dropWarmPaint(day);
-  }
-
-  async function afterDayMutation({ place, note, invalidateDay = false } = {}) {
-    if (invalidateDay) invalidateDayBundle(state.activeDay);
-    else {
-      if (place) mergePlaceInMemory(place);
-      if (note) {
-        mergeNoteInMemory(note);
-        if (!note.placeId) state.freeNotesExpanded = true;
-      }
-    }
-    await refreshDayList({ reuse: true });
+    window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+    return window.vacrecapWhenViewSettled?.() ?? Promise.resolve();
   }
 
   async function activeDayItems() {
@@ -1080,6 +1034,35 @@ export async function renderUrlaubDetail(appEl, id) {
     dayDataSeen.set(dayIso, stamp);
   }
 
+  function holdPageActions(page) {
+    if (!page) return;
+    for (const el of page.querySelectorAll("[data-action]")) {
+      el.dataset.actionHold = el.getAttribute("data-action");
+      el.removeAttribute("data-action");
+    }
+    const selected = page.querySelector(".oc--selected");
+    if (selected) {
+      page.dataset.heldSelection = selected.dataset.placeId || "";
+      selected.classList.remove("oc--selected");
+      selected.querySelector(".pinb--selected")?.classList.remove("pinb--selected");
+    }
+  }
+
+  function restorePageActions(page) {
+    if (!page) return;
+    for (const el of page.querySelectorAll("[data-action-hold]")) {
+      if (!el.getAttribute("data-action")) el.setAttribute("data-action", el.dataset.actionHold);
+      el.removeAttribute("data-action-hold");
+    }
+    const held = page.dataset.heldSelection;
+    if (!held) return;
+    delete page.dataset.heldSelection;
+    const card = page.querySelector(`[data-place-id="${held}"]`);
+    if (!card) return;
+    card.classList.add("oc--selected");
+    card.querySelector(".pinb")?.classList.add("pinb--selected");
+  }
+
   function prepareNeighborPages() {
     if (!contentEl?.isConnected) return;
     let mounted = false;
@@ -1096,6 +1079,7 @@ export async function renderUrlaubDetail(appEl, id) {
       if (sameDay && !dataChanged && mountedNeighborHtml.get(page) === html) continue;
       const wrote = setDaySwipeNeighbor(contentEl, which, html, { day: dayIso, force: dataChanged });
       if (!wrote) continue;
+      holdPageActions(page);
       mounted = true;
       pageSnaps.delete(page);
       if (html) {
@@ -1134,6 +1118,9 @@ export async function renderUrlaubDetail(appEl, id) {
     }
     if (contentEl) contentEl.dataset.photoSelecting = state.photoSelecting ? "1" : "0";
     syncPhotoSelectMark();
+    restorePageActions(page);
+    holdPageActions(contentEl.querySelector("[data-page='prev']"));
+    holdPageActions(contentEl.querySelector("[data-page='next']"));
   }
 
   function clearWarm() {
@@ -1362,7 +1349,7 @@ export async function renderUrlaubDetail(appEl, id) {
       queuePaint(built, token, { keepScroll: reuse });
       persistSelection(id, state);
       if (token !== state.listRefreshToken || !contentEl.isConnected) return;
-      if (prefetch) void prefetchNeighbors(token);
+      if (prefetch) await prefetchNeighbors(token);
     } catch {
       if (token !== state.listRefreshToken || !contentEl.isConnected) return;
       showDayLoadError();
@@ -1738,9 +1725,7 @@ export async function renderUrlaubDetail(appEl, id) {
         if (payload?.toast?.line) {
           showCaptureResultToast(payload, "note");
         }
-        if (payload?.place) await afterDayMutation({ place: payload.place });
-        else if (payload?.id) await afterDayMutation({ note: payload });
-        else await afterDayMutation({ invalidateDay: true });
+        publishSaved(payload);
       },
       onPlaceChange: (placeId) => {
         state.selectedByDay[state.activeDay] = placeId;
@@ -2025,10 +2010,7 @@ export async function renderUrlaubDetail(appEl, id) {
         const media = findCachedMedia(editCaption.dataset.mediaId);
         const role = (await getConfirmedTripRole(id)).role;
         if (!media || !canCaptionMedia(media, role, state.userId)) return;
-        await openPhotoCaptionSheet({
-          media,
-          onSaved: async () => afterDayMutation({ invalidateDay: true }),
-        });
+        await openPhotoCaptionSheet({ media });
       } finally {
         state.captionBusy = false;
       }
@@ -2101,8 +2083,7 @@ export async function renderUrlaubDetail(appEl, id) {
         placesForDay: () => placesForDayFromCache(),
         note,
         onSaved: async (saved) => {
-          if (saved?.id) await afterDayMutation({ note: saved });
-          else await afterDayMutation({ invalidateDay: true });
+          publishSaved(saved);
         },
         onPlaceChange: (pid) => {
           state.selectedByDay[state.activeDay] = pid;
@@ -2144,8 +2125,7 @@ export async function renderUrlaubDetail(appEl, id) {
           placesForDay: () => placesForDayFromCache(),
           note: note || undefined,
           onSaved: async (saved) => {
-            if (saved?.id) await afterDayMutation({ note: saved });
-            else await afterDayMutation({ invalidateDay: true });
+            publishSaved(saved);
           },
           onPlaceChange: (pid) => {
             if (!pid) return;
@@ -2175,8 +2155,7 @@ export async function renderUrlaubDetail(appEl, id) {
         dayIndex: dayIndexInTrip(vacation, state.activeDay),
         placesForDay: () => placesForDayFromCache(),
         onSaved: async (saved) => {
-          if (saved?.id) await afterDayMutation({ note: saved });
-          else await afterDayMutation({ invalidateDay: true });
+          publishSaved(saved);
         },
         onPlaceChange: (pid) => {
           state.selectedByDay[state.activeDay] = pid;
@@ -2198,7 +2177,7 @@ export async function renderUrlaubDetail(appEl, id) {
       if (!item) return;
       if (editBtn) {
         openEditPlaceSheet(item.place, {
-          onSaved: async (updated) => afterDayMutation({ place: updated }),
+          onSaved: () => publishSaved(),
           onDeleted: async (pid) => {
             if (state.selectedByDay[state.activeDay] === pid) {
               delete state.selectedByDay[state.activeDay];
@@ -2382,6 +2361,16 @@ export async function renderUrlaubDetail(appEl, id) {
   if (appEl?.dataset?.appRenderGen !== mountGen) return;
   await refreshDayList();
   if (appEl?.dataset?.appRenderGen !== mountGen) return;
+  if (keptDayScroll) {
+    const page = contentEl.querySelector("[data-page='current']");
+    if (page) page.scrollTop = keptDayScroll;
+  }
+  if (keptChipScroll) {
+    requestAnimationFrame(() => {
+      if (!chipsEl.isConnected || appEl?.dataset?.appRenderGen !== mountGen) return;
+      chipsEl.scrollLeft = keptChipScroll;
+    });
+  }
 
   galleryInput.addEventListener("change", () => {
     const files = [...(galleryInput.files || [])];

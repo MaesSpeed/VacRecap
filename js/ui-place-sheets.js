@@ -96,9 +96,9 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
     if (saveBtn.disabled) return;
     try {
       const updated = await updatePlaceDetails(place, { name: input.value, ts: chosenTs() });
+      await onSaved?.(updated);
       closeOverlayHistory(activeClose);
       showToast("Gespeichert");
-      onSaved?.(updated);
     } catch (err) {
       if (!(err instanceof StaleWriteError)) {
         showToast(err?.message || "Speichern fehlgeschlagen.");
@@ -107,9 +107,9 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
       const decision = await decideStaleWrite(err, { tripId: place.vacationId });
       if (decision === "force") {
         const updated = await updatePlaceDetails({ ...place, forceSave: true }, { name: input.value, ts: chosenTs() });
+        await onSaved?.(updated);
         closeOverlayHistory(activeClose);
         showToast("Gespeichert");
-        onSaved?.(updated);
         return;
       }
       if (decision === "reload" && err.fresh) {

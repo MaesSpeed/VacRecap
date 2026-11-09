@@ -296,8 +296,8 @@ export function openNoteSheet({
         savedNote = await createNote({ place: placeToUse, vacationId, day, text });
         showToast("Notiz gespeichert");
       }
-      releaseOverlayHistory(activeClose);
       await onSaved?.(savedNote ?? captureResult);
+      releaseOverlayHistory(activeClose);
     } catch (err) {
       if (err instanceof CloudOfflineError || err instanceof CloudNetworkError) {
         showWarnToast(err.message);
