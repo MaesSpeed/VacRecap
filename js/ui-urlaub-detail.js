@@ -7,7 +7,7 @@ import {
   vacationDays,
 } from "./days.js";
 import { getUserId } from "./auth-service.js";
-import { fetchUploadedPhotosForTrip, getFreeNotesForDay, getPlacesForDay, getPlacesForVacation, getVacation } from "./db.js";
+import { getFreeNotesForDay, getPlacesForDay, getPlacesForVacation, getVacation } from "./db.js";
 import { ICON_BACK_CHEVRON, ICON_GEAR, ICON_MAP } from "./icons.js";
 import { fallbackPlaceName, formatTimeFromTs } from "./geo.js";
 import { placeTsForCapture } from "./capture-time.js";
@@ -51,10 +51,9 @@ import {
   withFreeNotesHtml,
   wrapPlaceList,
 } from "./ui-place-list.js";
-import { bindCircleTips, shareContext, showCircleTip } from "./member-marks.js";
-import { canAddOwn, canEditItem, getConfirmedTripRole, ROLE_LABEL } from "./trip-role.js";
-import { loadTripPeople, personLetter } from "./trip-people.js";
-import { watchTripActivity } from "./trip-presence.js";
+import { bindCircleTips, shareContext } from "./member-marks.js";
+import { canAddOwn, canEditItem, getConfirmedTripRole } from "./trip-role.js";
+import { loadTripPeople } from "./trip-people.js";
 import { takeStaleNotice } from "./save-conflict.js";
 import { loadRecapEntry, recapEntryCardHtml } from "./ui-recap-video.js";
 import { deleteMedia } from "./db.js";
@@ -70,7 +69,6 @@ import { openPhotoCaptionSheet } from "./ui-photo-caption-sheet.js";
 import { openEditPlaceSheet, openSoftPointSheet } from "./ui-place-sheets.js";
 import { mountTripFooter } from "./ui-trip-footer.js";
 import { escapeHtml, todayIso } from "./utils.js";
-import { tripCompanionsMarkup } from "./vacation.js";
 
 const CHIP_ARROW_PREV = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M14 6l-6 6 6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const CHIP_ARROW_NEXT = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M10 6l6 6-6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -188,7 +186,9 @@ export async function renderUrlaubDetail(appEl, id) {
     }
   }
   const share = shareContext(roleInfo.role, state.userId, people);
-  const liveUsers = new Set();
+  const roleBanner = share.viewer
+    ? `<div class="fg-role" data-testid="role-banner"><span aria-hidden="true">ⓘ</span><span>Du bist <b>Beitragender</b>. Eigenes hinzufügen und ändern, Fremdes nur ansehen.</span></div>`
+    : "";
 
   if (appEl?.dataset?.appRenderGen !== mountGen) return;
 
@@ -204,9 +204,7 @@ export async function renderUrlaubDetail(appEl, id) {
         <button type="button" class="icon-btn icon-btn--gear-draft" data-action="settings" aria-label="Einstellungen">${ICON_GEAR}</button>
       </div>
     </header>
-    ${tripCompanionsMarkup(vacation)}
-    <div data-role="member-bar"></div>
-    <div data-role="role-banner"></div>
+    ${roleBanner}
     <div class="day-nav">
       <button type="button" class="day-chips-arrow day-chips-arrow--prev" data-action="chips-prev" data-testid="day-chips-prev" aria-label="Frühere Tage" hidden>${CHIP_ARROW_PREV}</button>
       <div class="day-chips-wrap">
@@ -222,48 +220,7 @@ export async function renderUrlaubDetail(appEl, id) {
     <div data-role="footer-mount"></div>
   `;
 
-  const paintMemberChrome = () => {
-    const barHost = appEl.querySelector('[data-role="member-bar"]');
-    const bannerHost = appEl.querySelector('[data-role="role-banner"]');
-    if (bannerHost) {
-      bannerHost.innerHTML = share.viewer
-        ? `<div class="fg-role" data-testid="role-banner"><span aria-hidden="true">ⓘ</span><span>Du bist <b>Beitragender</b>. Eigenes hinzufügen und ändern, Fremdes nur ansehen.</span></div>`
-        : "";
-    }
-    if (!barHost) return;
-    if (!share.showBar) {
-      barHost.innerHTML = "";
-      return;
-    }
-    const parts = share.members
-      .map((person, index) => {
-        const label = ROLE_LABEL[person.role] || "";
-        const color = share.colors.get(person.user_id) || person.avatar_color || "#5D6D7E";
-        const live = liveUsers.has(person.user_id) ? " kr-m--live" : "";
-        const sep = index ? `<span class="kr-sep" aria-hidden="true"></span>` : "";
-        return `${sep}<button type="button" class="kr-m${live}" data-kr-tip="${escapeHtml(`${person.display_name || ""} · ${label}`)}" data-user-id="${escapeHtml(person.user_id || "")}" data-testid="member-chip">${`<span class="kr-av kr-av--md" style="--kr:${escapeHtml(color)}">${escapeHtml(personLetter(person))}</span>`}<span>${escapeHtml(label)}</span></button>`;
-      })
-      .join("");
-    barHost.innerHTML = `<div class="kr-bar" data-testid="member-bar">${parts}</div>`;
-  };
-  paintMemberChrome();
   bindCircleTips(appEl);
-  appEl.querySelector('[data-role="member-bar"]')?.addEventListener("click", async (event) => {
-    const chip = event.target.closest("[data-testid='member-chip']");
-    if (!chip) return;
-    event.preventDefault();
-    event.stopPropagation();
-    let count = 0;
-    try {
-      const result = await fetchUploadedPhotosForTrip(id);
-      count = (result?.media || []).filter((item) => item.author === chip.dataset.userId && !item.deletedAt).length;
-    } catch {
-      count = 0;
-    }
-    const noun = count === 1 ? "Foto" : "Fotos";
-    chip.dataset.krSub = `${count} ${noun} hier beigetragen`;
-    showCircleTip(chip);
-  });
   const staleNotice = takeStaleNotice(id);
   if (staleNotice?.line) showToast(staleNotice.line);
 
@@ -329,15 +286,7 @@ export async function renderUrlaubDetail(appEl, id) {
   if (appEl?.dataset?.appRenderGen === mountGen) {
     window.addEventListener("popstate", onTripPop);
     window.addEventListener("keydown", onTripKey);
-    const stopActivity = watchTripActivity(id, (rows) => {
-      liveUsers.clear();
-      for (const row of rows || []) {
-        if (row.user_id) liveUsers.add(row.user_id);
-      }
-      paintMemberChrome();
-    });
     appEl._screenCleanup = () => {
-      stopActivity();
       window.removeEventListener("popstate", onTripPop);
       window.removeEventListener("keydown", onTripKey);
     };

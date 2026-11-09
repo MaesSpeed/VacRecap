@@ -1045,20 +1045,11 @@ async function runFlows(page, state, label, shots, baseUrl) {
 
   await asUser(page, state, PEOPLE[DOMI]);
   await page.locator('[data-vacation-id="trip-garda"]').click();
-  await page.waitForSelector('[data-testid="member-bar"]');
-  const circles = page.locator('[data-testid="member-bar"] .kr-av');
-  assert((await circles.count()) === 3, `${label}: Mitgliederleiste`);
-  const colors = await circles.evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).backgroundColor));
-  assert(colors.includes("rgb(0, 102, 179)") && colors.includes("rgb(214, 69, 65)") && colors.includes("rgb(31, 157, 87)"), `${label}: Farben ${colors.join(" | ")}`);
-  const letters = await circles.allInnerTexts();
-  assert(letters.join("") === "DSA" || letters.includes("D") && letters.includes("S") && letters.includes("A"), `${label}: Buchstaben ${letters.join(",")}`);
-  await page.locator('[data-testid="member-chip"]', { hasText: "Mitbearbeiter" }).click();
-  await page.waitForSelector('[data-testid="member-tip"]');
-  const tip = await page.locator('[data-testid="member-tip"]').innerText();
-  assert(tip.includes("Sabine · Mitbearbeiter"), `${label}: Tooltip «${tip}»`);
-  assert(tip.includes("5 Fotos"), `${label}: Fotozahl «${tip}»`);
+  await page.waitForSelector(".day-nav");
+  assert((await page.locator('[data-testid="member-bar"]').count()) === 0, `${label}: Mitgliederleiste`);
+  assert((await page.locator('[data-testid="member-chip"]').count()) === 0, `${label}: Rollenleiste`);
+  assert((await page.locator('[data-testid="trip-companions"]').count()) === 0, `${label}: Personenbereich`);
   await shot(page, "07-mitgliederleiste", shots);
-  await page.locator('[data-testid="member-tip"]').evaluate((el) => el.remove()).catch(() => {});
   await page.locator(`[data-day="${DAY}"]`).first().click({ force: true });
   await page.waitForSelector('[data-place-id="p-hafen"]');
   await page.locator('[data-place-id="p-hafen"]').click();
@@ -1099,15 +1090,16 @@ async function runFlows(page, state, label, shots, baseUrl) {
   assert(preview === "D", `${label}: Vorschau «${preview}»`);
   await page.locator(".sheet__close").click();
   await page.locator('[data-vacation-id="trip-garda"]').click();
-  await page.waitForFunction(() => (document.querySelector('[data-testid="member-bar"]')?.innerText || "").includes("Besitzer"));
-  await page.locator('[data-testid="member-chip"]').first().click();
-  await page.waitForSelector('[data-testid="member-tip"]');
-  assert((await page.locator('[data-testid="member-tip"]').innerText()).includes("Dominik"), `${label}: neuer Name fehlt im Kreis`);
-  await page.locator('[data-testid="member-tip"]').evaluate((el) => el.remove());
+  await page.waitForSelector(".day-nav");
+  assert((await page.locator('[data-testid="member-bar"]').count()) === 0, `${label}: Mitgliederleiste nach dem Namen`);
 
   await page.locator(`[data-day="${DAY}"]`).first().click({ force: true });
   await page.waitForSelector('[data-place-id="p-hafen"]');
   await page.locator('[data-place-id="p-hafen"]').click();
+  await page.locator('[data-place-id="p-hafen"] .tile [data-kr-tip*="Besitzer"]').first().click();
+  await page.waitForSelector('[data-testid="member-tip"]');
+  assert((await page.locator('[data-testid="member-tip"]').innerText()).includes("Dominik"), `${label}: neuer Name fehlt im Kreis`);
+  await page.locator('[data-testid="member-tip"]').evaluate((el) => el.remove());
   await page.locator('[data-note-id="n-domi"] [data-action="edit-note"]').click({ force: true });
   await page.waitForSelector('[data-testid="note-sheet"]');
   state.notes.find((row) => row.id === "n-domi").updated_at = "2026-10-30T13:32:00.000Z";

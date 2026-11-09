@@ -404,8 +404,8 @@ async function layoutPass(page, state, label, { shots }) {
   }
 
   await openTrip(page);
-  const names = await page.locator('[data-testid="trip-companions"]').innerText();
-  assert(names.includes("Dominik Röder") && names.includes("Sabine Röder"), `${label}: Namenszeile «${names}»`);
+  assert((await page.locator('[data-testid="trip-companions"]').count()) === 0, `${label}: Namenszeile noch auf der Reise`);
+  assert((await page.locator('[data-testid="member-bar"]').count()) === 0, `${label}: Rollenleiste noch auf der Reise`);
   await clickDay(page, "2025-06-16");
   const caption = page.locator('[data-page="current"] [data-testid="photo-caption-edit"]:has(img)').first();
   await caption.waitFor();
