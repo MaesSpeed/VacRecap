@@ -365,13 +365,8 @@ async function runFlows(page, state, label, missingCode) {
   const stored = state.trip(tripId);
   assert(JSON.stringify(stored.companion_tags) === JSON.stringify(["familie", "freunde"]), `${label}: Tags ${stored.companion_tags}`);
   assert(JSON.stringify(stored.companions) === JSON.stringify(["Anna", "Ben"]), `${label}: Namen ${stored.companions}`);
-  assert(
-    (await page.locator(".screen--trip [data-testid='companion-tags']").getAttribute("data-tags")) === "familie freunde",
-    `${label}: Detail zeigt die Tags nicht`
-  );
-  assert((await page.locator("[data-testid='companion-names']").innerText()).includes("Ben"), `${label}: Detail ohne pending Name`);
-  assert((await page.locator(".screen--trip [data-testid='companion-tags']").innerText()).includes("Familie"), `${label}: Text Familie fehlt`);
-  assert(!(await page.locator(".screen--trip [data-testid='companion-tags']").innerText()).includes("Allein"), `${label}: Allein steht fälschlich im Detail`);
+  assert((await page.locator(".screen--trip [data-testid='companion-tags']").count()) === 0, `${label}: Personenbereich auf der Reise`);
+  assert((await page.locator(".screen--trip [data-testid='companion-names']").count()) === 0, `${label}: Namen auf der Reise`);
 
   state.trips.push({
     id: "trip-wien",
@@ -434,7 +429,7 @@ async function runFlows(page, state, label, missingCode) {
   assert(attempts[1].companions.includes("Cem") && attempts[1].companions.includes("Anna"), `${label}: Namen ${attempts[1].companions}`);
   assert(state.trip(tripId).title === "Gardasee ohne Spalte", `${label}: Zeile ohne neuen Titel`);
   assert((await page.locator(".screen--trip [data-testid='companion-tags']").count()) === 0, `${label}: Tags trotz fehlender Spalte sichtbar`);
-  assert((await page.locator("[data-testid='companion-names']").innerText()).includes("Cem"), `${label}: pending Name fehlt nach Fallback`);
+  assert((await page.locator(".screen--trip [data-testid='companion-names']").count()) === 0, `${label}: Namen auf der Reise nach Fallback`);
 
   const parallel = await page.evaluate(async (id) => {
     const { getAllVacations, getVacation } = await import("./js/db.js");
