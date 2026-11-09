@@ -176,10 +176,19 @@ async function startApp() {
       });
     });
   window.addEventListener("vacrecap:data-changed", () => {
-    if (document.querySelector("[data-testid='cover-sheet']")) return;
-    if (document.getElementById("app")?.dataset.formSaving === "1") return;
+    if (document.querySelector("[data-testid='cover-sheet']")) {
+      window.vacrecapOwnDaySave = false;
+      return;
+    }
+    if (document.getElementById("app")?.dataset.formSaving === "1") {
+      window.vacrecapOwnDaySave = false;
+      return;
+    }
     const route = getRoute();
-    if (route.name === "urlaub-form") return;
+    if (route.name === "urlaub-form") {
+      window.vacrecapOwnDaySave = false;
+      return;
+    }
     scheduleRender();
   });
   window.addEventListener("online", () => {

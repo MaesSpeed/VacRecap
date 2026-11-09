@@ -165,6 +165,8 @@ function persistSelection(id, state) {
 
 export async function renderUrlaubDetail(appEl, id) {
   const mountGen = appEl?.dataset?.appRenderGen ?? "";
+  const ownDaySave = window.vacrecapOwnDaySave === true;
+  window.vacrecapOwnDaySave = false;
   const vacation = await getVacation(id);
   if (appEl?.dataset?.appRenderGen !== mountGen) return;
   if (!vacation) {
@@ -842,9 +844,25 @@ export async function renderUrlaubDetail(appEl, id) {
     return hit;
   }
 
-  // Genau ein data-changed. Liegt der Tag schon im Cache von Paket 3, schreibt
-  // das Sheet ihn fort und der globale Refresh malt daraus, ohne neu zu laden.
-  function publishSaved(payload) {
+  function applyPendingCaption() {
+    const pending = window.vacrecapPendingCaption;
+    if (!pending?.id) return;
+    let hits = 0;
+    for (const bundle of dayCache.values()) {
+      for (const item of bundle.items || []) {
+        const hit = item.media?.find((entry) => entry.id === pending.id);
+        if (hit) {
+          hit.caption = pending.caption ?? null;
+          hits += 1;
+        }
+      }
+    }
+    window.vacrecapPendingCaption = null;
+  }
+
+  // Eigenes Speichern malt nur die Tagesliste aus dem Cache. Kein data-changed,
+  // damit der globale View-Refresh ausbleibt. Fremde Events laden den Tag neu.
+  async function publishSaved(payload) {
     const isNote = payload && typeof payload.text === "string" && payload.id;
     const isPlace = payload?.id && payload.name && typeof payload.text !== "string";
     let cached = true;
@@ -852,9 +870,11 @@ export async function renderUrlaubDetail(appEl, id) {
     else if (isNote) cached = mergeNoteInMemory(payload);
     else if (isPlace) cached = mergePlaceInMemory(payload);
     else if (payload?.place?.id) cached = mergePlaceInMemory(payload.place);
-    if (!cached) clearWarm();
-    window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
-    return window.vacrecapWhenViewSettled?.() ?? Promise.resolve();
+    if (!cached) {
+      await refreshDayList();
+      return;
+    }
+    await refreshDayList({ reuse: true });
   }
 
   async function activeDayItems() {
@@ -2440,7 +2460,8 @@ export async function renderUrlaubDetail(appEl, id) {
 
   renderChips();
   if (appEl?.dataset?.appRenderGen !== mountGen) return;
-  const reuseDay = Boolean(warmPlaces && dayCache.has(state.activeDay));
+  if (ownDaySave) applyPendingCaption();
+  const reuseDay = ownDaySave && Boolean(warmPlaces && dayCache.has(state.activeDay));
   await refreshDayList(reuseDay ? { reuse: true } : {});
   if (appEl?.dataset?.appRenderGen !== mountGen) return;
   if (keptDayScroll) {

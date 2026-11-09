@@ -351,13 +351,21 @@ async function settle(page, needle) {
   await page.waitForTimeout(350);
 }
 
-function assertOneRefresh(snap, label) {
+function assertLocalSave(snap, label) {
+  assert(snap.dataChanged === 0, `${label}: data-changed ${snap.dataChanged}, erwartet 0`);
+  assert(snap.renderGen === 0, `${label}: globaler Refresh ${snap.renderGen}, erwartet 0`);
+  assert(snap.appHtml === 0, `${label}: App-Gerüst ${snap.appHtml} mal neu`);
+  assert(snap.currentPageHtml === 1, `${label}: Tagesliste ${snap.currentPageHtml} mal neu statt 1`);
+  assert(snap.api.total <= 12, `${label}: ${snap.api.total} API-Aufrufe, auf main etwa 8`);
+  assert(snap.addedElements < 400, `${label}: ${snap.addedElements} DOM-Elemente, lokaler Anstrich bleibt unter 400`);
+}
+
+function assertCaptionRefresh(snap, label) {
   assert(snap.dataChanged === 1, `${label}: data-changed ${snap.dataChanged} statt 1`);
   assert(snap.renderGen === 1, `${label}: View-Refresh ${snap.renderGen} statt 1`);
   assert(snap.currentPageHtml === 1, `${label}: Tagesliste ${snap.currentPageHtml} mal neu statt 1`);
-  assert(snap.appHtml === 1, `${label}: App-Gerüst ${snap.appHtml} mal neu statt 1`);
   assert(snap.api.trips <= 2, `${label}: Reisen ${snap.api.trips} mal geladen`);
-  assert(snap.api.total <= 30, `${label}: ${snap.api.total} API-Aufrufe, Obergrenze 30`);
+  assert(snap.api.total <= 24, `${label}: ${snap.api.total} API-Aufrufe`);
 }
 
 async function saveNote(page, meter, label) {
@@ -443,11 +451,53 @@ async function run() {
     await login(page, baseUrl);
     await openTrip(page);
 
+    const foreign = await page.evaluate(async () => {
+      const { putPlace, putNote } = await import("./js/db.js");
+      const { createPlace } = await import("./js/places.js");
+      const { createId } = await import("./js/utils.js");
+      const tripId = document.querySelector(".screen--trip").dataset.vacationId;
+      const day = document.querySelector('[data-testid="trip-content"]').dataset.activeDay;
+      const placeId = document.querySelector("[data-page='current'] .oc--selected").dataset.placeId;
+      await putNote({
+        id: createId(),
+        vacationId: tripId,
+        placeId,
+        day,
+        text: "Notiz aus der Ferne",
+        ts: Date.now(),
+      });
+      const created = await putPlace(
+        createPlace({
+          vacationId: tripId,
+          day,
+          ts: Date.now(),
+          lat: 46.1,
+          lng: 10.7,
+          name: "Ort aus der Ferne",
+        })
+      );
+      await putNote({
+        id: createId(),
+        vacationId: tripId,
+        placeId: created.id,
+        day,
+        text: "Notiz am fernen Ort",
+        ts: Date.now(),
+      });
+      window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
+      return { day, placeId };
+    });
+    await page.waitForFunction(() => {
+      const text = document.querySelector("[data-page='current']")?.innerText || "";
+      return text.includes("Notiz aus der Ferne") && text.includes("Ort aus der Ferne") && text.includes("Notiz am fernen Ort");
+    });
+    assert(foreign.day, "Tag für die fremde Änderung fehlt");
+
     let lastNote = "";
     for (let i = 1; i <= REPS; i += 1) {
       lastNote = `Notiz gespeichert ${i}`;
       const note = await saveNote(page, meter, lastNote);
-      assertOneRefresh(note.snap, `Notiz ${i}`);
+      assertLocalSave(note.snap, `Notiz ${i}`);
       assert(note.beforeScroll.height > note.beforeScroll.client + 40, `Tagesliste ist nicht scrollbar (${note.beforeScroll.height}/${note.beforeScroll.client})`);
       assert(Math.abs(note.afterScroll - note.beforeScroll.top) <= 2, `Notiz ${i}: Scroll ${note.afterScroll} statt ${note.beforeScroll.top}`);
       await page.locator(`${CUR} .oc--selected [data-action="edit-note"]`).first().click();
@@ -460,7 +510,7 @@ async function run() {
 
       const placeLabel = `Ort gespeichert ${i}`;
       const place = await savePlace(page, meter, placeLabel);
-      assertOneRefresh(place, `Ort ${i}`);
+      assertLocalSave(place, `Ort ${i}`);
       await page.locator(`${CUR} .oc--selected [data-action="edit-place"]`).click();
       await page.waitForSelector(".sheet--place-edit");
       const placeAgain = await page.locator('.sheet--place-edit [data-role="name"]').inputValue();
@@ -471,7 +521,7 @@ async function run() {
 
       const captionLabel = `Bildtext ${i}`;
       const caption = await saveCaption(page, meter, captionLabel);
-      assertOneRefresh(caption, `Fotobeschriftung ${i}`);
+      assertCaptionRefresh(caption, `Fotobeschriftung ${i}`);
       await page.locator(`${CUR} .oc--selected [data-testid="photo-caption-edit"]`).first().click();
       await page.waitForSelector('[data-testid="photo-caption-sheet"]');
       const captionAgain = await page.locator('[data-testid="photo-caption-text"]').inputValue();
@@ -489,7 +539,7 @@ async function run() {
     assert(chipBefore > 20, `Tagleiste scrollt nicht (${chipBefore})`);
     const chipNote = "Notiz nach Chip-Scroll";
     const chipSave = await saveNote(page, meter, chipNote);
-    assertOneRefresh(chipSave.snap, "Notiz mit Tagleisten-Scroll");
+    assertLocalSave(chipSave.snap, "Notiz mit Tagleisten-Scroll");
     await page.waitForTimeout(80);
     const chipAfter = await page.evaluate(() => document.querySelector("[data-role='chips']")?.scrollLeft || 0);
     assert(Math.abs(chipAfter - chipBefore) <= 2, `Tagleiste ${chipAfter} statt ${chipBefore}`);
@@ -503,8 +553,11 @@ async function run() {
       assert(back.includes("Bildtext 4"), `Wischen ${i}: Fotobeschriftung fehlt`);
     }
 
-    const sources = await page.locator(`${CUR} .oc[data-place-id]:not([data-place-id="wp-fremd"])`).evaluateAll((nodes) =>
-      nodes.slice(0, 3).map((node) => node.dataset.placeId)
+    const sources = await page.locator(`${CUR} .oc[data-place-id]`).evaluateAll((nodes) =>
+      nodes
+        .map((node) => node.dataset.placeId)
+        .filter((id) => id && id.startsWith("wp-") && id !== "wp-fremd")
+        .slice(0, 3)
     );
     assert(sources.length === 3, `Zu wenige Fotos zum Verschieben (${sources.length})`);
     const moved = [];
@@ -549,7 +602,7 @@ async function run() {
     }
     await page.waitForSelector(".screen--urlaube", { timeout: 15_000 });
     const card = await page.locator(`[data-vacation-id="${TRIP}"]`).innerText();
-    assert(card.includes("42 Notizen"), `Reiseliste zeigt den neuen Stand nicht («${card.replace(/\s+/g, " ")}»)`);
+    assert(card.includes("44 Notizen"), `Reiseliste zeigt den neuen Stand nicht («${card.replace(/\s+/g, " ")}»)`);
 
     await openTrip(page);
     await page.locator('[data-action="map"]').click();
@@ -603,7 +656,7 @@ async function run() {
     for (let i = 1; i <= 3; i += 1) {
       const label = `Eigene Notiz ${i}`;
       const snap = await saveNote(page, meter, label);
-      assertOneRefresh(snap.snap, `Beitragender Notiz ${i}`);
+      assertLocalSave(snap.snap, `Beitragender Notiz ${i}`);
       assert(
         (await page.locator(`${CUR} .oc[data-place-id="wp-fremd"] [data-action="edit-note"]`).count()) === 0,
         `Beitragender ${i}: fremde Notiz wurde bearbeitbar`
