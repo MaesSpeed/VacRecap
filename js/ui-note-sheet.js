@@ -321,9 +321,9 @@ export function openNoteSheet({
       if (!ok) return;
       saving = true;
       await removeNote(note.id);
+      await onSaved?.({ id: note.id, day: note.day, placeId: note.placeId || null, deleted: true });
       closeOverlayHistory(activeClose);
       showToast("Notiz gelöscht");
-      onSaved?.();
     });
   }
 

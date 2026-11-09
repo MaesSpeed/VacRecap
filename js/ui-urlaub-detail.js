@@ -766,12 +766,93 @@ export async function renderUrlaubDetail(appEl, id) {
   let cacheEpoch = state.dayCacheEpoch;
   const thumbPool = state.thumbPool;
 
-  // Genau ein data-changed nach dem Sheet. Der globale View-Refresh malt die
-  // Ansicht neu; ein zweites refreshDayList würde Karten und Bilder doppelt bauen.
-  function publishSaved(payload) {
-    if (payload?.id && !payload.placeId && !payload.place && typeof payload.text === "string") {
-      state.freeNotesExpanded = true;
+  function dropWarmPaint(dayIso) {
+    if (!dayIso) return;
+    warmHtml.delete(dayIso);
+  }
+
+  function mergePlaceInMemory(place) {
+    if (!place?.id) return false;
+    const day = place.day || place.dayDate;
+    let hit = false;
+    if (warmPlaces) {
+      const idx = warmPlaces.findIndex((entry) => entry.id === place.id);
+      if (idx >= 0) {
+        warmPlaces[idx] = { ...warmPlaces[idx], ...place };
+        state.warmPlaces = warmPlaces;
+        hit = true;
+      }
     }
+    for (const bundle of dayCache.values()) {
+      for (const item of bundle.items || []) {
+        if (item.place?.id === place.id) {
+          item.place = { ...item.place, ...place };
+          hit = true;
+        }
+      }
+    }
+    if (hit) dropWarmPaint(day);
+    return hit;
+  }
+
+  function mergeNoteInMemory(note) {
+    if (!note?.id) return false;
+    const day = String(note.day || state.activeDay || "").slice(0, 10);
+    const bundle = dayCache.get(day);
+    if (!bundle) return false;
+    const placeId = note.placeId || null;
+    if (placeId && !bundle.items?.some((entry) => entry.place.id === placeId)) return false;
+    for (const item of bundle.items || []) {
+      if (!item.notes?.length) continue;
+      item.notes = item.notes.filter((entry) => entry.id !== note.id);
+    }
+    bundle.freeNotes = (bundle.freeNotes || []).filter((entry) => entry.id !== note.id);
+    if (!placeId) {
+      bundle.freeNotes = [...bundle.freeNotes, note];
+      state.freeNotesExpanded = true;
+    } else {
+      const item = bundle.items.find((entry) => entry.place.id === placeId);
+      item.notes = [note, ...(item.notes || [])];
+      item.notes.sort((a, b) => (b.ts ?? b.createdAt ?? 0) - (a.ts ?? a.createdAt ?? 0));
+    }
+    dropWarmPaint(day);
+    return true;
+  }
+
+  function forgetNoteInMemory(note) {
+    if (!note?.id) return false;
+    let hit = false;
+    for (const [day, bundle] of dayCache.entries()) {
+      let changed = false;
+      for (const item of bundle.items || []) {
+        if (!item.notes?.some((entry) => entry.id === note.id)) continue;
+        item.notes = item.notes.filter((entry) => entry.id !== note.id);
+        changed = true;
+      }
+      const free = bundle.freeNotes || [];
+      if (free.some((entry) => entry.id === note.id)) {
+        bundle.freeNotes = free.filter((entry) => entry.id !== note.id);
+        changed = true;
+      }
+      if (changed) {
+        dropWarmPaint(day);
+        hit = true;
+      }
+    }
+    return hit;
+  }
+
+  // Genau ein data-changed. Liegt der Tag schon im Cache von Paket 3, schreibt
+  // das Sheet ihn fort und der globale Refresh malt daraus, ohne neu zu laden.
+  function publishSaved(payload) {
+    const isNote = payload && typeof payload.text === "string" && payload.id;
+    const isPlace = payload?.id && payload.name && typeof payload.text !== "string";
+    let cached = true;
+    if (payload?.deleted) cached = forgetNoteInMemory(payload);
+    else if (isNote) cached = mergeNoteInMemory(payload);
+    else if (isPlace) cached = mergePlaceInMemory(payload);
+    else if (payload?.place?.id) cached = mergePlaceInMemory(payload.place);
+    if (!cached) clearWarm();
     window.dispatchEvent(new CustomEvent("vacrecap:data-changed"));
     return window.vacrecapWhenViewSettled?.() ?? Promise.resolve();
   }
@@ -1349,7 +1430,7 @@ export async function renderUrlaubDetail(appEl, id) {
       queuePaint(built, token, { keepScroll: reuse });
       persistSelection(id, state);
       if (token !== state.listRefreshToken || !contentEl.isConnected) return;
-      if (prefetch) await prefetchNeighbors(token);
+      if (prefetch) void prefetchNeighbors(token);
     } catch {
       if (token !== state.listRefreshToken || !contentEl.isConnected) return;
       showDayLoadError();
@@ -2177,7 +2258,7 @@ export async function renderUrlaubDetail(appEl, id) {
       if (!item) return;
       if (editBtn) {
         openEditPlaceSheet(item.place, {
-          onSaved: () => publishSaved(),
+          onSaved: (updated) => publishSaved(updated),
           onDeleted: async (pid) => {
             if (state.selectedByDay[state.activeDay] === pid) {
               delete state.selectedByDay[state.activeDay];
@@ -2359,7 +2440,8 @@ export async function renderUrlaubDetail(appEl, id) {
 
   renderChips();
   if (appEl?.dataset?.appRenderGen !== mountGen) return;
-  await refreshDayList();
+  const reuseDay = Boolean(warmPlaces && dayCache.has(state.activeDay));
+  await refreshDayList(reuseDay ? { reuse: true } : {});
   if (appEl?.dataset?.appRenderGen !== mountGen) return;
   if (keptDayScroll) {
     const page = contentEl.querySelector("[data-page='current']");
