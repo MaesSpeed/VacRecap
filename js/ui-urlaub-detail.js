@@ -9,13 +9,13 @@ import {
 import { getUserId } from "./auth-service.js";
 import { getFreeNotesForDay, getPlacesForDay, getPlacesForVacation, getVacation } from "./db.js";
 import { ICON_BACK_CHEVRON, ICON_GEAR, ICON_MAP } from "./icons.js";
-import { fallbackPlaceName, formatTimeFromTs } from "./geo.js";
+import { coordinatesAreUsable, fallbackPlaceName, formatTimeFromTs, getCapturePosition } from "./geo.js";
 import { placeTsForCapture } from "./capture-time.js";
 import { readPhotoTakenAt } from "./exif-taken-at.js";
 import { rememberPlaceFromGps, trySoftPointOnOpen } from "./place-service.js";
-import { newestHardPlace } from "./places.js";
+import { findPlaceWithinMeters, newestHardPlace } from "./places.js";
 import { leaveTripToOverview, navigate } from "./router.js";
-import { getRememberLocationOnOpen } from "./settings-store.js";
+import { getRememberCaptureLocation, getRememberLocationOnOpen, getSamePlaceRadiusM } from "./settings-store.js";
 import {
   createCapturePlace,
   createPlaceRedirect,
@@ -42,6 +42,8 @@ import {
   setDaySwipePage,
 } from "./day-swipe.js";
 import {
+  dropDayPlaceMemory,
+  dropTripPlaceMemory,
   filterViewableMedia,
   loadDayPlacesEnriched,
   renderPlaceListHtml,
@@ -754,6 +756,7 @@ export async function renderUrlaubDetail(appEl, id) {
 
   function invalidateDayBundle(dayIso) {
     if (!dayIso) return;
+    dropDayPlaceMemory(id, dayIso);
     dayCache.delete(dayIso);
     dropWarmPaint(dayIso);
     cacheEpoch += 1;
@@ -821,12 +824,60 @@ export async function renderUrlaubDetail(appEl, id) {
 
   async function activeDayItems() {
     const bundle = dayCache.get(state.activeDay);
-    if (bundle?.items?.length) return bundle.items;
+    if (bundle?.items) return bundle.items;
     if (!warmPlaces) {
       warmPlaces = await getPlacesForVacation(id);
       state.warmPlaces = warmPlaces;
     }
     return loadDayPlacesEnriched(id, state.activeDay, warmPlaces);
+  }
+
+  async function previewNoteLabelFromCache() {
+    const selectedId = state.selectedByDay[state.activeDay];
+    const bundle = dayCache.get(state.activeDay);
+    if (!bundle?.items) {
+      return previewNoteCaptureTarget({
+        vacationId: id,
+        day: state.activeDay,
+        selectedPlaceId: selectedId,
+      });
+    }
+    const hard = bundle.items.map((entry) => entry.place).filter((place) => !place.soft);
+    if (selectedId) {
+      const selected = hard.find((place) => place.id === selectedId);
+      if (selected) return { label: selected.name, kind: "selected" };
+    }
+    const ohne = hard.find((place) => place.name === "Ohne Ort" && place.lat == null && place.lng == null);
+    if (await getRememberCaptureLocation()) {
+      try {
+        const pos = await getCapturePosition();
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        if (!coordinatesAreUsable(lat, lng)) throw new Error("position unavailable");
+        const near = findPlaceWithinMeters(hard, lat, lng, await getSamePlaceRadiusM());
+        if (near) return { label: near.name, kind: "gps-match" };
+        return { label: "Neuer Ort", kind: "gps-new" };
+      } catch {
+        const newest = newestHardPlace(hard);
+        if (newest) return { label: newest.name, kind: "fallback" };
+        if (ohne) return { label: ohne.name, kind: "fallback" };
+        return { label: "Ohne Ort", kind: "fallback" };
+      }
+    }
+    const newest = newestHardPlace(hard);
+    if (newest) return { label: newest.name, kind: "fallback" };
+    if (ohne) return { label: ohne.name, kind: "fallback" };
+    return { label: "Ohne Ort", kind: "fallback" };
+  }
+
+  async function showSelectedPlace(placeId) {
+    state.selectedByDay[state.activeDay] = placeId;
+    persistSelection(id, state);
+    if (dayCache.has(state.activeDay)) {
+      await paintCachedDays([state.activeDay]);
+      return;
+    }
+    await refreshDayList({ reuse: true });
   }
 
   function placesForDayFromCache() {
@@ -1090,6 +1141,7 @@ export async function renderUrlaubDetail(appEl, id) {
     warmHtml.clear();
     warmPlaces = null;
     state.warmPlaces = null;
+    dropTripPlaceMemory(id);
     dayCache.clear();
     for (const key of Object.keys(thumbPool)) delete thumbPool[key];
   }
@@ -1670,12 +1722,7 @@ export async function renderUrlaubDetail(appEl, id) {
         const items = await activeDayItems();
         return items.map((i) => i.place).filter((p) => !p.soft);
       },
-      previewPlaceLabel: () =>
-        previewNoteCaptureTarget({
-          vacationId: id,
-          day: state.activeDay,
-          selectedPlaceId: state.selectedByDay[state.activeDay],
-        }),
+      previewPlaceLabel: () => previewNoteLabelFromCache(),
       resolvePlaceOnSave: async () => {
         const r = await resolveCaptureTarget({
           vacationId: id,
@@ -2026,9 +2073,7 @@ export async function renderUrlaubDetail(appEl, id) {
       if (!placeHost) return;
       const placeId = placeHost.dataset.placeId;
       if (placeId !== state.selectedByDay[state.activeDay]) {
-        state.selectedByDay[state.activeDay] = placeId;
-        persistSelection(id, state);
-        await refreshDayList({ reuse: true });
+        await showSelectedPlace(placeId);
         return;
       }
     }
@@ -2040,9 +2085,7 @@ export async function renderUrlaubDetail(appEl, id) {
       if (!noteRow || !placeHost) return;
       const placeId = placeHost.dataset.placeId;
       if (placeId !== state.selectedByDay[state.activeDay]) {
-        state.selectedByDay[state.activeDay] = placeId;
-        persistSelection(id, state);
-        await refreshDayList({ reuse: true });
+        await showSelectedPlace(placeId);
         return;
       }
       const items = await activeDayItems();
@@ -2085,7 +2128,8 @@ export async function renderUrlaubDetail(appEl, id) {
         e.target.closest('[data-action="edit-free-note"]') || e.target.closest("[data-free-note]");
       const addFree = e.target.closest('[data-action="add-free-note"]');
       if (editFree || addFree) {
-        const notes = await getFreeNotesForDay(id, state.activeDay);
+        const bundle = dayCache.get(state.activeDay);
+        const notes = bundle ? bundle.freeNotes || [] : await getFreeNotesForDay(id, state.activeDay);
         const note = editFree
           ? notes.find((n) => n.id === editFree.closest("[data-note-id]")?.dataset.noteId)
           : null;
@@ -2198,9 +2242,7 @@ export async function renderUrlaubDetail(appEl, id) {
 
     const card = e.target.closest(".oc[data-place-id]");
     if (card && !card.classList.contains("oc--selected")) {
-      state.selectedByDay[state.activeDay] = card.dataset.placeId;
-      persistSelection(id, state);
-      await refreshDayList({ reuse: true });
+      await showSelectedPlace(card.dataset.placeId);
     }
   });
 
