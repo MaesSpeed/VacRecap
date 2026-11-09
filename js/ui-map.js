@@ -4,7 +4,8 @@ import { assetUrl } from "./config.js";
 import { CloudOfflineError } from "./cloud-errors.js";
 import { dayColorFor, dayLegendLabel } from "./day-colors.js";
 import { vacationDays } from "./days.js";
-import { getMediaForPlace, getNotesForPlace, getPlacesForVacation, getVacation } from "./db.js";
+import { getPlacesForVacation, getVacation } from "./db.js";
+import { peekTripPlaces, placeMediaNoteCounts, rememberTripPlaces } from "./ui-place-list.js";
 import { formatTimeFromTs, getCurrentPosition } from "./geo.js";
 import { peekRouteSegment, resolveRouteSegment } from "./route-service.js";
 import { getMapRoutesEnabled } from "./settings-store.js";
@@ -60,21 +61,16 @@ function placeDay(place) {
 }
 
 async function loadMapPlaces(vacationId) {
-  const places = await getPlacesForVacation(vacationId);
-  const enriched = await Promise.all(
-    places.map(async (place) => {
-      if (place.soft) {
-        return { place, photos: 0, videos: 0, notes: 0 };
-      }
-      const [media, notes] = await Promise.all([
-        getMediaForPlace(place.id),
-        getNotesForPlace(place.id),
-      ]);
-      const photos = media.filter((m) => m.type !== "video").length;
-      const videos = media.filter((m) => m.type === "video").length;
-      return { place, photos, videos, notes: notes.length };
-    })
-  );
+  let places = peekTripPlaces(vacationId);
+  if (!places) {
+    places = await getPlacesForVacation(vacationId);
+    rememberTripPlaces(vacationId, places);
+  }
+  const counts = await placeMediaNoteCounts(vacationId, places);
+  const enriched = places.map((place) => {
+    const hit = counts.get(place.id) || { photos: 0, videos: 0, notes: 0 };
+    return { place, photos: hit.photos, videos: hit.videos, notes: hit.notes };
+  });
   const hardWithPos = enriched
     .filter((e) => !e.place.soft && hasPosition(e.place))
     .sort((a, b) => a.place.ts - b.place.ts);

@@ -36,20 +36,49 @@ function newestUploadedPhoto(media) {
   return uploaded.slice().sort((a, b) => a.ts - b.ts)[uploaded.length - 1];
 }
 
-export async function loadDayPlacesEnriched(vacationId, day, knownPlaces) {
-  const { getPlacesForDay } = await import("./db.js");
-  const source = knownPlaces
-    ? knownPlaces.filter((p) => (p.day || p.dayDate) === day)
-    : await getPlacesForDay(vacationId, day);
-  const places = sortPlacesChronologicalDesc(source);
-  const hardPlaces = places.filter((p) => !p.soft);
-  const waypointIds = hardPlaces.map((p) => p.id);
-  const [mediaPack, notesByPlace] = await Promise.all([
-    fetchMediaForWaypoints(waypointIds),
-    fetchNotesForWaypoints(vacationId, waypointIds),
-  ]);
-  const mediaByPlace = mediaPack.byPlace || new Map();
-  const batchMediaError = Boolean(mediaPack.error);
+const dayItems = new Map();
+const dayInflight = new Map();
+const dayToken = new Map();
+const tripPlaces = new Map();
+
+function dayKey(vacationId, day) {
+  return `${vacationId}:${day}`;
+}
+
+function placeDay(place) {
+  return place?.day || place?.dayDate || "";
+}
+
+export function rememberTripPlaces(vacationId, places) {
+  if (!vacationId || !places?.length) return;
+  const prev = tripPlaces.get(vacationId);
+  if (!prev || places.length >= prev.length) tripPlaces.set(vacationId, places);
+}
+
+export function peekTripPlaces(vacationId) {
+  return tripPlaces.get(vacationId) || null;
+}
+
+export function dropDayPlaceMemory(vacationId, day) {
+  if (!vacationId || !day) return;
+  const key = dayKey(vacationId, day);
+  dayToken.set(key, (dayToken.get(key) || 0) + 1);
+  dayItems.delete(key);
+}
+
+export function dropTripPlaceMemory(vacationId) {
+  if (!vacationId) return;
+  tripPlaces.delete(vacationId);
+  const prefix = `${vacationId}:`;
+  for (const key of dayItems.keys()) {
+    if (!key.startsWith(prefix)) continue;
+    dayToken.set(key, (dayToken.get(key) || 0) + 1);
+    dayItems.delete(key);
+  }
+}
+
+async function assembleDay(vacationId, day, dayPlaces, mediaByPlace, notesByPlace, batchMediaError) {
+  const places = sortPlacesChronologicalDesc(dayPlaces);
   const enriched = places.map((p) => {
     if (p.soft) return { place: p, photos: 0, videos: 0, notes: [], media: [], mediaLoadError: false };
     const media = mediaByPlace.get(p.id) || [];
@@ -67,6 +96,136 @@ export async function loadDayPlacesEnriched(vacationId, day, knownPlaces) {
     };
   });
   return filterSoftPointsHidden(enriched, vacationId, day);
+}
+
+function storeDayItems(vacationId, day, items, token) {
+  const key = dayKey(vacationId, day);
+  if ((dayToken.get(key) || 0) !== token) return items;
+  dayItems.set(key, items);
+  return items;
+}
+
+async function loadDayPlacesEnrichedUncached(vacationId, day, knownPlaces) {
+  const { getPlacesForDay } = await import("./db.js");
+  const source = knownPlaces
+    ? knownPlaces.filter((p) => placeDay(p) === day)
+    : await getPlacesForDay(vacationId, day);
+  const waypointIds = source.filter((p) => !p.soft).map((p) => p.id);
+  const [mediaPack, notesByPlace] = await Promise.all([
+    fetchMediaForWaypoints(waypointIds),
+    fetchNotesForWaypoints(vacationId, waypointIds),
+  ]);
+  return assembleDay(
+    vacationId,
+    day,
+    source,
+    mediaPack.byPlace || new Map(),
+    notesByPlace,
+    Boolean(mediaPack.error)
+  );
+}
+
+export async function loadDayPlacesEnriched(vacationId, day, knownPlaces) {
+  if (!vacationId || !day) return [];
+  if (knownPlaces) rememberTripPlaces(vacationId, knownPlaces);
+  const key = dayKey(vacationId, day);
+  if (dayItems.has(key)) return dayItems.get(key);
+  const pending = dayInflight.get(key);
+  if (pending) return pending;
+  const token = dayToken.get(key) || 0;
+  const job = loadDayPlacesEnrichedUncached(vacationId, day, knownPlaces)
+    .then((items) => storeDayItems(vacationId, day, items, token))
+    .finally(() => {
+      if (dayInflight.get(key) === job) dayInflight.delete(key);
+    });
+  dayInflight.set(key, job);
+  return job;
+}
+
+async function loadMissingDays(vacationId, source, daysNeeded) {
+  const days = [...daysNeeded];
+  const ids = [];
+  const tokens = new Map();
+  for (const place of source) {
+    if (place.soft) continue;
+    const day = placeDay(place);
+    if (!daysNeeded.has(day) || !place.id) continue;
+    ids.push(place.id);
+  }
+  const unique = [...new Set(ids)];
+  let publish = () => {};
+  const gate = new Promise((resolve) => {
+    publish = resolve;
+  });
+  const flights = new Map();
+  for (const day of days) {
+    const key = dayKey(vacationId, day);
+    tokens.set(key, dayToken.get(key) || 0);
+    const flight = gate.then((stored) => stored.get(day) || []);
+    flights.set(key, flight);
+    dayInflight.set(key, flight);
+  }
+  try {
+    const [mediaPack, notesByPlace] = unique.length
+      ? await Promise.all([fetchMediaForWaypoints(unique), fetchNotesForWaypoints(vacationId, unique)])
+      : [{ byPlace: new Map(), error: null }, new Map()];
+    const mediaByPlace = mediaPack.byPlace || new Map();
+    const batchMediaError = Boolean(mediaPack.error);
+    const stored = new Map();
+    for (const day of days) {
+      const dayPlaces = source.filter((place) => placeDay(place) === day);
+      const items = await assembleDay(vacationId, day, dayPlaces, mediaByPlace, notesByPlace, batchMediaError);
+      const key = dayKey(vacationId, day);
+      storeDayItems(vacationId, day, items, tokens.get(key));
+      stored.set(day, dayItems.get(key) || items);
+    }
+    publish(stored);
+    return stored;
+  } catch (err) {
+    publish(new Map());
+    throw err;
+  } finally {
+    for (const [key, flight] of flights) {
+      if (dayInflight.get(key) === flight) dayInflight.delete(key);
+    }
+  }
+}
+
+export async function placeMediaNoteCounts(vacationId, places) {
+  const source = places?.length ? places : peekTripPlaces(vacationId) || [];
+  const waiting = [];
+  const missingDays = new Set();
+  for (const place of source) {
+    if (place.soft) continue;
+    const day = placeDay(place);
+    if (!day) continue;
+    const key = dayKey(vacationId, day);
+    if (dayItems.has(key)) continue;
+    if (dayInflight.has(key)) {
+      waiting.push(dayInflight.get(key));
+      continue;
+    }
+    missingDays.add(day);
+  }
+  if (missingDays.size) waiting.push(loadMissingDays(vacationId, source, missingDays));
+  if (waiting.length) await Promise.all(waiting);
+  const counts = new Map();
+  for (const place of source) {
+    if (!place?.id) continue;
+    if (place.soft) {
+      counts.set(place.id, { photos: 0, videos: 0, notes: 0 });
+      continue;
+    }
+    const items = dayItems.get(dayKey(vacationId, placeDay(place))) || [];
+    const item = items.find((entry) => entry.place?.id === place.id);
+    const media = item?.media || [];
+    counts.set(place.id, {
+      photos: media.filter((entry) => entry.type !== "video").length,
+      videos: media.filter((entry) => entry.type === "video").length,
+      notes: item?.notes?.length || 0,
+    });
+  }
+  return counts;
 }
 
 export async function ensurePhotoThumbs() {}
