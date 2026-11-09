@@ -352,7 +352,9 @@ export async function renderUrlaubDetail(appEl, id) {
 
   const chipsEl = appEl.querySelector('[data-role="chips"]');
   const contentEl = appEl.querySelector('[data-role="day-content"]');
-  const neighborHold = { prev: "", next: "" };
+  const pageSnaps = new WeakMap();
+  const mountedNeighborHtml = new WeakMap();
+  const dayDataSeen = new Map();
   let chipFollowDay = null;
   let chipScrollToken = 0;
   let chipPhase = "idle";
@@ -367,15 +369,15 @@ export async function renderUrlaubDetail(appEl, id) {
         chipScrollToken += 1;
         chipFollowDay = null;
       }
-      setDaySwipeNeighbor(contentEl, "prev", neighborHold.prev);
-      setDaySwipeNeighbor(contentEl, "next", neighborHold.next);
+      prepareNeighborPages();
     },
     onDrag: (info) => onChipDrag(info),
     onCancel: () => onChipCancel(),
     onRest: () => {
-      setDaySwipeNeighbor(contentEl, "prev", "");
-      setDaySwipeNeighbor(contentEl, "next", "");
+      prepareNeighborPages();
     },
+    beforeSwap: () => snapshotLeavingPage(),
+    afterSwap: () => restoreArrivingPage(),
     onCommit: (dir) => previewChipShift(dir),
   });
   syncDayEdges({ active: false });
@@ -974,10 +976,25 @@ export async function renderUrlaubDetail(appEl, id) {
     }
     const thumbUrls = await thumbUrlsFor(allMedia, visibleIds);
     const roleNow = (await getConfirmedTripRole(id)).role;
+    return {
+      html: composeDayHtml(dayIso, bundle, {
+        active,
+        selectedId,
+        thumbUrls,
+        roleNow,
+        selecting,
+      }),
+      thumbUrls,
+      stale,
+    };
+  }
+
+  function composeDayHtml(dayIso, bundle, { active, selectedId, thumbUrls, roleNow, selecting }) {
     const canEditMedia = canAddOwn(roleNow);
     let placeHtml = emptyDayHtml;
-    if (bundle.items.length) {
-      const { listHtml, mediaErrorHtml, selectBarHtml } = renderPlaceListHtml(bundle.items, {
+    const items = bundle.items || [];
+    if (items.length) {
+      const { listHtml, mediaErrorHtml, selectBarHtml } = renderPlaceListHtml(items, {
         selectedId,
         notesExpanded: active ? state.notesExpanded : new Set(),
         thumbUrls,
@@ -986,7 +1003,7 @@ export async function renderUrlaubDetail(appEl, id) {
         share,
         canEditPlace: (place) => canEditItem(roleNow, place, state.userId),
         photoSelect: {
-          active: selecting,
+          active: Boolean(selecting),
           selectedIds: state.photoSelected || new Set(),
           userId: state.userId,
         },
@@ -996,17 +1013,127 @@ export async function renderUrlaubDetail(appEl, id) {
     const lastDay = days[days.length - 1];
     const showRecapEntry = dayIso === lastDay && todayIso() >= (vacation.endDate || "");
     const entryHtml = showRecapEntry ? recapEntryCardHtml(recapEntry) : "";
-    return {
-      html:
-        entryHtml +
-        withFreeNotesHtml(placeHtml, bundle.freeNotes, {
-          expanded: active && state.freeNotesExpanded,
-          replaceEmpty: bundle.items.length === 0,
-          share,
-        }),
+    return (
+      entryHtml +
+      withFreeNotesHtml(placeHtml, bundle.freeNotes || [], {
+        expanded: Boolean(active && state.freeNotesExpanded),
+        replaceEmpty: items.length === 0,
+        share,
+      })
+    );
+  }
+
+  function htmlForCachedDay(dayIso) {
+    if (!dayIso) return "";
+    const warm = warmHtml.get(dayIso);
+    if (warm?.html && !warm.stale) return warm.html;
+    const bundle = dayCache.get(dayIso);
+    if (!bundle?.items) return "";
+    let selectedId = state.selectedByDay[dayIso] || null;
+    if (!selectedId) {
+      const hard = bundle.items.map((entry) => entry.place).filter((place) => !place.soft);
+      const newest = newestHardPlace(hard);
+      if (newest) {
+        selectedId = newest.id;
+        state.selectedByDay[dayIso] = newest.id;
+        persistSelection(id, state);
+      }
+    }
+    const visibleIds = visibleThumbMediaIds(bundle.items, selectedId);
+    const thumbUrls = {};
+    for (const mediaId of visibleIds) {
+      if (thumbPool[mediaId]) thumbUrls[mediaId] = thumbPool[mediaId];
+    }
+    return composeDayHtml(dayIso, bundle, {
+      active: false,
+      selectedId,
       thumbUrls,
-      stale,
-    };
+      roleNow: roleInfo.role,
+      selecting: false,
+    });
+  }
+
+  function neighborIso(which) {
+    const idx = days.indexOf(state.activeDay);
+    if (which === "prev") return idx > 0 ? days[idx - 1] : "";
+    if (which === "next") return idx >= 0 && idx < days.length - 1 ? days[idx + 1] : "";
+    return "";
+  }
+
+  function bundleStamp(dayIso) {
+    const bundle = dayCache.get(dayIso);
+    if (!bundle) return null;
+    const items = (bundle.items || [])
+      .map((item) => {
+        const media = (item.media || []).map((entry) => `${entry.id}:${entry.placeId || ""}:${entry.day || ""}`).join(",");
+        const notes = (item.notes || []).map((entry) => `${entry.id}:${entry.text || ""}`).join(",");
+        return `${item.place?.id || ""}#${media}#${notes}`;
+      })
+      .join(";");
+    const free = (bundle.freeNotes || []).map((entry) => `${entry.id}:${entry.text || ""}`).join(",");
+    return `${items}|${free}`;
+  }
+
+  function rememberDayData(dayIso) {
+    const stamp = bundleStamp(dayIso);
+    if (!dayIso || stamp == null) return;
+    dayDataSeen.set(dayIso, stamp);
+  }
+
+  function prepareNeighborPages() {
+    if (!contentEl?.isConnected) return;
+    let mounted = false;
+    for (const which of ["prev", "next"]) {
+      const dayIso = neighborIso(which);
+      const page = contentEl.querySelector(`[data-page="${which}"]`);
+      if (!page) continue;
+      const html = htmlForCachedDay(dayIso);
+      const sameDay = Boolean(dayIso) && page.dataset.swipeDay === dayIso && page.childElementCount > 0;
+      const seen = dayIso ? dayDataSeen.get(dayIso) : undefined;
+      const now = dayIso ? bundleStamp(dayIso) : null;
+      const dataChanged = now != null && seen !== undefined && now !== seen;
+      if (sameDay && page.dataset.live === "1" && !dataChanged) continue;
+      if (sameDay && !dataChanged && mountedNeighborHtml.get(page) === html) continue;
+      const wrote = setDaySwipeNeighbor(contentEl, which, html, { day: dayIso, force: dataChanged });
+      if (!wrote) continue;
+      mounted = true;
+      pageSnaps.delete(page);
+      if (html) {
+        mountedNeighborHtml.set(page, html);
+        rememberDayData(dayIso);
+      } else {
+        mountedNeighborHtml.delete(page);
+        if (dayIso) dayDataSeen.delete(dayIso);
+      }
+    }
+    if (mounted) bindBrokenThumbs(contentEl);
+  }
+
+  function snapshotLeavingPage() {
+    const page = contentEl.querySelector("[data-page='current']");
+    if (!page) return;
+    page.dataset.live = "1";
+    pageSnaps.set(page, {
+      day: page.dataset.swipeDay || state.activeDay,
+      photoSelecting: Boolean(state.photoSelecting),
+      photoSelected: [...(state.photoSelected || [])],
+    });
+  }
+
+  function restoreArrivingPage() {
+    const page = contentEl.querySelector("[data-page='current']");
+    const snap = page ? pageSnaps.get(page) : null;
+    const day = page?.dataset.swipeDay || "";
+    if (snap && snap.day && snap.day === day) {
+      state.photoSelecting = snap.photoSelecting;
+      state.photoSelected = new Set(snap.photoSelected);
+    } else {
+      if (page && snap) pageSnaps.delete(page);
+      state.photoSelecting = false;
+      state.photoSelected = new Set();
+    }
+    if (contentEl) contentEl.dataset.photoSelecting = state.photoSelecting ? "1" : "0";
+    syncPhotoSelectMark();
   }
 
   function clearWarm() {
@@ -1018,14 +1145,6 @@ export async function renderUrlaubDetail(appEl, id) {
     for (const key of Object.keys(thumbPool)) delete thumbPool[key];
   }
 
-  function syncNeighborHold() {
-    const idx = days.indexOf(state.activeDay);
-    const prev = idx > 0 ? days[idx - 1] : null;
-    const next = idx < days.length - 1 ? days[idx + 1] : null;
-    neighborHold.prev = prev && warmHtml.get(prev)?.html ? stripTestIds(warmHtml.get(prev).html) : "";
-    neighborHold.next = next && warmHtml.get(next)?.html ? stripTestIds(warmHtml.get(next).html) : "";
-  }
-
   async function paintCachedDays(dayList) {
     const unique = [...new Set(dayList.filter(Boolean))];
     for (const day of unique) {
@@ -1033,7 +1152,7 @@ export async function renderUrlaubDetail(appEl, id) {
       const plain = await buildDayHtml(day, warmPlaces, { selection: false });
       if (!plain.stale) warmHtml.set(day, plain);
     }
-    syncNeighborHold();
+    prepareNeighborPages();
     const active = state.photoSelecting
       ? await buildDayHtml(state.activeDay, warmPlaces, { selection: true })
       : warmHtml.get(state.activeDay);
@@ -1067,33 +1186,27 @@ export async function renderUrlaubDetail(appEl, id) {
   }
 
   async function prefetchNeighbors(token) {
-    const idx = days.indexOf(state.activeDay);
-    const prev = idx > 0 ? days[idx - 1] : null;
-    const next = idx < days.length - 1 ? days[idx + 1] : null;
-    neighborHold.prev = "";
-    neighborHold.next = "";
-    for (const [key, day] of [
-      ["prev", prev],
-      ["next", next],
-    ]) {
-      if (!day) continue;
-      let built = warmHtml.get(day);
-      if (!built) {
-        try {
-          built = await buildDayHtml(day, warmPlaces);
-        } catch {
-          if (token !== state.listRefreshToken || !contentEl.isConnected) return;
-          continue;
-        }
-        if (token !== state.listRefreshToken || !contentEl.isConnected) {
-          revokeThumbUrls(built?.thumbUrls);
-          return;
-        }
-        if (built?.stale) continue;
-        warmHtml.set(day, built);
+    const prev = neighborIso("prev");
+    const next = neighborIso("next");
+    for (const day of [prev, next]) {
+      if (!day || (warmHtml.get(day)?.html && !warmHtml.get(day)?.stale)) continue;
+      if (dayCache.has(day)) continue;
+      let built;
+      try {
+        built = await buildDayHtml(day, warmPlaces);
+      } catch {
+        if (token !== state.listRefreshToken || !contentEl.isConnected) return;
+        continue;
       }
-      neighborHold[key] = stripTestIds(built.html);
+      if (token !== state.listRefreshToken || !contentEl.isConnected) {
+        revokeThumbUrls(built?.thumbUrls);
+        return;
+      }
+      if (built?.stale) continue;
+      warmHtml.set(day, built);
     }
+    if (token !== state.listRefreshToken || !contentEl.isConnected) return;
+    prepareNeighborPages();
   }
 
   let pendingPaint = null;
@@ -1115,7 +1228,7 @@ export async function renderUrlaubDetail(appEl, id) {
   }
 
   function paintBlocked() {
-    return contentEl.dataset.gesture === "1" || scrolling;
+    return contentEl.dataset.gesture === "1" || contentEl.dataset.swipeLock === "1" || scrolling;
   }
 
   function paintDay(built, { keepScroll = false } = {}) {
@@ -1124,8 +1237,10 @@ export async function renderUrlaubDetail(appEl, id) {
     const previousThumbUrls = state.thumbUrls;
     state.thumbUrls = built.thumbUrls || {};
     syncDayEdges();
-    setDaySwipePage(contentEl, built.html, { keepScroll });
+    setDaySwipePage(contentEl, built.html, { keepScroll, day: state.activeDay });
+    rememberDayData(state.activeDay);
     bindBrokenThumbs(contentEl);
+    prepareNeighborPages();
     if (previousThumbUrls && previousThumbUrls !== state.thumbUrls) revokeThumbUrls(previousThumbUrls);
   }
 
@@ -1202,7 +1317,7 @@ export async function renderUrlaubDetail(appEl, id) {
     }
     const previousThumbUrls = state.thumbUrls;
     state.thumbUrls = {};
-    setDaySwipePage(contentEl, daySkeletonHtml);
+    setDaySwipePage(contentEl, daySkeletonHtml, { day: state.activeDay });
     if (previousThumbUrls && previousThumbUrls !== state.thumbUrls) revokeThumbUrls(previousThumbUrls);
   }
 
@@ -1215,7 +1330,7 @@ export async function renderUrlaubDetail(appEl, id) {
     if (!skeleton && loaded) return;
     pendingPaint = null;
     syncDayEdges();
-    setDaySwipePage(contentEl, dayErrorHtml);
+    setDaySwipePage(contentEl, dayErrorHtml, { day: state.activeDay });
   }
 
   async function refreshDayList({ reuse = false, prefetch = !reuse } = {}) {
@@ -1268,14 +1383,16 @@ export async function renderUrlaubDetail(appEl, id) {
   function shiftDay(direction) {
     const next = adjacentDay(vacation, state.activeDay, direction);
     if (next === state.activeDay) return;
-    const selecting = state.photoSelecting;
-    clearPhotoSelect();
-    if (selecting) dropPhotoSelectEntry();
+    const page = contentEl.querySelector("[data-page='current']");
+    const adopted = Boolean(page?.dataset.swipeDay === next && page.childElementCount > 0);
+    state.listRefreshToken += 1;
+    pendingPaint = null;
     state.activeDay = next;
     persistSelection(id, state);
     renderChips();
     syncDayEdges();
-    void refreshDayList({ reuse: true });
+    prepareNeighborPages();
+    if (!adopted) void refreshDayList({ reuse: true });
   }
 
   async function onRememberPlace() {
