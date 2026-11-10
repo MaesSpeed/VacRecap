@@ -408,7 +408,9 @@ async function assertPlaceListUi(page, label) {
     day: document.querySelector("[data-testid=trip-content]")?.dataset.activeDay || "2026-11-06",
   }));
 
-  await page.click('[data-action="add-note"]');
+  await page.locator('.oc--selected [data-action="edit-place"]').click();
+  await page.waitForSelector('[data-testid="place-note-row"]');
+  await page.locator('[data-testid="place-note-row"]').click();
   await page.waitForSelector('[data-testid="note-sheet"]');
   await page.fill('[data-testid="note-sheet"] textarea', "6e Add Link");
   await page.locator('[data-testid="note-sheet"] [data-action="save"]').click();

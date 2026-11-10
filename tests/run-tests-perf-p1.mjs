@@ -221,9 +221,9 @@ async function runPerfScenario() {
   await page.waitForTimeout(300);
   const cardTap = meter.snapshot();
 
-  await page.waitForSelector('.oc--selected [data-action="add-note"]', { timeout: 15_000 });
+  await page.waitForSelector('[data-footer-action="note"]', { timeout: 15_000 });
   meter.reset();
-  await page.locator('.oc--selected [data-action="add-note"]').click({ timeout: 10_000 });
+  await page.locator('[data-footer-action="note"]').click({ timeout: 10_000 });
   await page.waitForSelector('[data-testid="note-sheet"]', { timeout: 10_000 });
   await page.waitForTimeout(300);
   const sheetOpen = meter.snapshot();

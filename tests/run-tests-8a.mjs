@@ -490,11 +490,12 @@ async function runSuite(browserType, baseUrl, label) {
     { placeId }
   );
   await waitForTripSettled(page);
+  await page.locator("[data-page='current'] .oc--selected [data-action='edit-place']").click();
+  await page.waitForSelector('[data-testid="place-note-row"]');
   const noteStyles = await page
     .waitForFunction(() => {
-      const current = document.querySelector("[data-page='current']");
-      const add = current?.querySelector(".oc--selected [data-action='add-note']");
-      const more = current?.querySelector(".oc--selected [data-action='expand-notes']");
+      const add = document.querySelector('[data-testid="place-note-row"]');
+      const more = document.querySelector("[data-page='current'] .oc--selected [data-action='expand-notes']");
       if (!add || !more) return null;
       const a = getComputedStyle(add);
       const m = getComputedStyle(more);
@@ -519,6 +520,8 @@ async function runSuite(browserType, baseUrl, label) {
   if (noteStyles.addRadius === "0px") {
     throw new Error(`${label}: + Notiz ohne eigene Form`);
   }
+  await page.locator('[data-testid="place-edit-sheet"] [data-action="cancel"]').click();
+  await page.waitForFunction(() => !document.querySelector('[data-testid="place-edit-sheet"]'));
 
   const scroll = await page
     .waitForFunction(() => {

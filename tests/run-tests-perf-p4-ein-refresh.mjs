@@ -590,7 +590,9 @@ async function run() {
       assert(left === 0, `Foto von ${sourceId} liegt nach dem Zurückwischen noch am Ursprung`);
     }
 
-    await page.locator(`${CUR} .oc--selected [data-action="add-note"]`).click();
+    await page.locator(`${CUR} .oc--selected [data-action="edit-place"]`).click();
+    await page.waitForSelector('[data-testid="place-note-row"]');
+    await page.locator('[data-testid="place-note-row"]').click();
     await page.waitForSelector('[data-testid="note-sheet"]');
     await page.locator('[data-testid="note-sheet"] textarea').fill("Zusatz fuer die Liste");
     await page.locator('[data-testid="note-sheet"] [data-action="save"]').click();
