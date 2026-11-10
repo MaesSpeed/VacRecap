@@ -28,8 +28,8 @@ export async function moveNoteToPlace(note, place, { day, vacationId } = {}) {
     vacationId: vacationId ?? note.vacationId,
     ts: note.ts ?? Date.now(),
   };
-  await putNote(record, { notify: false });
-  return record;
+  const saved = await putNote(record, { notify: false });
+  return saved ? { ...record, ...saved } : record;
 }
 
 export async function removeNote(noteId) {

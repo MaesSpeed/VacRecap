@@ -524,9 +524,12 @@ async function runFlows(page, state, where) {
   await page.waitForSelector(`[data-day="${DAY}"]`);
   await page.click(`[data-day="${DAY}"]`);
   await page.waitForSelector('[data-action="edit-place"]');
-  await page.waitForSelector('[data-action="add-note"]');
+  await page.click('[data-action="edit-place"]');
+  await page.waitForSelector('[data-testid="place-note-row"]');
   assertHits(await hitBoxes(page, ".qa__btn"), `${where} Bearbeiten/Fotos/Kamera`);
-  assertHits(await hitBoxes(page, '[data-action="add-note"]'), `${where} + Notiz`);
+  assertHits(await hitBoxes(page, '[data-testid="place-note-row"]'), `${where} Notiz zum Ort`);
+  await page.click('[data-testid="place-edit-sheet"] [data-action="cancel"]');
+  await page.waitForFunction(() => !document.querySelector('[data-testid="place-edit-sheet"]'));
 
   await page.click('[data-footer-action="note"]');
   await waitSheetReady(page, "note-sheet");

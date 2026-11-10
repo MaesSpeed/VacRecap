@@ -48,7 +48,7 @@ export function openPhotoCaptionSheet({ media, onSaved }) {
           }
         </header>
         <label class="field note-sheet__field">
-          <textarea data-role="text" data-testid="photo-caption-text" rows="3" maxlength="500" placeholder="Notiz zum Foto…"></textarea>
+          <textarea data-role="text" data-testid="photo-caption-text" rows="6" maxlength="500" placeholder="Notiz zum Foto…"></textarea>
         </label>
         <button type="button" class="btn btn-emaille btn-emaille--block note-sheet__save-bottom" data-action="save" data-testid="photo-caption-save" disabled>Speichern</button>
       </div>`;
@@ -72,8 +72,20 @@ export function openPhotoCaptionSheet({ media, onSaved }) {
         })
       : () => {};
 
+    const syncCaptionKb = () => {
+      const kb =
+        parseInt(getComputedStyle(document.documentElement).getPropertyValue("--kb"), 10) || 0;
+      captionSheet?.classList.toggle("sheet--note-kb", kb > 80);
+    };
+    let kbViewportHandler = null;
+
     const domClose = () => {
       stopPresence();
+      if (kbViewportHandler) {
+        window.visualViewport?.removeEventListener("resize", kbViewportHandler);
+        window.visualViewport?.removeEventListener("scroll", kbViewportHandler);
+        kbViewportHandler = null;
+      }
       window.removeEventListener("keydown", onKey, true);
       if (layer.isConnected) layer.remove();
       if (!overlay.querySelector(".media-viewer, .sheet")) {
@@ -84,6 +96,10 @@ export function openPhotoCaptionSheet({ media, onSaved }) {
     };
     const activeClose = bindOverlay(overlay, domClose);
     const captionSheet = layer.querySelector('[data-testid="photo-caption-sheet"]');
+    syncCaptionKb();
+    kbViewportHandler = () => syncCaptionKb();
+    window.visualViewport?.addEventListener("resize", kbViewportHandler);
+    window.visualViewport?.addEventListener("scroll", kbViewportHandler);
     bindSheetPull(captionSheet, {
       onClose: () => closeOverlayHistory(activeClose),
       scrollEl: captionSheet,

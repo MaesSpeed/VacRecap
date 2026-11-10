@@ -408,7 +408,9 @@ async function run() {
   await page.waitForFunction(
     () => document.querySelector("[data-page='current'] .oc--selected")?.dataset.placeId === "p-beta"
   );
-  await page.locator(`${CUR} .oc--selected [data-action="add-note"]`).click();
+  await page.locator(`${CUR} .oc--selected [data-action="edit-place"]`).click();
+  await page.waitForSelector('[data-testid="place-note-row"]');
+  await page.locator('[data-testid="place-note-row"]').click();
   await page.waitForSelector('[data-testid="note-sheet"]');
   await page.locator('[data-testid="note-sheet"] textarea').fill("Frisch notiert");
   await page.locator('[data-testid="note-sheet"] [data-action="save"]').click();

@@ -989,7 +989,7 @@ async function runFlows(page, state, label, shots, baseUrl) {
   const foreignNote = page.locator('[data-note-id="n-domi"]');
   assert((await foreignNote.innerText()).includes("Von Domi"), `${label}: Von Domi fehlt`);
   assert((await foreignNote.locator('[data-action="edit-note"]').count()) === 0, `${label}: fremde Notiz ist bearbeitbar`);
-  await page.locator('[data-place-id="p-hafen"] [data-action="add-note"]').click();
+  await page.locator('[data-footer-action="note"]').click();
   await page.waitForSelector('[data-testid="note-sheet"]');
   await page.fill('[data-testid="note-sheet"] [data-role="text"]', "Pistazien-Eis");
   await page.click('[data-testid="note-sheet"] [data-action="save"]');

@@ -6183,3 +6183,226 @@ button.kr-av{border:none;cursor:pointer}
 .avatar-swatch{width:44px;height:44px;border:none;background:transparent;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:50%}
 .avatar-swatch[aria-pressed="true"] .kr-av{box-shadow:0 0 0 2px #fff,0 0 0 4px var(--kr)}
 .sheet .fg-role{margin:0 0 8px}
+
+/* Paket 1: Notiz zum Foto, 5.5 Zeilen, Speichern bleibt über der Tastatur. */
+[data-testid="photo-caption-sheet"].sheet--note-bottom,
+[data-testid="photo-caption-sheet"].sheet--note-bottom.sheet--note-kb {
+  top: auto;
+  bottom: var(--kb);
+  max-height: calc(100dvh - var(--kb) - 8px);
+  overflow: hidden;
+}
+[data-testid="photo-caption-sheet"].sheet--note-bottom:not(.sheet--note-kb) .note-sheet__field,
+[data-testid="photo-caption-sheet"].sheet--note-bottom.sheet--note-kb .note-sheet__field {
+  flex: 0 1 auto;
+  height: calc(24px + 5.5 * 1.4em);
+  min-height: 0;
+  max-height: calc(24px + 5.5 * 1.4em);
+  display: flex;
+  flex-direction: column;
+}
+[data-testid="photo-caption-sheet"].sheet--note-bottom:not(.sheet--note-kb) .note-sheet__field textarea,
+[data-testid="photo-caption-sheet"].sheet--note-bottom.sheet--note-kb .note-sheet__field textarea {
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  line-height: 1.4;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+[data-testid="photo-caption-sheet"] .note-sheet__save-bottom {
+  flex: 0 0 auto;
+}
+
+.place-edit-when {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+.place-edit-when__time {
+  flex: 0 0 112px;
+  margin: 0;
+}
+.place-edit-when__time input[type="time"] {
+  width: 100%;
+  min-height: 44px;
+  padding-left: 8px;
+  padding-right: 4px;
+}
+.place-edit-when__day {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+}
+.place-edit-day {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--navy);
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+.place-edit-day__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.place-edit-day__chevron {
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+.place-edit-day--open {
+  border-color: var(--emaille);
+  box-shadow: 0 0 0 2px rgba(0, 102, 179, 0.22);
+}
+.place-edit-day--open .place-edit-day__chevron {
+  transform: rotate(180deg);
+}
+.place-edit-day:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.place-edit-day-hint {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+.place-day-wheel {
+  position: relative;
+  margin-top: 8px;
+  height: 120px;
+  border-radius: 14px;
+  background: #e7edf3;
+  overflow: hidden;
+}
+.place-day-wheel__pill {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(16, 32, 48, 0.08);
+  pointer-events: none;
+  z-index: 0;
+}
+.place-day-wheel__scroller {
+  position: relative;
+  z-index: 1;
+  height: 120px;
+  overflow-y: auto;
+  scroll-snap-type: y mandatory;
+  scrollbar-width: none;
+}
+.place-day-wheel__scroller::-webkit-scrollbar {
+  display: none;
+}
+.place-day-wheel__pad,
+.place-day-wheel__item {
+  height: 40px;
+  scroll-snap-align: center;
+}
+.place-day-wheel__item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: #8ea0b0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.place-day-wheel__item--active {
+  color: #14202b;
+  font-weight: 800;
+}
+.place-edit-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid #e3ebf3;
+  background: #f4f8fc;
+  color: var(--navy);
+  font-size: 1rem;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+.place-edit-note__icon {
+  display: inline-flex;
+  color: var(--emaille);
+}
+.place-edit-actions__row {
+  display: flex;
+  gap: 10px;
+}
+.place-edit-actions__row > button {
+  flex: 1 1 0;
+  height: 48px;
+  min-height: 48px;
+  border-radius: 12px;
+  font-weight: 800;
+}
+.place-edit-actions__cancel {
+  background: #fff;
+  color: var(--emaille);
+  border: 2px solid var(--emaille);
+}
+.place-edit-actions__delete {
+  background: var(--danger);
+  color: #fff;
+  border: 2px solid var(--danger);
+}
+
+.overlay-confirm-layer.overlay-confirm-layer--center {
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.confirm-dialog--center h2 {
+  color: var(--emaille);
+  font-weight: 800;
+  text-align: center;
+}
+.confirm-dialog--center p {
+  text-align: center;
+  color: var(--text);
+}
+.confirm-dialog--center .confirm-dialog__actions {
+  display: flex;
+  gap: 10px;
+}
+.confirm-dialog--center .confirm-dialog__actions button {
+  flex: 1 1 0;
+  min-height: 48px;
+  height: 48px;
+  border-radius: 12px;
+  font-weight: 800;
+}
+.confirm-dialog--center .confirm-dialog__actions button[data-action="cancel"] {
+  background: #fff;
+  color: var(--emaille);
+  border: 2px solid var(--emaille);
+}
+.confirm-dialog--center .confirm-dialog__actions button[data-action="confirm"] {
+  background: var(--danger);
+  color: #fff;
+  border: 2px solid var(--danger);
+}
