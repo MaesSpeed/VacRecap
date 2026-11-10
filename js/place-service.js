@@ -196,14 +196,17 @@ export async function filterSoftPointsHidden(items, vacationId, day) {
   });
 }
 
-export async function updatePlaceDetails(place, { name, ts } = {}) {
+export async function updatePlaceDetails(place, { name, ts, day } = {}) {
   const trimmed = String(name ?? place?.name ?? "").trim().slice(0, 200);
   const nextTs = Number.isFinite(Number(ts)) ? Number(ts) : place.ts;
+  const nextDay = day || place?.day || place?.dayDate || "";
   const updated = normalizePlace({
     ...place,
     name: trimmed,
     title: trimmed,
     ts: nextTs,
+    day: nextDay,
+    dayDate: nextDay,
     updatedAt: Date.now(),
   });
   updated.forceSave = Boolean(place.forceSave);

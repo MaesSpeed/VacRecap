@@ -234,10 +234,6 @@ export async function forceRebuildPhotoThumb() {
   return false;
 }
 
-function renderAddNoteLink() {
-  return `<button type="button" class="notes-add" data-action="add-note">+ Notiz</button>`;
-}
-
 function sortNotesByRecentUpdate(notes) {
   return notes.slice().sort((a, b) => (b.ts ?? b.createdAt ?? 0) - (a.ts ?? a.createdAt ?? 0));
 }
@@ -368,7 +364,7 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
           : "";
 
         const notesBlock =
-          sortedNotes.length || selected
+          sortedNotes.length || captionBlock
             ? `<div class="np">
               ${captionBlock}
               ${previewNotes
@@ -387,7 +383,6 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
                   ? `<button type="button" class="notes-more" data-action="collapse-notes">Weniger ⌃</button>`
                   : ""
               }
-              ${selected ? renderAddNoteLink() : ""}
             </div>`
             : "";
 
