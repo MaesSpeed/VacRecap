@@ -6270,6 +6270,16 @@ button.kr-av{border:none;cursor:pointer}
 .place-edit-day--open .place-edit-day__chevron {
   transform: rotate(180deg);
 }
+.place-edit-day:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.place-edit-day-hint {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
 .place-day-wheel {
   position: relative;
   margin-top: 8px;

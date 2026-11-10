@@ -20,6 +20,8 @@ import { waypointRowToPlace } from "./cloud-mappers.js";
 import { watchPresence, presenceBannerHtml } from "./trip-presence.js";
 import { normalizePlace } from "./places.js";
 import { PHOTO_CAPTION_ICON } from "./ui-photo-caption-sheet.js";
+import { getUserId } from "./auth-service.js";
+import { canEditAny, getConfirmedTripRole } from "./trip-role.js";
 import { escapeHtml, formatDatePart } from "./utils.js";
 
 const CHEVRON = `<svg class="place-edit-day__chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -60,6 +62,7 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
   let vacation = null;
   let wheelOpen = false;
   let wheelLock = false;
+  let dayLocked = false;
   let saving = false;
   overlay.hidden = false;
   overlay.innerHTML = `
@@ -85,6 +88,7 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
           </button>
         </div>
       </div>
+      <p class="place-edit-day-hint" data-testid="place-day-hint" hidden></p>
       <div class="place-day-wheel" id="place-day-wheel" data-testid="place-day-wheel" hidden>
         <div class="place-day-wheel__pill" aria-hidden="true"></div>
         <div class="place-day-wheel__scroller" data-role="day-wheel" role="listbox" aria-label="Tag"></div>
@@ -196,15 +200,19 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
   timeInput.addEventListener("input", syncSave);
   syncSave();
 
-  dayBtn.addEventListener("click", () => setWheelOpen(!wheelOpen));
+  dayBtn.addEventListener("click", () => {
+    if (saving || dayLocked) return;
+    setWheelOpen(!wheelOpen);
+  });
   scroller.addEventListener("click", (event) => {
+    if (saving || dayLocked) return;
     const item = event.target.closest("[data-day]");
     if (!item) return;
     selectDay(item.dataset.day, { scroll: true });
   });
   let wheelTimer = 0;
   const applyWheelScroll = () => {
-    if (wheelLock || !wheelOpen) return;
+    if (saving || wheelLock || !wheelOpen) return;
     const index = Math.max(0, Math.min(tripDays.length - 1, Math.round(scroller.scrollTop / WHEEL_ROW)));
     const day = tripDays[index];
     if (day && day !== selectedDay) selectDay(day);
@@ -222,7 +230,7 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
 
   void getVacation(place.vacationId)
     .then((loaded) => {
-      if (!overlay.isConnected) return;
+      if (!overlay.isConnected || saving) return;
       vacation = loaded;
       const days = loaded ? vacationDays(loaded) : [];
       if (!days.length) return;
@@ -237,25 +245,98 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
     closeOverlayHistory(activeClose)
   );
 
+  function foreignDayMessage(photos, notes) {
+    const what =
+      photos && notes ? "Fotos oder Notizen anderer" : photos ? "Fotos anderer" : "Notizen anderer";
+    return `Den Tag kann hier nur der Besitzer ändern, weil ${what} dabei sind.`;
+  }
+
+  function lockDayChange(message) {
+    dayLocked = true;
+    dayBtn.disabled = true;
+    dayBtn.setAttribute("aria-disabled", "true");
+    if (wheelOpen) setWheelOpen(false);
+    const hint = overlay.querySelector('[data-testid="place-day-hint"]');
+    if (hint) {
+      hint.hidden = false;
+      hint.textContent = message;
+    }
+    selectedDay = initialDay;
+    syncDayLabel();
+    syncSave();
+  }
+
+  async function dayChangeBlocked() {
+    try {
+      const [media, notes, roleInfo, userId] = await Promise.all([
+        getMediaForPlace(place.id),
+        getNotesForPlace(place.id),
+        getConfirmedTripRole(place.vacationId),
+        getUserId(),
+      ]);
+      if (canEditAny(roleInfo?.role)) return false;
+      const photos = media.filter((item) => item?.author && item.author !== userId).length;
+      const foreignNotes = notes.filter((item) => item?.author && item.author !== userId).length;
+      if (!photos && !foreignNotes) return false;
+      lockDayChange(foreignDayMessage(photos, foreignNotes));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function rollbackMoved(movedMedia, movedNotes) {
+    await Promise.all([
+      ...movedMedia.map((item) =>
+        updateMediaPlacement(item.id, {
+          waypointId: place.id,
+          day: item.day,
+          remoteUpdatedAt: item.remoteUpdatedAt,
+          force: true,
+        }).catch(() => {})
+      ),
+      ...movedNotes.map((item) =>
+        moveNoteToPlace(
+          { ...item.saved, forceSave: true },
+          { id: place.id },
+          { day: item.day, vacationId: place.vacationId }
+        ).catch(() => {})
+      ),
+    ]);
+  }
+
   async function moveAttachments(day) {
     const [media, notes] = await Promise.all([
       getMediaForPlace(place.id),
       getNotesForPlace(place.id),
     ]);
-    await Promise.all([
-      ...media
-        .filter((item) => item?.id && String(item.day || "").slice(0, 10) !== day)
-        .map((item) =>
-          updateMediaPlacement(item.id, {
-            waypointId: place.id,
-            day,
-            remoteUpdatedAt: item.remoteUpdatedAt || null,
-          })
-        ),
-      ...notes
-        .filter((note) => note?.id && String(note.day || "").slice(0, 10) !== day)
-        .map((note) => moveNoteToPlace(note, { id: place.id }, { day, vacationId: place.vacationId })),
+    const mediaJobs = media.filter((item) => item?.id && String(item.day || "").slice(0, 10) !== day);
+    const noteJobs = notes.filter((note) => note?.id && String(note.day || "").slice(0, 10) !== day);
+    const movedMedia = [];
+    const movedNotes = [];
+    const results = await Promise.allSettled([
+      ...mediaJobs.map(async (item) => {
+        const mapped = await updateMediaPlacement(item.id, {
+          waypointId: place.id,
+          day,
+          remoteUpdatedAt: item.remoteUpdatedAt || null,
+        });
+        movedMedia.push({
+          id: item.id,
+          day: String(item.day || "").slice(0, 10),
+          remoteUpdatedAt: mapped?.remoteUpdatedAt || null,
+        });
+      }),
+      ...noteJobs.map(async (note) => {
+        const saved = await moveNoteToPlace(note, { id: place.id }, { day, vacationId: place.vacationId });
+        movedNotes.push({ saved, day: String(note.day || "").slice(0, 10) });
+      }),
     ]);
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed) {
+      await rollbackMoved(movedMedia, movedNotes);
+      throw failed.reason;
+    }
   }
 
   // mergePlaceInMemory lässt den Ort im alten Tag liegen. Ein unbekannter
@@ -269,35 +350,85 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
     await onSaved?.({ deleted: true, id: `day-move:${updated.id}` });
   }
 
-  async function commitSave(force = false) {
-    if (saving || saveBtn.disabled) return;
+  function unlockSave() {
+    saving = false;
+    wheelLock = false;
+    syncSave();
+  }
+
+  async function commitSave(force = false, frozen = null) {
+    if (!frozen && (saving || saveBtn.disabled)) return;
     saving = true;
     saveBtn.disabled = true;
-    const dayMoved = selectedDay !== initialDay;
+    wheelLock = true;
+    clearTimeout(wheelTimer);
+    const snap = frozen || {
+      day: selectedDay,
+      name: input.value,
+      ts: chosenTs(),
+      previousDay: initialDay,
+      previousTs: place.ts,
+      previousName: initialName,
+    };
+    let dayMoved = snap.day !== initialDay;
+    let updated = null;
+    let moved = !dayMoved;
     try {
-      const updated = await updatePlaceDetails(force ? { ...place, forceSave: true } : place, {
-        name: input.value,
-        ts: chosenTs(),
-        day: selectedDay,
+      if (dayMoved && (dayLocked || (await dayChangeBlocked()))) {
+        const nameChanged = String(snap.name || "").trim() !== initialName;
+        const timeChanged = timeInput.value !== initialTime;
+        snap.day = initialDay;
+        snap.ts = timeChanged ? timestampForDayTime(initialDay, timeInput.value) : place.ts;
+        dayMoved = false;
+        if (!nameChanged && !timeChanged) {
+          unlockSave();
+          return;
+        }
+      }
+      updated = await updatePlaceDetails(force ? { ...place, forceSave: true } : place, {
+        name: snap.name,
+        ts: snap.ts,
+        day: snap.day,
       });
-      if (dayMoved) await moveAttachments(selectedDay);
+      if (dayMoved) {
+        await moveAttachments(snap.day);
+        moved = true;
+      }
       await publish(updated, dayMoved);
       closeOverlayHistory(activeClose);
       showToast("Gespeichert");
     } catch (err) {
-      saving = false;
+      if (updated && dayMoved && !moved) {
+        try {
+          await updatePlaceDetails(
+            { ...place, remoteUpdatedAt: updated.remoteUpdatedAt, forceSave: true },
+            { name: snap.previousName, ts: snap.previousTs, day: snap.previousDay }
+          );
+        } catch {
+          /* Die Liste lädt danach den Stand vom Server. */
+        }
+        try {
+          await publish(updated, true);
+        } catch {
+          /* Anzeige bleibt beim letzten erfolgreichen Stand. */
+        }
+        selectedDay = snap.previousDay;
+        syncDayLabel();
+        unlockSave();
+        showToast(err?.message || "Speichern fehlgeschlagen.");
+        return;
+      }
       if (!(err instanceof StaleWriteError)) {
-        syncSave();
+        unlockSave();
         showToast(err?.message || "Speichern fehlgeschlagen.");
         return;
       }
       const decision = await decideStaleWrite(err, { tripId: place.vacationId });
       if (decision === "force" && !force) {
-        syncSave();
-        await commitSave(true);
+        await commitSave(true, snap);
         return;
       }
-      syncSave();
+      unlockSave();
       if (decision === "force") {
         showToast("Speichern fehlgeschlagen.");
         return;

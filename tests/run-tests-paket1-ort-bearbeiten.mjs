@@ -22,6 +22,27 @@ function assert(cond, message) {
   if (!cond) throw new Error(message);
 }
 
+function localHm(iso) {
+  const date = new Date(iso);
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function atLocalTime(day, hm, seconds = 0) {
+  const [h, m] = hm.split(":").map(Number);
+  const date = new Date(`${day}T00:00:00`);
+  date.setHours(h, m, seconds, 0);
+  return date.toISOString();
+}
+
+function sameClockIso(day, sourceIso) {
+  const src = new Date(sourceIso);
+  const date = new Date(`${day}T00:00:00`);
+  date.setHours(src.getHours(), src.getMinutes(), src.getSeconds(), src.getMilliseconds());
+  return date.toISOString();
+}
+
+const OPENED_AT = "2026-10-27T13:08:17.000Z";
+
 function placeRow(id, title, day, time, author = USER) {
   const iso = `${day}T${time}.000Z`;
   return {
@@ -42,7 +63,7 @@ function placeRow(id, title, day, time, author = USER) {
   };
 }
 
-function photoRow(id, placeId, day) {
+function photoRow(id, placeId, day, author = USER) {
   const iso = `${day}T13:10:00.000Z`;
   return {
     id,
@@ -59,7 +80,22 @@ function photoRow(id, placeId, day) {
     deleted_at: null,
     created_at: iso,
     updated_at: iso,
-    created_by: USER,
+    created_by: author,
+  };
+}
+
+function noteRow(id, placeId, day, body, author = USER) {
+  const iso = `${day}T13:20:00.000Z`;
+  return {
+    id,
+    trip_id: TRIP,
+    waypoint_id: placeId,
+    day,
+    body,
+    deleted_at: null,
+    created_at: iso,
+    updated_at: iso,
+    created_by: author,
   };
 }
 
@@ -68,6 +104,7 @@ function seed(state) {
   state.waypoints.length = 0;
   state.notes.length = 0;
   state.media.length = 0;
+  state.failNextMediaDay = false;
   state.trips.push({
     id: TRIP,
     title: "Paket 1",
@@ -84,20 +121,25 @@ function seed(state) {
   });
   state.waypoints.push(
     placeRow(PLACE, "Sigurta Park", DAYS[1], "13:08:17"),
-    placeRow(FOREIGN, "Hafen", DAYS[1], "09:00:00", OTHER)
+    placeRow(FOREIGN, "Hafen", DAYS[1], "09:00:00", OTHER),
+    placeRow("p-sofort", "Sofort Ort", DAYS[1], "11:22:33"),
+    placeRow("p-mix", "Gemischter Ort", DAYS[1], "10:00:00"),
+    placeRow("p-roll", "Rollback Ort", DAYS[1], "08:15:00")
   );
-  state.media.push(photoRow("m-park-1", PLACE, DAYS[1]), photoRow("m-park-2", PLACE, DAYS[1]));
-  state.notes.push({
-    id: "n-park",
-    trip_id: TRIP,
-    waypoint_id: PLACE,
-    day: DAYS[1],
-    body: "Parkweg",
-    deleted_at: null,
-    created_at: `${DAYS[1]}T13:20:00.000Z`,
-    updated_at: `${DAYS[1]}T13:20:00.000Z`,
-    created_by: USER,
-  });
+  state.media.push(
+    photoRow("m-park-1", PLACE, DAYS[1]),
+    photoRow("m-park-2", PLACE, DAYS[1]),
+    photoRow("m-sofort", "p-sofort", DAYS[1]),
+    photoRow("m-mix-own", "p-mix", DAYS[1]),
+    photoRow("m-mix-other", "p-mix", DAYS[1], OTHER),
+    photoRow("m-roll-1", "p-roll", DAYS[1]),
+    photoRow("m-roll-2", "p-roll", DAYS[1])
+  );
+  state.notes.push(
+    noteRow("n-park", PLACE, DAYS[1], "Parkweg"),
+    noteRow("n-sofort", "p-sofort", DAYS[1], "Sofortnotiz"),
+    noteRow("n-roll", "p-roll", DAYS[1], "Rollnotiz")
+  );
 }
 
 function listOf(state, table) {
@@ -138,6 +180,10 @@ function allowWrites(state) {
     const list = listOf(state, table);
     if (list && (method === "POST" || method === "PATCH")) {
       const patch = JSON.parse(body || "{}");
+      if (table === "media" && method === "PATCH" && state.failNextMediaDay && Object.prototype.hasOwnProperty.call(patch, "day")) {
+        state.failNextMediaDay = false;
+        return { status: 403, json: { message: "Dafür fehlt die Berechtigung.", code: "42501" } };
+      }
       if (method === "POST") {
         const id = patch.id || crypto.randomUUID();
         let row = list.find((item) => item.id === id);
@@ -331,7 +377,7 @@ async function runCase(browser, baseUrl, viewport, role) {
   await installCounters(page);
   const state = createMockSupabaseState();
   seed(state);
-  state.role = role === "owner" ? "owner" : "viewer";
+  state.role = role;
   allowWrites(state);
   await installSupabaseMocks(page, state);
   const meter = createMeter(page);
@@ -352,8 +398,8 @@ async function runCase(browser, baseUrl, viewport, role) {
 
     await selectPlace(page, FOREIGN);
     const foreignEdit = await page.locator(`[data-page="current"] [data-place-id="${FOREIGN}"] [data-action="edit-place"]`).count();
-    if (role === "owner") assert(foreignEdit === 1, `${label}: Besitzer bearbeitet fremde Orte nicht`);
-    else assert(foreignEdit === 0, `${label}: Beitragender bearbeitet fremde Orte`);
+    if (role === "viewer") assert(foreignEdit === 0, `${label}: Beitragender bearbeitet fremde Orte`);
+    else assert(foreignEdit === 1, `${label}: ${role} bearbeitet fremde Orte nicht`);
 
     await selectPlace(page, PLACE);
     assert(
@@ -379,7 +425,7 @@ async function runCase(browser, baseUrl, viewport, role) {
     await openEdit(page, PLACE);
     const save = page.locator('[data-testid="place-edit-sheet"] [data-action="save"]');
     assert(await save.isDisabled(), `${label}: Speichern ohne Änderung aktiv`);
-    assert((await page.locator('[data-testid="edit-place-time"]').inputValue()) === "13:08", `${label}: Uhrzeit fehlt`);
+    assert((await page.locator('[data-testid="edit-place-time"]').inputValue()) === localHm(OPENED_AT), `${label}: Uhrzeit fehlt`);
     await page.waitForFunction(() => (document.querySelector('[data-testid="edit-place-day"]')?.innerText || "").includes("Di 27.10. · 2. Tag"));
     assert((await page.locator('[data-testid="place-day-wheel"]').count()) === 1, `${label}: Rad fehlt`);
     assert(await page.locator('[data-testid="place-day-wheel"]').isHidden(), `${label}: Rad ist schon offen`);
@@ -532,9 +578,12 @@ async function runCase(browser, baseUrl, viewport, role) {
     await page.locator('[data-testid="photo-caption-cancel"]').click();
     await page.waitForSelector('[data-testid="photo-caption-sheet"]', { state: "detached" });
 
+    await assertDayRights(page, state, role, label);
     counts.name = await saveName(page, meter, label, state);
     counts.time = await saveTime(page, meter, label, state);
     counts.day = await saveDay(page, meter, label, state);
+    await saveDayImmediately(page, state, label);
+    if (role === "owner") await assertDayRollback(page, state, label);
 
     assert(errors.length === 0, `${label}: ${errors.join(" | ")}`);
     return counts;
@@ -545,6 +594,97 @@ async function runCase(browser, baseUrl, viewport, role) {
 
 function windowHeight(viewport) {
   return viewport.height;
+}
+
+async function clickDayAndSave(page, day) {
+  await page.evaluate((iso) => {
+    document.querySelector(`[data-testid="place-day-wheel"] [data-day="${iso}"]`).click();
+    document.querySelector('[data-testid="place-edit-sheet"] [data-action="save"]').click();
+  }, day);
+}
+
+async function assertDayRights(page, state, role, label) {
+  await openEdit(page, "p-mix");
+  if (role === "viewer") {
+    await page.locator('[data-testid="edit-place-day"]').click();
+    await page.waitForSelector('[data-testid="place-day-wheel"] [data-day="2026-10-28"]');
+    await clickDayAndSave(page, DAYS[2]);
+    await page.waitForFunction(() => {
+      const hint = document.querySelector('[data-testid="place-day-hint"]');
+      return hint && !hint.hidden && (hint.textContent || "").includes("Fotos anderer");
+    });
+    assert(await page.locator('[data-testid="edit-place-day"]').isDisabled(), `${label}: Tag bleibt für Beitragende wählbar`);
+    assert(await page.locator('[data-testid="place-day-wheel"]').isHidden(), `${label}: Rad bleibt nach der Sperre offen`);
+    const stayed = state.waypoints.find((item) => item.id === "p-mix");
+    assert(stayed.day === DAYS[1] && stayed.title === "Gemischter Ort", `${label}: Tagwechsel trotz fremder Fotos (${stayed.day} ${stayed.title})`);
+    assert(
+      state.media.filter((item) => item.waypoint_id === "p-mix").every((item) => item.day === DAYS[1]),
+      `${label}: Fotos wandern trotz Sperre`
+    );
+    await page.locator('[data-testid="place-edit-sheet"] [data-role="name"]').fill("Gemischt neu");
+    await page.locator('[data-testid="place-edit-sheet"] [data-action="save"]').click();
+    await page.waitForSelector('[data-testid="place-edit-sheet"]', { state: "detached" });
+    assert(stayed.title === "Gemischt neu" && stayed.day === DAYS[1], `${label}: Name bleibt nicht speicherbar (${stayed.title} ${stayed.day})`);
+    return;
+  }
+  if (role === "editor") {
+    await page.locator('[data-testid="edit-place-day"]').click();
+    await page.waitForSelector('[data-testid="place-day-wheel"] [data-day="2026-10-26"]');
+    await clickDayAndSave(page, DAYS[0]);
+    await page.waitForSelector('[data-testid="place-edit-sheet"]', { state: "detached" });
+    const row = state.waypoints.find((item) => item.id === "p-mix");
+    assert(row.day === DAYS[0], `${label}: Mitbearbeiter verschiebt den Tag nicht (${row.day})`);
+    assert(
+      state.media.filter((item) => item.waypoint_id === "p-mix").every((item) => item.day === DAYS[0]),
+      `${label}: Mitbearbeiter lässt fremde Fotos liegen`
+    );
+    return;
+  }
+  assert(await page.locator('[data-testid="place-day-hint"]').isHidden(), `${label}: Hinweis ohne fremde Sperre`);
+  assert(!(await page.locator('[data-testid="edit-place-day"]').isDisabled()), `${label}: Tag ist für den Besitzer gesperrt`);
+  await page.locator('[data-testid="place-edit-sheet"] [data-action="cancel"]').click();
+  await page.waitForSelector('[data-testid="place-edit-sheet"]', { state: "detached" });
+}
+
+async function saveDayImmediately(page, state, label) {
+  const before = state.waypoints.find((item) => item.id === "p-sofort").visited_at;
+  await page.locator(`.day-chip[data-day="${DAYS[1]}"]`).click();
+  await page.waitForSelector('[data-page="current"] [data-place-id="p-sofort"]');
+  await openEdit(page, "p-sofort");
+  await page.locator('[data-testid="edit-place-day"]').click();
+  await page.waitForSelector('[data-testid="place-day-wheel"] [data-day="2026-10-26"]');
+  await clickDayAndSave(page, DAYS[0]);
+  await page.waitForSelector('[data-testid="place-edit-sheet"]', { state: "detached" });
+  const row = state.waypoints.find((item) => item.id === "p-sofort");
+  assert(row.day === DAYS[0], `${label} sofort: Tag ${row.day}`);
+  assert(row.visited_at === sameClockIso(DAYS[0], before), `${label} sofort: Zeit ${row.visited_at}`);
+  assert(
+    state.media.filter((item) => item.waypoint_id === "p-sofort").every((item) => item.day === DAYS[0]),
+    `${label} sofort: Foto bleibt`
+  );
+  assert(state.notes.find((item) => item.id === "n-sofort").day === DAYS[0], `${label} sofort: Notiz bleibt`);
+}
+
+async function assertDayRollback(page, state, label) {
+  await page.locator(`.day-chip[data-day="${DAYS[1]}"]`).click();
+  await page.waitForSelector('[data-page="current"] [data-place-id="p-roll"]');
+  await openEdit(page, "p-roll");
+  await page.locator('[data-testid="edit-place-day"]').click();
+  await page.waitForSelector('[data-testid="place-day-wheel"] [data-day="2026-10-28"]');
+  state.failNextMediaDay = true;
+  await clickDayAndSave(page, DAYS[2]);
+  await page.waitForFunction(() => (document.querySelector('[data-testid="app-toast"]')?.textContent || "").includes("Berechtigung"));
+  assert((await page.locator('[data-testid="place-edit-sheet"]').count()) === 1, `${label}: Sheet schließt nach dem Fehlschlag`);
+  const row = state.waypoints.find((item) => item.id === "p-roll");
+  assert(row.day === DAYS[1], `${label}: Rollback lässt den Ort auf ${row.day}`);
+  assert(
+    state.media.filter((item) => item.waypoint_id === "p-roll").every((item) => item.day === DAYS[1]),
+    `${label}: Rollback lässt Fotos liegen`
+  );
+  assert(state.notes.find((item) => item.id === "n-roll").day === DAYS[1], `${label}: Rollback lässt die Notiz liegen`);
+  assert((await page.locator('[data-page="current"] [data-place-id="p-roll"]').count()) === 1, `${label}: Liste zeigt den Ort nach dem Rollback nicht`);
+  await page.locator('[data-testid="place-edit-sheet"] [data-action="cancel"]').click();
+  await page.waitForSelector('[data-testid="place-edit-sheet"]', { state: "detached" });
 }
 
 async function saveName(page, meter, label, state) {
@@ -589,9 +729,12 @@ async function saveTime(page, meter, label, state) {
   await page.evaluate(() => window.__p1stop());
   const snap = await readSnap(page, gen, meter);
   const row = state.waypoints.find((item) => item.id === PLACE);
-  assert(row.visited_at === "2026-10-27T15:30:00.000Z", `${label} Zeit: ${row.visited_at}`);
+  assert(row.visited_at === atLocalTime(DAYS[1], "15:30"), `${label} Zeit: ${row.visited_at}`);
   assert(row.day === DAYS[1], `${label} Zeit ändert den Tag`);
-  assert(state.media.every((item) => item.day === DAYS[1]), `${label} Zeit verschiebt Fotos`);
+  assert(
+    state.media.filter((item) => item.waypoint_id === PLACE).every((item) => item.day === DAYS[1]),
+    `${label} Zeit verschiebt Fotos`
+  );
   assert(snap.dataChanged === 0 && snap.renderGen === 0, `${label} Zeit: Refresh ${snap.dataChanged}/${snap.renderGen}`);
   assert(snap.currentPageHtml === 1, `${label} Zeit: Tagesliste ${snap.currentPageHtml}`);
   assert(writesOf(snap.api, "waypoints") === 1, `${label} Zeit: Writes ${JSON.stringify(snap.api.byTable)}`);
@@ -619,7 +762,7 @@ async function saveDay(page, meter, label, state) {
   const snap = await readSnap(page, gen, meter);
   const row = state.waypoints.find((item) => item.id === PLACE);
   assert(row.day === DAYS[2], `${label} Tag: day ${row.day}`);
-  assert(row.visited_at === "2026-10-28T15:30:00.000Z", `${label} Tag: visited_at ${row.visited_at}`);
+  assert(row.visited_at === atLocalTime(DAYS[2], "15:30"), `${label} Tag: visited_at ${row.visited_at}`);
   assert(state.media.filter((item) => item.waypoint_id === PLACE).every((item) => item.day === DAYS[2]), `${label} Tag: Fotos bleiben`);
   assert(state.notes.find((item) => item.id === "n-park").day === DAYS[2], `${label} Tag: Notiz bleibt`);
   assert(snap.dataChanged === 0, `${label} Tag: data-changed ${snap.dataChanged}`);
@@ -658,7 +801,7 @@ async function run() {
       const browser = await engine.launch({ headless: true });
       try {
         for (const viewport of VIEWPORTS) {
-          for (const role of ["owner", "viewer"]) {
+          for (const role of ["owner", "editor", "viewer"]) {
             const key = `${engine.name()} ${viewport.width} ${role}`;
             const counts = await runCase(browser, baseUrl, viewport, role);
             report[key] = {
