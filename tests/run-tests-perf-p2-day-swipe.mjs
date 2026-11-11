@@ -479,10 +479,9 @@ async function runSuite(browserType, baseUrl, label) {
     FIRST
   );
   await page.locator("[data-page='current'] [data-place-id='sw-alpha']").click();
-  await page.waitForSelector("[data-page='current'] .oc--selected[data-place-id='sw-alpha'] [data-testid='photo-select-start']");
-  await page.locator("[data-page='current'] [data-testid='photo-select-start']").click();
+  await page.waitForSelector("[data-page='current'] .oc--selected[data-place-id='sw-alpha'] [data-testid='photo-row-check'][data-media-id='m-mon']");
+  await page.locator("[data-page='current'] [data-testid='photo-row-check'][data-media-id='m-mon']").click();
   await page.waitForSelector("[data-page='current'] [data-testid='photo-select-bar']");
-  await page.locator("[data-page='current'] [data-testid='place-photo'][data-media-id='m-mon']").click();
   await page.waitForFunction(
     () => (document.querySelector("[data-page='current'] [data-testid='photo-select-count']")?.textContent || "").includes("1 ausgewählt")
   );
@@ -509,9 +508,8 @@ async function runSuite(browserType, baseUrl, label) {
   assert(leaked.day === DAYS[3], `${label}: dritter Wisch landet auf ${leaked.day}`);
   assert(leaked.selecting !== "1", `${label}: Auswahl vom ersten Tag ist auf einem anderen Tag an`);
   assert(!leaked.bar.includes("ausgewählt"), `${label}: alte Auswahl steht auf dem neuen Tag (${leaked.bar})`);
-  await page.locator("[data-page='current'] [data-testid='photo-select-start']").click();
+  await page.locator("[data-page='current'] [data-testid='photo-row-check'][data-media-id='m-thu']").click();
   await page.waitForSelector("[data-page='current'] [data-testid='photo-select-bar']");
-  await page.locator("[data-page='current'] [data-testid='place-photo'][data-media-id='m-thu']").click();
   const count = await page.locator("[data-page='current'] [data-testid='photo-select-count']").innerText();
   assert(count.includes("1 ausgewählt"), `${label}: neues Foto zählt die alte Auswahl mit (${count})`);
   assert(!count.includes("2 ausgewählt"), `${label}: Zähler ist ${count}`);
@@ -533,9 +531,8 @@ async function runSuite(browserType, baseUrl, label) {
     FIRST
   );
   await page.locator("[data-page='current'] [data-place-id='sw-alpha']").click();
-  await page.waitForSelector("[data-page='current'] .oc--selected[data-place-id='sw-alpha'] [data-testid='photo-select-start']");
-  await page.locator("[data-page='current'] [data-testid='photo-select-start']").click();
-  await page.locator("[data-page='current'] [data-testid='place-photo'][data-media-id='m-mon']").click();
+  await page.waitForSelector("[data-page='current'] .oc--selected[data-place-id='sw-alpha'] [data-testid='photo-row-check'][data-media-id='m-mon']");
+  await page.locator("[data-page='current'] [data-testid='photo-row-check'][data-media-id='m-mon']").click();
   await page.locator("[data-page='current'] [data-testid='photo-move']").click();
   await page.waitForSelector('[data-testid="photo-move-sheet"]');
   await page.locator(`[data-move-day="${DAYS[1]}"]`).click();

@@ -89,7 +89,7 @@ export function noteMarkup(note, action, share) {
           </div>`;
 }
 
-export function photoBadges(media, share) {
+export function photoBadges(media, share, { seal = false } = {}) {
   if (!share || (!share.viewer && !share.multi)) return { lock: "", mine: "", circle: "", foreign: false };
   const mine = Boolean(share.userId && media.author === share.userId);
   const person = media.author ? share.byId.get(media.author) : null;
@@ -98,7 +98,7 @@ export function photoBadges(media, share) {
     foreign,
     lock: foreign ? `<span class="fg-lock">${LOCK}</span>` : "",
     mine: share.viewer && mine ? `<span class="fg-mine">Du</span>` : "",
-    circle: share.multi && person ? circleHtml(person, "xs") : "",
+    circle: share.multi && person ? circleHtml(person, "xs", { extraClass: seal ? "kr-seal" : "" }) : "",
   };
 }
 

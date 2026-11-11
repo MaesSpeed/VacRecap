@@ -562,13 +562,12 @@ async function run() {
     assert(sources.length === 3, `Zu wenige Fotos zum Verschieben (${sources.length})`);
     const moved = [];
     for (const sourceId of sources) {
-      await page.locator(`${CUR} .oc[data-place-id="${sourceId}"]`).click();
+      await page.locator(`${CUR} .oc[data-place-id="${sourceId}"] .oc__title`).click();
       await page.waitForFunction(
         (id) => document.querySelector("[data-page='current'] .oc--selected")?.dataset.placeId === id,
         sourceId
       );
-      await page.locator(`${CUR} .oc--selected [data-testid="photo-select-start"]`).click();
-      await page.locator(`${CUR} .oc--selected [data-testid="place-photo"]`).first().click();
+      await page.locator(`${CUR} .oc--selected [data-testid="photo-row-check"]`).first().click();
       await page.locator('[data-testid="photo-move"]').click();
       await page.waitForSelector('[data-testid="photo-move-sheet"]');
       await page.locator('[data-testid="photo-move-day"]').nth(1).click();

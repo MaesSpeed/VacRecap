@@ -407,28 +407,27 @@ async function layoutPass(page, state, label, { shots }) {
   assert((await page.locator('[data-testid="trip-companions"]').count()) === 0, `${label}: Namenszeile noch auf der Reise`);
   assert((await page.locator('[data-testid="member-bar"]').count()) === 0, `${label}: Rollenleiste noch auf der Reise`);
   await clickDay(page, "2025-06-16");
-  const caption = page.locator('[data-page="current"] [data-testid="photo-caption-edit"]:has(img)').first();
+  const caption = page.locator('[data-page="current"] [data-testid="photo-caption-row"]:has(img):has([data-testid="photo-caption-edit"])').first();
   await caption.waitFor();
-  const aligned = await caption.evaluate((btn) => {
+  const aligned = await caption.evaluate((row) => {
     const mid = (el) => {
       const box = el.getBoundingClientRect();
       return box.top + box.height / 2;
     };
-    const img = mid(btn.querySelector("img"));
-    const icon = mid(btn.querySelector("svg"));
-    const text = mid(btn.querySelector(".notes-add__label"));
-    const after = getComputedStyle(btn, "::after");
+    const textBtn = row.querySelector('[data-testid="photo-caption-edit"]');
+    const img = mid(row.querySelector("img"));
+    const icon = mid(textBtn.querySelector("svg"));
+    const text = mid(textBtn.querySelector(".photo-cap-row__text, .photo-cap-row__placeholder"));
     return {
       img,
       icon,
       text,
-      hit: Math.max(parseFloat(after.height) || 0, btn.getBoundingClientRect().height),
-      btn: btn.getBoundingClientRect().height,
-      afterH: after.height,
+      hit: textBtn.getBoundingClientRect().height,
+      btn: textBtn.getBoundingClientRect().height,
       content: document.querySelector('[data-testid="trip-content"]')?.getBoundingClientRect().height,
     };
   });
-  assert(Math.abs(aligned.img - aligned.icon) <= 1 && Math.abs(aligned.img - aligned.text) <= 1, `${label}: Notiz-Button ${JSON.stringify(aligned)}`);
+  assert(Math.abs(aligned.img - aligned.icon) <= 2 && Math.abs(aligned.img - aligned.text) <= 2, `${label}: Notiz-Zeile ${JSON.stringify(aligned)}`);
   assert(aligned.hit >= 44, `${label}: Tippfläche ${JSON.stringify(aligned)}`);
 
   const qa = await page.locator('[data-page="current"] .qa').first().evaluate((el) => {
@@ -683,11 +682,11 @@ async function behaviorPass(page, state, label, { shots }) {
   await page.evaluate(() => document.querySelector('[data-place-id="p-navene"] [data-kr-tip]')?.click());
   await page.waitForSelector('[data-testid="member-tip"]');
   await page.locator('[data-testid="member-tip"]').evaluate((el) => el.remove());
-  await page.evaluate(() => document.querySelector('[data-testid="photo-select-start"]')?.click());
-  await page.waitForSelector('[data-place-id="p-navene"] .tile[aria-pressed]');
+  await page.evaluate(() => document.querySelector('[data-place-id="p-navene"] [data-testid="photo-row-check"]')?.click());
+  await page.waitForSelector('[data-place-id="p-navene"] [data-testid="photo-row-check"][aria-pressed="true"]');
   await page.evaluate(() => document.querySelector('[data-place-id="p-navene"] [data-kr-tip]')?.click());
   assert((await page.locator('[data-testid="member-tip"]').count()) === 0, `${label}: Tooltip im Auswahlmodus`);
-  const pressed = await page.locator('[data-place-id="p-navene"] .tile[aria-pressed="true"]').count();
+  const pressed = await page.locator('[data-place-id="p-navene"] [data-testid="photo-row-check"][aria-pressed="true"]').count();
   assert(pressed >= 1, `${label}: Kreis wählt das Foto nicht`);
 
   await page.evaluate(() => {

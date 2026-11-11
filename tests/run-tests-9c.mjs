@@ -372,12 +372,11 @@ async function assertTouch(page, selector, label) {
 }
 
 async function enterSelect(page) {
-  await page.click('[data-testid="photo-select-start"]');
-  await page.waitForSelector('[data-testid="photo-select-bar"]');
+  await page.waitForSelector('[data-testid="photo-row-check"]');
 }
 
 async function selectOwn(page, id) {
-  await page.locator(`[data-testid="place-photo"][data-media-id="${id}"]`).click();
+  await page.locator(`[data-testid="photo-row-check"][data-media-id="${id}"]`).click();
 }
 
 function patchIds(state) {
@@ -388,20 +387,26 @@ async function runFlows(page, state, label) {
   await page.waitForFunction(() => {
     const root = document.querySelector("[data-page='current']");
     const photos = root?.querySelectorAll('[data-testid="place-photo"]').length || 0;
-    return root?.innerText?.includes("Hafen Malcesine") && root.querySelector('[data-testid="photo-select-start"]') && photos >= 3;
+    return root?.innerText?.includes("Hafen Malcesine") && root.querySelector('[data-testid="photo-row-check"]') && photos >= 3;
   });
   await waitQuiet(state);
   const hafenMeta = await meta(page, "p-hafen");
   assert(hafenMeta.includes("3 Fotos"), `${label}: Hafen startet mit «${hafenMeta}»`);
   assert((await page.locator('[data-media-id="m-fremd"]').first().getAttribute("data-own")) === "0", `${label}: fremdes Foto ist wählbar markiert`);
   assert((await page.locator('[data-testid="place-photo"][data-media-id="m-own-1"]').getAttribute("data-own")) === "1", `${label}: eigenes Foto nicht markiert`);
-  await assertTouch(page, '[data-testid="photo-select-start"]', `${label} Auswählen`);
 
   const patchesBefore = state.mediaPatches.length;
   await longPress(page, '[data-testid="place-photo"][data-media-id="m-own-1"]');
+  await page.waitForTimeout(200);
+  if (await page.locator('[data-testid="media-viewer"]').count()) {
+    await page.click('[data-testid="media-viewer-close"]');
+    await page.waitForSelector('[data-testid="media-viewer"]', { state: "detached" });
+  }
+  assert((await page.locator('[data-testid="photo-select-bar"]').count()) === 0, `${label}: Langdruck startet die Auswahl`);
+  await selectOwn(page, "m-own-1");
   await page.waitForSelector('[data-testid="photo-select-bar"]');
-  assert((await page.locator('[data-testid="photo-select-count"]').innerText()).includes("1 ausgewählt"), `${label}: Langdruck wählt nicht`);
-  assert((await page.locator('[data-testid="place-photo"][data-media-id="m-own-1"]').getAttribute("aria-pressed")) === "true", `${label}: Langdruck ohne Auswahlzustand`);
+  assert((await page.locator('[data-testid="photo-select-count"]').innerText()).includes("1 ausgewählt"), `${label}: Kreis wählt nicht`);
+  assert((await page.locator('[data-testid="photo-row-check"][data-media-id="m-own-1"]').getAttribute("aria-pressed")) === "true", `${label}: Kreis ohne Auswahlzustand`);
   await page.click('[data-testid="photo-select-exit"]');
   await page.waitForSelector('[data-testid="photo-select-bar"]', { state: "detached" });
   assert(state.mediaPatches.length === patchesBefore, `${label}: Beenden hat gespeichert`);
@@ -427,9 +432,12 @@ async function runFlows(page, state, label) {
   await page.click('[data-testid="photo-select-exit"]');
 
   await enterSelect(page);
+  await selectOwn(page, "m-own-1");
+  await selectOwn(page, "m-own-1");
+  assert((await page.locator('[data-testid="photo-select-count"]').innerText()).includes("0 ausgewählt"), `${label}: Abwählen leer`);
   await assertTouch(page, '[data-testid="photo-select-exit"]', `${label} Beenden`);
   await assertTouch(page, '[data-testid="photo-move"]', `${label} Verschieben`);
-  await page.locator('[data-testid="place-photo"][data-media-id="m-fremd"]').click({ force: true });
+  await page.locator('[data-testid="photo-row-check"][data-media-id="m-fremd"]').click({ force: true });
   await page.waitForSelector('[data-testid="app-toast"]');
   const foreignToast = await page.locator('[data-testid="app-toast"]').innerText();
   assert(foreignToast.includes("Nur eigene Fotos"), `${label}: Hinweis fremd «${foreignToast}»`);
@@ -438,10 +446,13 @@ async function runFlows(page, state, label) {
   const moveDisabled = await page.locator('[data-testid="photo-move"]').isDisabled();
   assert(moveDisabled, `${label}: Verschieben ohne Auswahl aktiv`);
   await selectOwn(page, "m-own-1");
+  await page.waitForFunction(() => (document.querySelector('[data-testid="photo-select-count"]')?.textContent || "").includes("1 ausgewählt"));
   await selectOwn(page, "m-own-2");
-  assert((await page.locator('[data-testid="photo-select-count"]').innerText()).includes("2 ausgewählt"), `${label}: Mehrfachauswahl`);
-  const shadow = await page.locator(".tile--selected").first().evaluate((el) => getComputedStyle(el).boxShadow);
-  assert(shadow && shadow !== "none", `${label}: Auswahl nur bei Hover sichtbar`);
+  const multi = await page.locator('[data-testid="photo-select-count"]').innerText();
+  const pressed = await page.locator('[data-testid="photo-row-check"][aria-pressed="true"]').evaluateAll((els) => els.map((el) => el.dataset.mediaId));
+  assert(multi.includes("2 ausgewählt"), `${label}: Mehrfachauswahl «${multi}» ${pressed.join(",")}`);
+  const selectedBg = await page.locator(".photo-row--on").first().evaluate((el) => getComputedStyle(el).backgroundColor);
+  assert(selectedBg && selectedBg !== "rgba(0, 0, 0, 0)" && selectedBg !== "transparent", `${label}: Auswahl ohne Hintergrund (${selectedBg})`);
   await selectOwn(page, "m-own-2");
   assert((await page.locator('[data-testid="photo-select-count"]').innerText()).includes("1 ausgewählt"), `${label}: Abwählen`);
   await selectOwn(page, "m-own-2");
@@ -580,7 +591,7 @@ async function runFlows(page, state, label) {
     window.__online = true;
   });
   await page.click('[data-testid="photo-select-exit"]');
-  await page.waitForSelector('[data-testid="photo-select-start"]');
+  await page.waitForSelector('[data-testid="photo-row-check"]');
 }
 
 async function runSuite(browserType, baseUrl, label, viewport) {

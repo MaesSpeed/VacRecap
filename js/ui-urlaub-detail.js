@@ -1953,55 +1953,10 @@ export async function renderUrlaubDetail(appEl, id) {
     }
   }
 
-  let suppressTileClick = false;
-  const photoPress = { timer: 0, x: 0, y: 0, id: null, placeId: null };
-
-  function clearPhotoPress() {
-    if (photoPress.timer) clearTimeout(photoPress.timer);
-    photoPress.timer = 0;
-  }
-
-  contentEl.addEventListener("pointerdown", (event) => {
-    if (event.button > 0) return;
-    if (!state.photoSelecting && event.target.closest("[data-kr-tip]")) return;
-    const tile = event.target.closest(".tile[data-media-id], .th[data-media-id]");
-    if (!tile) return;
-    clearPhotoPress();
-    photoPress.x = event.clientX;
-    photoPress.y = event.clientY;
-    photoPress.id = tile.dataset.mediaId;
-    photoPress.placeId = tile.closest("[data-place-id]")?.dataset.placeId || null;
-    photoPress.timer = setTimeout(() => {
-      photoPress.timer = 0;
-      suppressTileClick = true;
-      setTimeout(() => {
-        suppressTileClick = false;
-      }, 700);
-      const media = findCachedMedia(photoPress.id);
-      const own = mediaOwnedBy(media, state.userId);
-      if (!own) showWarnToast("Nur eigene Fotos kannst du verschieben.");
-      void enterPhotoSelect({ mediaId: own ? photoPress.id : null, placeId: photoPress.placeId });
-    }, 550);
-  });
-  contentEl.addEventListener("pointermove", (event) => {
-    if (!photoPress.timer) return;
-    if (Math.hypot(event.clientX - photoPress.x, event.clientY - photoPress.y) > 12) clearPhotoPress();
-  });
-  for (const type of ["pointerup", "pointercancel"]) {
-    contentEl.addEventListener(type, clearPhotoPress);
-  }
-  contentEl.addEventListener("contextmenu", (event) => {
-    if (event.target.closest(".tile[data-media-id], .th[data-media-id]")) event.preventDefault();
-  });
+  let photoSelectChain = Promise.resolve();
 
   contentEl.addEventListener("click", async (e) => {
-    if (!state.photoSelecting && e.target.closest("[data-kr-tip]")) return;
-    if (suppressTileClick) {
-      suppressTileClick = false;
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
+    if (e.target.closest("[data-kr-tip]")) return;
     if (e.target.closest("[data-action='open-recap-video']")) {
       e.preventDefault();
       navigate({ name: "urlaub-recap", id });
@@ -2018,30 +1973,32 @@ export async function renderUrlaubDetail(appEl, id) {
       await exitPhotoSelect();
       return;
     }
-    if (e.target.closest("[data-action='photo-select-start']")) {
+    const photoCheck = e.target.closest("[data-action='photo-row-check']");
+    if (photoCheck) {
       e.preventDefault();
-      const host = e.target.closest(".oc[data-place-id]");
-      await enterPhotoSelect({ placeId: host?.dataset.placeId || null });
+      e.stopPropagation();
+      photoSelectChain = photoSelectChain.catch(() => {}).then(async () => {
+        const mediaId = photoCheck.dataset.mediaId;
+        const placeId = photoCheck.closest("[data-place-id]")?.dataset.placeId || null;
+        if (photoCheck.dataset.own !== "1") {
+          showWarnToast("Nur eigene Fotos kannst du verschieben.");
+          return;
+        }
+        if (!state.photoSelecting) {
+          await enterPhotoSelect({ mediaId, placeId });
+          return;
+        }
+        if (!state.photoSelected) state.photoSelected = new Set();
+        if (state.photoSelected.has(mediaId)) state.photoSelected.delete(mediaId);
+        else state.photoSelected.add(mediaId);
+        await paintCachedDays([state.activeDay]);
+      });
+      await photoSelectChain;
       return;
     }
     if (e.target.closest("[data-action='photo-move']")) {
       e.preventDefault();
       await onMoveSelectedPhotos();
-      return;
-    }
-    if (state.photoSelecting) {
-      const tile = e.target.closest(".tile[data-media-id], .th[data-media-id]");
-      if (tile) {
-        e.preventDefault();
-        if (tile.dataset.own !== "1") {
-          showWarnToast("Nur eigene Fotos kannst du verschieben.");
-          return;
-        }
-        if (!state.photoSelected) state.photoSelected = new Set();
-        if (state.photoSelected.has(tile.dataset.mediaId)) state.photoSelected.delete(tile.dataset.mediaId);
-        else state.photoSelected.add(tile.dataset.mediaId);
-        await paintCachedDays([state.activeDay]);
-      }
       return;
     }
 
@@ -2121,19 +2078,15 @@ export async function renderUrlaubDetail(appEl, id) {
     const openCaption = e.target.closest("[data-action='open-photo-caption']");
     if (openCaption) {
       e.preventDefault();
-      const placeId = e.target.closest(".oc[data-place-id]")?.dataset.placeId;
-      const mediaId = openCaption.dataset.mediaId;
-      if (!placeId || !mediaId) return;
-      const items = await activeDayItems();
-      const item = items.find((entry) => entry.place.id === placeId);
-      if (!item) return;
-      const viewable = filterViewableMedia(item.media);
-      const role = (await getConfirmedTripRole(id)).role;
-      openMediaViewer(viewable, mediaId, {
-        canDelete: (entry) => canEditItem(role, entry, state.userId),
-        canEditCaption: (entry) => canCaptionMedia(entry, role, state.userId),
-        onChanged: () => refreshDayList(),
-      });
+      if (state.captionBusy) return;
+      state.captionBusy = true;
+      try {
+        const media = findCachedMedia(openCaption.dataset.mediaId);
+        if (!media) return;
+        await openPhotoCaptionSheet({ media, readOnly: true });
+      } finally {
+        state.captionBusy = false;
+      }
       return;
     }
 

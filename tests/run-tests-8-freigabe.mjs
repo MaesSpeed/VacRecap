@@ -983,7 +983,7 @@ async function runFlows(page, state, label, shots, baseUrl) {
     const http = state.routeErrors.filter((line) => line.startsWith("CONSOLE")).slice(-3);
     throw new Error(`${label}: Tag «${text.slice(0, 200)}» ${http.join(" || ")} ${err.message}`);
   }
-  await page.locator('[data-place-id="p-hafen"]').click();
+  await page.locator('[data-place-id="p-hafen"] .oc__title').click();
   await page.waitForSelector(".fg-lock");
   await page.waitForSelector(".fg-mine");
   const foreignNote = page.locator('[data-note-id="n-domi"]');
@@ -996,7 +996,7 @@ async function runFlows(page, state, label, shots, baseUrl) {
   await page.waitForFunction(() => (document.querySelector('[data-place-id="p-hafen"]')?.innerText || "").includes("Pistazien-Eis"));
   assert((await page.locator('[data-place-id="p-hafen"]').innerText()).includes("Von dir"), `${label}: eigene Notiz ohne Von dir`);
   await shot(page, "06-beitragender", shots);
-  await page.locator('[data-place-id="p-anna"]').click();
+  await page.locator('[data-place-id="p-anna"] .oc__title').click();
   await page.locator('[data-place-id="p-anna"] [data-action="edit-place"]').click();
   await page.locator('[data-action="delete"]').click();
   await page.locator('[data-testid="confirm-delete-place"] [data-action="confirm"]').click();
@@ -1029,7 +1029,7 @@ async function runFlows(page, state, label, shots, baseUrl) {
   await asUser(page, state, PEOPLE[SABINE]);
   await page.locator('[data-vacation-id="trip-garda"]').click();
   await page.click(`[data-day="${DAY}"]`);
-  await page.locator('[data-place-id="p-hafen"]').click();
+  await page.locator('[data-place-id="p-hafen"] .oc__title').click();
   await page.locator('[data-note-id="n-domi"] [data-action="edit-note"]').click({ force: true });
   await page.fill('[data-testid="note-sheet"] [data-role="text"]', "Fähre um 12:30");
   await page.click('[data-testid="note-sheet"] [data-action="save"]');
@@ -1052,7 +1052,7 @@ async function runFlows(page, state, label, shots, baseUrl) {
   await shot(page, "07-mitgliederleiste", shots);
   await page.locator(`[data-day="${DAY}"]`).first().click({ force: true });
   await page.waitForSelector('[data-place-id="p-hafen"]');
-  await page.locator('[data-place-id="p-hafen"]').click();
+  await page.locator('[data-place-id="p-hafen"] .oc__title').click();
   await page.waitForSelector('[data-place-id="p-hafen"] .tile');
   await page.waitForFunction(
     () => document.querySelectorAll('[data-place-id="p-hafen"] .tile .kr-av').length >= 1,
@@ -1095,7 +1095,7 @@ async function runFlows(page, state, label, shots, baseUrl) {
 
   await page.locator(`[data-day="${DAY}"]`).first().click({ force: true });
   await page.waitForSelector('[data-place-id="p-hafen"]');
-  await page.locator('[data-place-id="p-hafen"]').click();
+  await page.locator('[data-place-id="p-hafen"] .oc__title').click();
   await page.locator('[data-place-id="p-hafen"] .tile [data-kr-tip*="Besitzer"]').first().click();
   await page.waitForSelector('[data-testid="member-tip"]');
   assert((await page.locator('[data-testid="member-tip"]').innerText()).includes("Dominik"), `${label}: neuer Name fehlt im Kreis`);

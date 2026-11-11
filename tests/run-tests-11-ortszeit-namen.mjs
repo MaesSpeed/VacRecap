@@ -1104,12 +1104,13 @@ async function runSuite(browserType, baseUrl, label) {
   await page.waitForSelector('[data-testid="member-tip"]');
   if (label === "chromium") await shot(page, "u5-tippflaeche");
   await page.mouse.click(2, 2);
-  await page.click('[data-testid="photo-select-start"]');
+  await page.locator('[data-testid="photo-row-check"]').first().click();
   await page.waitForSelector('[data-testid="photo-select-bar"]');
+  await page.waitForFunction(() => document.querySelector('[data-testid="photo-select-count"]')?.textContent?.includes("1"));
   const circleAgain = await page.locator(".kr-av--xs").boundingBox();
   await page.mouse.click(circleAgain.x + circleAgain.width / 2 + 12, circleAgain.y + circleAgain.height / 2);
-  await page.waitForFunction(() => document.querySelector('[data-testid="photo-select-count"]')?.textContent?.includes("1"));
   assert((await page.locator('[data-testid="member-tip"]').count()) === 0, `${label}: Tooltip im Auswahlmodus`);
+  assert((await page.locator('[data-testid="photo-select-count"]').innerText()).includes("1 ausgewählt"), `${label}: Personenkreis ändert die Auswahl`);
 
   await page.click('[data-testid="photo-select-exit"]').catch(() => {});
   async function openDiary(local, server) {
