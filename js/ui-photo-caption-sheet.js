@@ -15,7 +15,7 @@ export { PENCIL as PHOTO_CAPTION_ICON };
  * Speichern und Löschen teilen sich ein Flag (try/finally), damit ein Doppeltipp
  * nicht zweimal schreibt. Escape und Zurück schließen ohne zu speichern.
  */
-export function openPhotoCaptionSheet({ media, onSaved }) {
+export function openPhotoCaptionSheet({ media, onSaved, readOnly = false }) {
   const overlay = document.getElementById("overlay-root");
   if (!overlay || !media?.id) return Promise.resolve(false);
 
@@ -42,7 +42,7 @@ export function openPhotoCaptionSheet({ media, onSaved }) {
           <button type="button" class="note-sheet__cancel" data-action="cancel" data-testid="photo-caption-cancel">Abbrechen</button>
           <h2 class="note-sheet__title" id="photo-caption-title">Notiz zum Foto</h2>
           ${
-            hadCaption
+            hadCaption && !readOnly
               ? `<button type="button" class="note-sheet__delete" data-action="delete" data-testid="photo-caption-delete">Löschen</button>`
               : `<span class="note-sheet__spacer" aria-hidden="true"></span>`
           }
@@ -50,13 +50,14 @@ export function openPhotoCaptionSheet({ media, onSaved }) {
         <label class="field note-sheet__field">
           <textarea data-role="text" data-testid="photo-caption-text" rows="6" maxlength="500" placeholder="Notiz zum Foto…"></textarea>
         </label>
-        <button type="button" class="btn btn-emaille btn-emaille--block note-sheet__save-bottom" data-action="save" data-testid="photo-caption-save" disabled>Speichern</button>
+        <button type="button" class="btn btn-emaille btn-emaille--block note-sheet__save-bottom" data-action="save" data-testid="photo-caption-save" disabled${readOnly ? " hidden" : ""}>Speichern</button>
       </div>`;
     overlay.appendChild(layer);
 
     const textarea = layer.querySelector('[data-role="text"]');
     const saveBtn = layer.querySelector('[data-action="save"]');
     textarea.value = media.caption || "";
+    if (readOnly) textarea.readOnly = true;
 
     const syncSave = () => {
       const next = textarea.value.trim();
@@ -199,6 +200,6 @@ export function openPhotoCaptionSheet({ media, onSaved }) {
       void commit(null, { cleared: true });
     });
 
-    requestAnimationFrame(() => textarea.focus());
+    if (!readOnly) requestAnimationFrame(() => textarea.focus());
   });
 }

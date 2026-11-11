@@ -368,14 +368,14 @@ async function run() {
 
   meter.reset();
   const otherId = await page.locator(`${CUR} .oc[data-place-id]:not(.oc--selected)`).first().getAttribute("data-place-id");
-  await page.locator(`${CUR} .oc[data-place-id="${otherId}"]`).click();
+  await page.locator(`${CUR} .oc[data-place-id="${otherId}"] .oc__title`).click();
   await page.waitForFunction(
     (id) => document.querySelector("[data-page='current'] .oc--selected")?.dataset.placeId === id,
     otherId
   );
   await page.waitForTimeout(250);
   before.cardTap = meter.snapshot();
-  await page.locator(`${CUR} .oc[data-place-id="p-beta"]`).click();
+  await page.locator(`${CUR} .oc[data-place-id="p-beta"] .oc__title`).click();
   await page.waitForFunction(
     () => document.querySelector("[data-page='current'] .oc--selected")?.dataset.placeId === "p-beta"
   );
@@ -389,7 +389,7 @@ async function run() {
     () => document.querySelector("[data-page='current'] .oc--selected")?.textContent?.includes("Gamma neu")
   );
   await swipeTo(page, DAY1, 180);
-  await page.locator(`${CUR} .oc[data-place-id="p-alpha"]`).click();
+  await page.locator(`${CUR} .oc[data-place-id="p-alpha"] .oc__title`).click();
   await page.waitForFunction(
     () => document.querySelector("[data-page='current'] .oc--selected")?.dataset.placeId === "p-alpha"
   );
@@ -404,7 +404,7 @@ async function run() {
   await cancelSheet(page, '[data-testid="note-sheet"]', '[data-testid="note-sheet"] [data-action="cancel"]');
   await swipeTo(page, DAY1, 180);
 
-  await page.locator(`${CUR} .oc[data-place-id="p-beta"]`).click();
+  await page.locator(`${CUR} .oc[data-place-id="p-beta"] .oc__title`).click();
   await page.waitForFunction(
     () => document.querySelector("[data-page='current'] .oc--selected")?.dataset.placeId === "p-beta"
   );
@@ -437,7 +437,7 @@ async function run() {
     "Gelöschte Notiz ist nach dem Wischen wieder da"
   );
 
-  await page.locator(`${CUR} .oc[data-place-id="p-beta"]`).click();
+  await page.locator(`${CUR} .oc[data-place-id="p-beta"] .oc__title`).click();
   await page.waitForFunction(
     () => document.querySelector("[data-page='current'] .oc--selected")?.dataset.placeId === "p-beta"
   );
@@ -451,7 +451,7 @@ async function run() {
   await page.waitForFunction(() =>
     document.querySelector("[data-page='current'] .oc[data-place-id=\"p-alpha\"]")?.textContent?.includes("Beta Notiz")
   );
-  await page.locator(`${CUR} .oc[data-place-id="p-alpha"]`).click();
+  await page.locator(`${CUR} .oc[data-place-id="p-alpha"] .oc__title`).click();
   await page.waitForFunction(
     () => document.querySelector("[data-page='current'] .oc--selected")?.dataset.placeId === "p-alpha"
   );
@@ -469,12 +469,11 @@ async function run() {
     "Verschobene Notiz fehlt nach dem Wischen"
   );
 
-  await page.locator(`${CUR} .oc[data-place-id="p-beta"]`).click();
+  await page.locator(`${CUR} .oc[data-place-id="p-beta"] .oc__title`).click();
   await page.waitForFunction(
     () => document.querySelector("[data-page='current'] .oc--selected")?.dataset.placeId === "p-beta"
   );
-  await page.locator(`${CUR} .oc--selected [data-testid="photo-select-start"]`).click();
-  await page.locator(`${CUR} .oc--selected [data-testid="place-photo"]`).first().click();
+  await page.locator(`${CUR} .oc--selected [data-testid="photo-row-check"]`).first().click();
   await page.locator('[data-testid="photo-move"]').click();
   await page.waitForSelector('[data-testid="photo-move-sheet"]');
   await page.locator('[data-testid="photo-move-day"]').nth(1).click();
@@ -485,7 +484,7 @@ async function run() {
   await swipeTo(page, DAY2, -180);
   await page.waitForSelector(`${CUR} .oc[data-place-id="p-gamma"] [data-testid="place-photo"]`);
   meter.reset();
-  await page.locator(`${CUR} .oc[data-place-id="p-gamma"]`).click();
+  await page.locator(`${CUR} .oc[data-place-id="p-gamma"] .oc__title`).click();
   await page.waitForFunction(
     () => document.querySelector("[data-page='current'] .oc--selected")?.dataset.placeId === "p-gamma"
   );
@@ -557,7 +556,7 @@ async function run() {
     "Beitragender bearbeitet eine fremde Notiz"
   );
   await goToDay(page, DAY1);
-  await page.locator(`${CUR} .oc[data-place-id="p-alpha"]`).click();
+  await page.locator(`${CUR} .oc[data-place-id="p-alpha"] .oc__title`).click();
   await page.waitForFunction(
     () => document.querySelector("[data-page='current'] .oc--selected")?.dataset.placeId === "p-alpha"
   );

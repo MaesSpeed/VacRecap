@@ -669,7 +669,7 @@ async function runSuite(browserType, baseUrl, label) {
     (day) => document.querySelector("[data-testid='trip-content']")?.dataset.activeDay === day,
     TODAY
   );
-  await assertScrollStays(page, state, 61, `${label} Wisch`);
+  await assertScrollStays(page, state, 40, `${label} Wisch`);
   await waitQuiet(state);
 
   const unexpected = pageErrors.filter((err) => !err.includes("access control checks"));

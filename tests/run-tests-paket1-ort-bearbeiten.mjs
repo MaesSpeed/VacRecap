@@ -606,15 +606,12 @@ async function clickDayAndSave(page, day) {
 async function assertDayRights(page, state, role, label) {
   await openEdit(page, "p-mix");
   if (role === "viewer") {
-    await page.locator('[data-testid="edit-place-day"]').click();
-    await page.waitForSelector('[data-testid="place-day-wheel"] [data-day="2026-10-28"]');
-    await clickDayAndSave(page, DAYS[2]);
     await page.waitForFunction(() => {
       const hint = document.querySelector('[data-testid="place-day-hint"]');
-      return hint && !hint.hidden && (hint.textContent || "").includes("Fotos anderer");
+      return hint && !hint.hidden && (hint.textContent || "").includes("Besitzer oder Mitbearbeiter");
     });
     assert(await page.locator('[data-testid="edit-place-day"]').isDisabled(), `${label}: Tag bleibt für Beitragende wählbar`);
-    assert(await page.locator('[data-testid="place-day-wheel"]').isHidden(), `${label}: Rad bleibt nach der Sperre offen`);
+    assert(await page.locator('[data-testid="place-day-wheel"]').isHidden(), `${label}: Rad ist beim Öffnen offen`);
     const stayed = state.waypoints.find((item) => item.id === "p-mix");
     assert(stayed.day === DAYS[1] && stayed.title === "Gemischter Ort", `${label}: Tagwechsel trotz fremder Fotos (${stayed.day} ${stayed.title})`);
     assert(

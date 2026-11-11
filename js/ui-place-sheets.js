@@ -20,10 +20,13 @@ import { waypointRowToPlace } from "./cloud-mappers.js";
 import { watchPresence, presenceBannerHtml } from "./trip-presence.js";
 import { normalizePlace } from "./places.js";
 import { PHOTO_CAPTION_ICON } from "./ui-photo-caption-sheet.js";
-import { getUserId } from "./auth-service.js";
-import { canEditAny, getConfirmedTripRole } from "./trip-role.js";
+import { getCachedUserId, getUserId } from "./auth-service.js";
+import { canEditAny, getConfirmedTripRole, peekConfirmedTripRole } from "./trip-role.js";
+import { peekDayPlace } from "./ui-place-list.js";
 import { escapeHtml, formatDatePart } from "./utils.js";
 
+const DAY_LOCK_HINT =
+  "Den Tag können hier nur Besitzer oder Mitbearbeiter ändern, weil Fotos oder Notizen anderer dabei sind.";
 const CHEVRON = `<svg class="place-edit-day__chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const WHEEL_ROW = 40;
 
@@ -199,6 +202,7 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
   input.addEventListener("input", syncSave);
   timeInput.addEventListener("input", syncSave);
   syncSave();
+  lockForeignDayOnOpen();
 
   dayBtn.addEventListener("click", () => {
     if (saving || dayLocked) return;
@@ -245,24 +249,33 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
     closeOverlayHistory(activeClose)
   );
 
-  function foreignDayMessage(photos, notes) {
-    const what =
-      photos && notes ? "Fotos oder Notizen anderer" : photos ? "Fotos anderer" : "Notizen anderer";
-    return `Den Tag kann hier nur der Besitzer ändern, weil ${what} dabei sind.`;
+  function lockForeignDayOnOpen() {
+    const role = peekConfirmedTripRole(place.vacationId);
+    if (!role || canEditAny(role)) return;
+    const userId = getCachedUserId();
+    if (!userId) return;
+    const cached = peekDayPlace(place.vacationId, initialDay, place.id);
+    if (!cached) return;
+    const photos = (cached.media || []).some((item) => item?.author && item.author !== userId);
+    const notes = (cached.notes || []).some((item) => item?.author && item.author !== userId);
+    if (!photos && !notes) return;
+    lockDayChange(DAY_LOCK_HINT);
   }
 
   function lockDayChange(message) {
     dayLocked = true;
     dayBtn.disabled = true;
     dayBtn.setAttribute("aria-disabled", "true");
+    selectedDay = initialDay;
+    syncDayLabel();
+    highlightWheel();
+    scrollWheelTo(initialDay);
     if (wheelOpen) setWheelOpen(false);
     const hint = overlay.querySelector('[data-testid="place-day-hint"]');
     if (hint) {
       hint.hidden = false;
       hint.textContent = message;
     }
-    selectedDay = initialDay;
-    syncDayLabel();
     syncSave();
   }
 
@@ -278,7 +291,7 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
       const photos = media.filter((item) => item?.author && item.author !== userId).length;
       const foreignNotes = notes.filter((item) => item?.author && item.author !== userId).length;
       if (!photos && !foreignNotes) return false;
-      lockDayChange(foreignDayMessage(photos, foreignNotes));
+      lockDayChange(DAY_LOCK_HINT);
       return true;
     } catch {
       return false;
@@ -375,15 +388,15 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
     let moved = !dayMoved;
     try {
       if (dayMoved && (dayLocked || (await dayChangeBlocked()))) {
-        const nameChanged = String(snap.name || "").trim() !== initialName;
-        const timeChanged = timeInput.value !== initialTime;
-        snap.day = initialDay;
-        snap.ts = timeChanged ? timestampForDayTime(initialDay, timeInput.value) : place.ts;
-        dayMoved = false;
-        if (!nameChanged && !timeChanged) {
-          unlockSave();
-          return;
+        if (selectedDay !== initialDay) {
+          selectedDay = initialDay;
+          syncDayLabel();
+          highlightWheel();
+          scrollWheelTo(initialDay);
+          syncSave();
         }
+        unlockSave();
+        return;
       }
       updated = await updatePlaceDetails(force ? { ...place, forceSave: true } : place, {
         name: snap.name,
@@ -414,6 +427,8 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
         }
         selectedDay = snap.previousDay;
         syncDayLabel();
+        highlightWheel();
+        scrollWheelTo(snap.previousDay);
         unlockSave();
         showToast(err?.message || "Speichern fehlgeschlagen.");
         return;

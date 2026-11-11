@@ -433,9 +433,9 @@ async function runFlows(page, state, label) {
   );
   const foreign = page.locator('[data-testid="photo-caption-row"][data-media-id="m-fremd"]');
   assert((await foreign.innerText()).includes("Fremde Notiz"), `${label}: fremde Notiz fehlt`);
-  assert((await foreign.locator("svg").count()) === 0, `${label}: fremde Notiz hat einen Stift`);
+  assert((await foreign.locator(".photo-row__text svg").count()) === 0, `${label}: fremde Notiz hat einen Stift`);
   assert((await foreign.locator('[data-testid="photo-caption-thumb"]').count()) === 1, `${label}: fremde Notiz ohne Thumbnail`);
-  assert((await foreign.getAttribute("data-action")) === "open-photo-caption", `${label}: fremde Notiz ist nicht nur lesbar`);
+  assert((await foreign.locator("[data-action='open-photo-caption']").count()) === 1, `${label}: fremde Notiz ist nicht nur lesbar`);
 
   const editButtons = page.locator('[data-page="current"] [data-testid="photo-caption-edit"]');
   const editLabels = await editButtons.evaluateAll((els) => els.map((el) => el.getAttribute("aria-label") || ""));
@@ -443,31 +443,32 @@ async function runFlows(page, state, label) {
   assert(new Set(editLabels).size === editLabels.length, `${label}: Notiz-Buttons nicht unterscheidbar (${editLabels.join(" | ")})`);
   assert(editLabels.every((text) => text.startsWith("Notiz zum Foto ") && text !== "Notiz zum Foto"), `${label}: aria-label ohne Foto-Bezug (${editLabels.join(" | ")})`);
   for (const id of ["m-own-1", "m-own-2"]) {
-    const btn = page.locator(`[data-page="current"] [data-testid="photo-caption-edit"][data-media-id="${id}"]`);
-    assert((await btn.locator('[data-testid="photo-caption-edit-thumb"]').count()) === 1, `${label}: Button ${id} ohne Miniatur`);
+    const line = page.locator(`[data-page="current"] [data-testid="photo-caption-row"][data-media-id="${id}"]`);
+    assert((await line.locator('[data-testid="photo-caption-edit-thumb"]').count()) === 1, `${label}: Zeile ${id} ohne Miniatur`);
     const tileSrc = await page.locator(`[data-testid="place-photo"][data-media-id="${id}"] img`).getAttribute("src");
-    const btnSrc = await btn.locator('[data-testid="photo-caption-edit-thumb"]').getAttribute("src");
+    const btnSrc = await line.locator('[data-testid="photo-caption-edit-thumb"]').getAttribute("src");
     assert(tileSrc && btnSrc === tileSrc, `${label}: Miniatur von ${id} gehört zu einem anderen Foto`);
   }
-  await page.locator('[data-testid="photo-caption-edit"][data-media-id="m-own-1"] [data-testid="photo-caption-edit-thumb"]').click();
+  await page.locator('[data-testid="photo-caption-edit"][data-media-id="m-own-1"]').click();
   await page.waitForSelector('[data-testid="photo-caption-sheet"]');
-  assert((await page.locator('[data-testid="photo-caption-sheet"]').count()) === 1, `${label}: Miniatur öffnet mehr als ein Sheet`);
-  assert((await page.locator('[data-testid="photo-caption-text"]').inputValue()) === "Morgenlicht", `${label}: Miniatur öffnet die falsche Notiz`);
+  assert((await page.locator('[data-testid="photo-caption-sheet"]').count()) === 1, `${label}: Text öffnet mehr als ein Sheet`);
+  assert((await page.locator('[data-testid="media-viewer"]').count()) === 0, `${label}: Text öffnet den Betrachter`);
+  assert((await page.locator('[data-testid="photo-caption-text"]').inputValue()) === "Morgenlicht", `${label}: Text öffnet die falsche Notiz`);
   await page.click('[data-testid="photo-caption-cancel"]');
   await page.waitForSelector('[data-testid="photo-caption-sheet"]', { state: "detached" });
-  await page.locator('[data-testid="photo-caption-edit"][data-media-id="m-own-2"] [data-testid="photo-caption-edit-thumb"]').click();
+  await page.locator('[data-testid="photo-caption-edit"][data-media-id="m-own-2"]').click();
   await page.waitForSelector('[data-testid="photo-caption-sheet"]');
   assert((await page.locator('[data-testid="photo-caption-text"]').inputValue()) === "", `${label}: zweites Foto öffnet die Notiz des ersten`);
   await page.click('[data-testid="photo-caption-cancel"]');
   await page.waitForSelector('[data-testid="photo-caption-sheet"]', { state: "detached" });
 
-  await row.click();
+  await page.locator('[data-testid="photo-caption-edit"][data-media-id="m-own-1"]').click();
   await page.waitForSelector('[data-testid="photo-caption-sheet"]');
   assert((await page.locator('[data-testid="photo-caption-sheet"]').count()) === 1, `${label}: Zeile öffnet mehr als ein Sheet`);
   assert((await page.locator('[data-testid="photo-caption-text"]').inputValue()) === "Morgenlicht", `${label}: Zeile öffnet die falsche Notiz`);
   await page.click('[data-testid="photo-caption-cancel"]');
   await page.waitForSelector('[data-testid="photo-caption-sheet"]', { state: "detached" });
-  await empty.click();
+  await page.locator('[data-testid="photo-caption-edit"][data-media-id="m-own-2"]').click();
   await page.waitForSelector('[data-testid="photo-caption-sheet"]');
   assert((await page.locator('[data-testid="photo-caption-text"]').inputValue()) === "", `${label}: leere Zeile öffnet eine vorhandene Notiz`);
   await page.click('[data-testid="photo-caption-cancel"]');

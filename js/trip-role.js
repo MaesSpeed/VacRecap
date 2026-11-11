@@ -45,6 +45,12 @@ function failRole(tripId) {
   return { role: "owner", confirmed: false };
 }
 
+export function peekConfirmedTripRole(tripId) {
+  if (!tripId) return "owner";
+  if (!roleCache.has(tripId)) return null;
+  return roleCache.get(tripId);
+}
+
 export async function getConfirmedTripRole(tripId) {
   if (!tripId) return { role: "owner", confirmed: true };
   if (roleCache.has(tripId)) {

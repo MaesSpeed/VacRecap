@@ -66,6 +66,13 @@ export function dropDayPlaceMemory(vacationId, day) {
   dayItems.delete(key);
 }
 
+export function peekDayPlace(vacationId, day, placeId) {
+  if (!vacationId || !day || !placeId) return null;
+  const items = dayItems.get(dayKey(vacationId, day));
+  if (!items) return null;
+  return items.find((item) => item.place?.id === placeId) || null;
+}
+
 export function dropTripPlaceMemory(vacationId) {
   if (!vacationId) return;
   tripPlaces.delete(vacationId);
@@ -299,10 +306,6 @@ function renderSelectBar(photoSelect) {
     </div>`;
 }
 
-function uploadedPhotoCount(media) {
-  return (media || []).filter((item) => item.type !== "video" && (item.uploadStatus || "uploaded") === "uploaded").length;
-}
-
 export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrls = {}, canEditMedia = true, freshPlaceIds = null, photoSelect = null, share = null, canEditPlace = null }) {
   if (!items.length) return { listHtml: "", mediaErrorHtml: "", selectBarHtml: "" };
 
@@ -346,7 +349,6 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
             ? `<span class="tile__dur" data-testid="photo-caption-mark" aria-hidden="true">${ICON_NOTE}</span>`
             : "";
         const dimPicked = Boolean(photoSelect?.active && dimMedia && photoSelect.selectedIds?.has(dimMedia.id));
-        const showSelectStart = selected && uploadedPhotoCount(media) > 0 && !photoSelect?.active;
         const foreignHint =
           photoSelect?.active &&
           selected &&
@@ -359,14 +361,13 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
             ? `<p class="photo-select-hint" data-testid="photo-foreign-hint">Fremde Fotos sind nicht wählbar.</p>`
             : "";
 
-        const captionBlock = selected
-          ? renderPhotoCaptionBlock(media, canEditMedia, photoSelect?.userId, thumbUrls)
-          : "";
+        const photoRows =
+          selected && hasMedia
+            ? `<div class="photo-rows">${renderPhotoRows(media, thumbUrls, canEditMedia, photoSelect, share)}</div>`
+            : "";
 
-        const notesBlock =
-          sortedNotes.length || captionBlock
+        const notesBlock = sortedNotes.length
             ? `<div class="np">
-              ${captionBlock}
               ${previewNotes
                 .map(
                   (n) => `
@@ -409,13 +410,8 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
                   : ""
               }
             </div>
-            ${selected && hasMedia ? `<div class="tiles">${renderTiles(media, thumbUrls, canEditMedia, photoSelect, share)}</div>` : ""}
+            ${photoRows}
             ${foreignHint}
-            ${
-              showSelectStart
-                ? `<button type="button" class="photo-select-start" data-action="photo-select-start" data-testid="photo-select-start">Auswählen</button>`
-                : ""
-            }
             ${notesBlock}
           </div>
           ${
@@ -439,13 +435,6 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
   };
 }
 
-function uploadedPhotosByCapture(media) {
-  return (media || [])
-    .filter((item) => item.type !== "video" && (item.uploadStatus || "uploaded") === "uploaded")
-    .slice()
-    .sort((a, b) => (a.ts || 0) - (b.ts || 0));
-}
-
 function captionText(item) {
   return typeof item?.caption === "string" ? item.caption.trim() : "";
 }
@@ -455,58 +444,74 @@ function captionAriaLabel(index, item) {
   return `Notiz zum Foto ${index + 1}${when ? `, ${when}` : ""}`;
 }
 
-function captionThumbHtml(item, thumbUrls, testId) {
-  const thumb = thumbUrls?.[item.id];
-  if (!thumb) return `<span class="photo-cap-row__ph" aria-hidden="true"></span>`;
-  return `<img class="credits-list__thumb" src="${thumb}" alt="" data-testid="${testId}" />`;
+function renderPhotoRows(media, thumbUrls, canEditMedia, photoSelect, share) {
+  const userId = photoSelect?.userId;
+  const selecting = Boolean(photoSelect?.active);
+  const sorted = (media || []).slice().sort((a, b) => (a.ts || 0) - (b.ts || 0) || String(a.id).localeCompare(String(b.id)));
+  let photoIndex = 0;
+  return sorted
+    .map((item) => {
+      const isVideo = item.type === "video";
+      const index = isVideo ? 0 : photoIndex;
+      if (!isVideo) photoIndex += 1;
+      return renderPhotoRow(item, index, thumbUrls, canEditMedia, userId, selecting, photoSelect, share);
+    })
+    .join("");
 }
 
-function renderPhotoCaptionEdits(media, canEditMedia, userId, thumbUrls) {
-  if (!canEditMedia) return [];
-  return uploadedPhotosByCapture(media).flatMap((item, index) => {
-    if (!mediaOwnedBy(item, userId)) return [];
-    const note = captionText(item);
+function renderPhotoRow(item, index, thumbUrls, canEditMedia, userId, selecting, photoSelect, share) {
+  const status = item.uploadStatus || "uploaded";
+  const uploaded = status === "uploaded";
+  const failed = status === "failed";
+  const isVideo = item.type === "video";
+  const isPhoto = !isVideo;
+  const own = mediaOwnedBy(item, userId);
+  const picked = selecting && own && photoSelect.selectedIds?.has(item.id);
+  const note = isPhoto ? captionText(item) : "";
+  const canEdit = isPhoto && uploaded && canEditMedia && own;
+  const badges = photoBadges(item, share, { seal: true });
+  const thumb = uploaded ? thumbUrls[item.id] : "";
+  const thumbTestId = canEdit ? "photo-caption-edit-thumb" : "photo-caption-thumb";
+  const img = thumb
+    ? `<img class="tile__img" src="${thumb}" alt="" decoding="async" data-media-id="${item.id}" data-testid="${thumbTestId}" />`
+    : "";
+  const captionMark =
+    isPhoto && note
+      ? `<span class="tile__dur photo-row__mark" data-testid="photo-caption-mark" aria-hidden="true">${ICON_NOTE}</span>`
+      : "";
+  const removeBtn =
+    failed && canEditMedia
+      ? `<span class="tile__remove" data-action="remove-failed-media" data-media-id="${item.id}" aria-label="Entfernen">×</span>`
+      : "";
+  const play = isVideo ? `<span class="tile__play-wrap">${PLAY_SVG}</span>` : "";
+  const dur = isVideo
+    ? `<span class="tile__dur">${escapeHtml(item.durationLabel || formatMediaDuration(item.duration))}</span>`
+    : "";
+  const openable = uploaded && !failed;
+  const check =
+    isPhoto && uploaded
+      ? `<button type="button" class="photo-row__check" data-action="photo-row-check" data-testid="photo-row-check" data-media-id="${item.id}" data-own="${own ? "1" : "0"}" aria-pressed="${picked ? "true" : "false"}" aria-label="${escapeHtml(own ? (picked ? "Auswahl aufheben" : "Foto auswählen") : "Fremdes Foto, nicht verschiebbar")}"></button>`
+      : `<span class="photo-row__check photo-row__check--spacer" aria-hidden="true"></span>`;
+  const thumbLabel = failed ? "Fehlgeschlagenes Foto entfernen" : "Medium anzeigen";
+  const thumbBtn = `<button type="button" class="tile tile--btn photo-row__thumb${failed ? " tile--failed" : ""}${openable ? "" : " tile--no-open"}${badges.foreign ? " fg-foreign" : ""}" data-testid="place-photo" data-media-id="${item.id}" data-own="${own ? "1" : "0"}" data-upload-status="${status}"${openable ? "" : ' aria-disabled="true"'} aria-label="${escapeHtml(thumbLabel)}">${img}${uploadStateBadge(item)}${badges.mine}${badges.lock}${badges.circle}${captionMark}${removeBtn}${play}${dur}</button>`;
+  const label = isPhoto ? captionAriaLabel(index, item) : "Video";
+  let text;
+  if (canEdit) {
     const filled = Boolean(note);
-    const label = captionAriaLabel(index, item);
-    const thumb = captionThumbHtml(item, thumbUrls, "photo-caption-edit-thumb");
     const pencil = `<span class="photo-cap-row__pencil${filled ? "" : " photo-cap-row__pencil--muted"}" aria-hidden="true">${ICON_CAPTION_PENCIL}</span>`;
-    const text = filled
-      ? `<span class="notes-add__label photo-cap-row__text">${escapeHtml(note)}</span>`
-      : `<span class="notes-add__label photo-cap-row__placeholder">Notiz hinzufügen</span>`;
-    const body = filled ? `${thumb}${text}${pencil}` : `${thumb}${pencil}${text}`;
-    return [
-      {
-        ts: item.ts || 0,
-        index,
-        html: `<button type="button" class="photo-cap-row${filled ? " photo-cap-row--filled" : " photo-cap-row--empty"}" data-action="edit-photo-caption" data-media-id="${item.id}" data-testid="photo-caption-edit" aria-label="${escapeHtml(label)}"><span class="photo-cap-row__hit" data-testid="photo-caption-row" data-media-id="${item.id}">${body}</span></button>`,
-      },
-    ];
-  });
-}
-
-function renderPhotoCaptionRows(media, thumbUrls, { canEditMedia = false, userId = null } = {}) {
-  return uploadedPhotosByCapture(media).flatMap((item, index) => {
-    const note = captionText(item);
-    if (!note) return [];
-    if (canEditMedia && mediaOwnedBy(item, userId)) return [];
-    const label = captionAriaLabel(index, item);
-    return [
-      {
-        ts: item.ts || 0,
-        index,
-        html: `<button type="button" class="photo-cap-row photo-cap-row--readonly" data-action="open-photo-caption" data-media-id="${item.id}" data-testid="photo-caption-row" aria-label="${escapeHtml(label)}">${captionThumbHtml(item, thumbUrls, "photo-caption-thumb")}<span class="photo-cap-row__text">${escapeHtml(note)}</span></button>`,
-      },
-    ];
-  });
-}
-
-function renderPhotoCaptionBlock(media, canEditMedia, userId, thumbUrls) {
-  const rows = [
-    ...renderPhotoCaptionEdits(media, canEditMedia, userId, thumbUrls),
-    ...renderPhotoCaptionRows(media, thumbUrls, { canEditMedia, userId }),
-  ].sort((a, b) => a.ts - b.ts || a.index - b.index);
-  if (!rows.length) return "";
-  return `<div class="photo-cap-list">${rows.map((row) => row.html).join("")}</div>`;
+    const body = filled
+      ? `<span class="photo-cap-row__text">${escapeHtml(note)}</span>${pencil}`
+      : `${pencil}<span class="photo-cap-row__placeholder">Notiz hinzufügen</span>`;
+    text = `<button type="button" class="photo-row__text" data-action="edit-photo-caption" data-testid="photo-caption-edit" data-media-id="${item.id}" aria-label="${escapeHtml(label)}">${body}</button>`;
+  } else if (isPhoto && uploaded) {
+    const body = note
+      ? `<span class="photo-cap-row__text">${escapeHtml(note)}</span>`
+      : `<span class="photo-cap-row__placeholder">Keine Notiz</span>`;
+    text = `<button type="button" class="photo-row__text" data-action="open-photo-caption" data-testid="photo-row-text" data-media-id="${item.id}" aria-label="${escapeHtml(label)}">${body}</button>`;
+  } else {
+    text = `<span class="photo-row__text photo-row__text--plain">${isVideo ? escapeHtml(item.durationLabel || formatMediaDuration(item.duration)) : ""}</span>`;
+  }
+  return `<div class="photo-row${picked ? " photo-row--on" : ""}" data-media-id="${item.id}" data-own="${own ? "1" : "0"}" data-testid="photo-caption-row">${check}${thumbBtn}${text}</div>`;
 }
 
 function qaButtons(place, canEditMedia, canEditPlace) {
@@ -519,56 +524,6 @@ function qaButtons(place, canEditMedia, canEditPlace) {
     : "";
   if (!edit && !add) return "";
   return `<div class="qa">${edit}${add}</div>`;
-}
-
-function renderTiles(media, thumbUrls, canEditMedia, photoSelect, share = null) {
-  const selecting = Boolean(photoSelect?.active);
-  const sorted = media.slice().sort((a, b) => b.ts - a.ts);
-  const visible = (selecting ? sorted : sorted.slice(0, 4)).slice().sort((a, b) => a.ts - b.ts);
-  const extra = selecting ? 0 : media.length - visible.length;
-
-  return visible
-    .map((m, i) => {
-      const isLast = i === visible.length - 1;
-      const overlayExtra = extra > 0 && isLast ? `<span class="tile__more">+${extra}</span>` : "";
-      const thumb = thumbUrls[m.id];
-      const isVideo = m.type === "video";
-      const status = m.uploadStatus || "uploaded";
-      const uploaded = status === "uploaded";
-      const failed = status === "failed";
-      const own = mediaOwnedBy(m, photoSelect?.userId);
-      const picked = selecting && own && photoSelect.selectedIds?.has(m.id);
-      const locked = selecting && !own;
-      const img =
-        thumb && uploaded
-          ? `<img class="tile__img" src="${thumb}" alt="" decoding="async" data-media-id="${m.id}" />`
-          : "";
-      const dur =
-        isVideo
-          ? `<span class="tile__dur">${escapeHtml(m.durationLabel || formatMediaDuration(m.duration))}</span>`
-          : "";
-      const play = isVideo ? `<span class="tile__play-wrap">${PLAY_SVG}</span>` : "";
-      const badge = uploadStateBadge(m);
-      const captionMark =
-        !isVideo && m.caption
-          ? `<span class="tile__dur" data-testid="photo-caption-mark" aria-hidden="true">${ICON_NOTE}</span>`
-          : "";
-      const removeBtn =
-        failed && canEditMedia && !selecting
-          ? `<span class="tile__remove" data-action="remove-failed-media" data-media-id="${m.id}" aria-label="Entfernen">×</span>`
-          : "";
-      const openable = uploaded && !failed;
-      const mark = selecting && own ? `<span class="tile__mark" aria-hidden="true"></span>` : "";
-      const badges = photoBadges(m, share);
-      const label = locked
-        ? "Fremdes Foto, nicht verschiebbar"
-        : failed
-          ? "Fehlgeschlagenes Foto entfernen"
-          : "Medium anzeigen";
-      const pressed = selecting && own ? ` aria-pressed="${picked ? "true" : "false"}"` : "";
-      return `<button type="button" class="tile tile--btn${failed ? " tile--failed" : ""}${openable ? "" : " tile--no-open"}${picked ? " tile--selected" : ""}${locked ? " tile--locked" : ""}${badges.foreign ? " fg-foreign" : ""}" data-testid="place-photo" data-media-id="${m.id}" data-own="${own ? "1" : "0"}" data-upload-status="${status}"${pressed}${locked ? ' aria-disabled="true"' : ""} aria-label="${label}">${img}${mark}${badge}${badges.mine}${badges.lock}${badges.circle}${captionMark}${removeBtn}${play}${dur}${overlayExtra}</button>`;
-    })
-    .join("");
 }
 
 export async function resolveThumbUrlMap(mediaList, onlyIds = null) {

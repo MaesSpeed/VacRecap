@@ -392,7 +392,7 @@ async function meta(page, placeId) {
 }
 
 async function enterSelect(page) {
-  await page.click('[data-testid="photo-select-start"]');
+  await page.locator('[data-testid="photo-row-check"][data-media-id="m-see"]').click();
   await page.waitForSelector('[data-testid="photo-select-bar"]');
 }
 
@@ -533,10 +533,9 @@ async function runFlows(page, state, label) {
   }, tripId);
   await page.waitForFunction(() => {
     const root = document.querySelector("[data-page='current']");
-    return root?.innerText?.includes("Hafen Malcesine") && root.querySelector('[data-testid="photo-select-start"]');
+    return root?.innerText?.includes("Hafen Malcesine") && root.querySelector('[data-testid="photo-row-check"]');
   });
   await enterSelect(page);
-  await page.locator('[data-testid="place-photo"][data-media-id="m-see"]').click();
   await page.click('[data-testid="photo-move"]');
   await page.waitForSelector('[data-testid="photo-move-sheet"]');
   await page.locator('[data-move-place="p-ufer"]').click();
@@ -554,7 +553,6 @@ async function runFlows(page, state, label) {
   assert(!(await meta(page, "p-ufer")).includes("Foto"), `${label}: Geisterfoto am Ufer «${await meta(page, "p-ufer")}»`);
 
   await enterSelect(page);
-  await page.locator('[data-testid="place-photo"][data-media-id="m-see"]').click();
   await page.locator('[data-testid="photo-move"]').evaluate((btn) => {
     btn.click();
     btn.click();
@@ -573,7 +571,6 @@ async function runFlows(page, state, label) {
   assert(page.url().includes(`/urlaub/${tripId}`), `${label}: Escape verlässt die Reise`);
 
   await enterSelect(page);
-  await page.locator('[data-testid="place-photo"][data-media-id="m-see"]').click();
   const beforeBack = page.url();
   await page.goBack();
   await page.waitForSelector('[data-testid="photo-select-bar"]', { state: "detached" });
