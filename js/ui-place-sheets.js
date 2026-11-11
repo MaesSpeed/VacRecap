@@ -249,17 +249,28 @@ export function openEditPlaceSheet(place, { onSaved, onDeleted }) {
     closeOverlayHistory(activeClose)
   );
 
+  function renderedForeignContent(placeId) {
+    if (!placeId) return false;
+    const safe = window.CSS?.escape ? CSS.escape(placeId) : String(placeId).replace(/"/g, "");
+    const card = document.querySelector(`[data-page="current"] .oc[data-place-id="${safe}"]`);
+    return card?.dataset.foreignContent === "1";
+  }
+
   function lockForeignDayOnOpen() {
     const role = peekConfirmedTripRole(place.vacationId);
     if (!role || canEditAny(role)) return;
     const userId = getCachedUserId();
-    if (!userId) return;
     const cached = peekDayPlace(place.vacationId, initialDay, place.id);
-    if (!cached) return;
-    const photos = (cached.media || []).some((item) => item?.author && item.author !== userId);
-    const notes = (cached.notes || []).some((item) => item?.author && item.author !== userId);
-    if (!photos && !notes) return;
-    lockDayChange(DAY_LOCK_HINT);
+    if (cached) {
+      if (!userId) return;
+      const photos = (cached.media || []).some((item) => item?.author && item.author !== userId);
+      const notes = (cached.notes || []).some((item) => item?.author && item.author !== userId);
+      if (!photos && !notes) return;
+      lockDayChange(DAY_LOCK_HINT);
+      return;
+    }
+    // Ohne Tagescache reicht die Markierung aus dem schon gemalten Karten-HTML.
+    if (renderedForeignContent(place.id)) lockDayChange(DAY_LOCK_HINT);
   }
 
   function lockDayChange(message) {

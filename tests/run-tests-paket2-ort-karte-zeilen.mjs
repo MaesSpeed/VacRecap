@@ -354,6 +354,7 @@ async function assertDayLock(page, state, role, label) {
     assert(await hint.isHidden(), `${label}: eigener Ort ist gesperrt`);
     assert(!(await page.locator('[data-testid="edit-place-day"]').isDisabled()), `${label}: eigener Tag ist gesperrt`);
     await closeSheet(page);
+    const coldFrom = state.gets.length;
     await page.evaluate(
       async ({ trip, day }) => {
         const { dropDayPlaceMemory } = await import("./js/ui-place-list.js");
@@ -362,22 +363,13 @@ async function assertDayLock(page, state, role, label) {
       { trip: TRIP, day: DAYS[1] }
     );
     await openEdit(page, "p-mix");
-    assert(!(await page.locator('[data-testid="edit-place-day"]').isDisabled()), `${label}: Tag ohne Cache schon gesperrt`);
-    await page.locator('[data-testid="place-edit-sheet"] [data-role="name"]').fill("Darf nicht bleiben");
-    await page.locator('[data-testid="edit-place-day"]').click();
-    await page.locator(`[data-testid="place-day-wheel"] [data-day="${DAYS[2]}"]`).click();
-    await page.locator('[data-testid="place-edit-sheet"] [data-action="save"]').click();
+    const cold = state.gets.slice(coldFrom);
+    assert(!cold.includes("media") && !cold.includes("notes"), `${label}: Öffnen ohne Cache fragt ${cold.join(",") || "nichts"}`);
     await page.waitForFunction((text) => document.querySelector('[data-testid="place-day-hint"]')?.textContent === text, HINT);
-    await page.waitForTimeout(250);
-    const toast = (await page.locator('[data-testid="app-toast"]').count())
-      ? await page.locator('[data-testid="app-toast"]').innerText()
-      : "";
-    assert(!toast.includes("Gespeichert"), `${label}: stilles Speichern «${toast}»`);
+    assert(await page.locator('[data-testid="edit-place-day"]').isDisabled(), `${label}: Tag ohne Cache bleibt offen`);
+    assert(await page.locator('[data-testid="place-day-wheel"]').isHidden(), `${label}: Rad ohne Cache ist offen`);
     const row = state.waypoints.find((item) => item.id === "p-mix");
-    assert(row.title === "Gemischter Ort" && row.day === DAYS[1], `${label}: Tag und Name wurden trotzdem geschrieben (${row.title} ${row.day})`);
-    assert((await page.locator('[data-testid="place-edit-sheet"]').count()) === 1, `${label}: Sheet schließt nach der Sperre`);
-    const marked = await page.locator(".place-day-wheel__item--active").getAttribute("data-day");
-    assert(marked === DAYS[1], `${label}: Rad markiert nach der Sperre ${marked}`);
+    assert(row.title === "Gemischter Ort" && row.day === DAYS[1], `${label}: Öffnen ohne Cache schreibt (${row.title} ${row.day})`);
     await closeSheet(page);
     return;
   }

@@ -15,6 +15,7 @@ import { openConfirmDialog } from "./ui-confirm.js";
 import { openPhotoCaptionSheet, PHOTO_CAPTION_ICON } from "./ui-photo-caption-sheet.js";
 import { getSupabase } from "./supabase-client.js";
 import { showToast, showWarnToast } from "./toast.js";
+import { compareMediaOrder } from "./media-order.js";
 import { escapeHtml } from "./utils.js";
 
 const PLAY_ICON = `<svg class="tile__play" width="18" height="18" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>`;
@@ -125,7 +126,7 @@ export function openMediaViewer(mediaItems, startId, options = {}) {
   };
   const canEditCaption =
     typeof options.canEditCaption === "function" ? options.canEditCaption : () => false;
-  const sorted = mediaItems.slice().sort((a, b) => a.ts - b.ts);
+  const sorted = mediaItems.slice().sort((a, b) => compareMediaOrder(a, b));
   let index = sorted.findIndex((m) => m.id === startId);
   if (index < 0) index = 0;
   const shareSnackTimerRef = { timer: null };

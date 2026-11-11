@@ -1,3 +1,4 @@
+import { compareMediaOrder } from "./media-order.js";
 import { P, plan } from "./recap-duration.js";
 
 function round1(n) {
@@ -98,7 +99,7 @@ export function buildVideoRecap({ places = [], photos = [], notes = [] } = {}) {
     }
     const chosenPhotos = (photosByPlace.get(place.id) || [])
       .slice()
-      .sort((a, b) => byTimeThenId(a, b, (item) => item.ts || 0))
+      .sort((a, b) => compareMediaOrder(a, b))
       .slice(0, planned.photosPerPlace);
     const chosenNotes = (notesByPlace.get(place.id) || [])
       .slice()

@@ -28,6 +28,13 @@ export class RecapUnavailableError extends Error {
   }
 }
 
+export class MediaSortUnavailableError extends Error {
+  constructor(message = "Die Reihenfolge ist noch nicht verfügbar.") {
+    super(message);
+    this.name = "MediaSortUnavailableError";
+  }
+}
+
 /** Die Zeile wurde zwischen Lesen und Schreiben geändert oder gelöscht. */
 export class StaleWriteError extends Error {
   constructor(message, { fresh = null, deleted = false, expected = null } = {}) {
