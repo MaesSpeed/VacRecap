@@ -69,10 +69,8 @@ let omitCaptionColumn = false;
 let omitSortOrderColumn = false;
 
 function mediaSelect() {
-  const extra = [];
-  if (!omitCaptionColumn) extra.push("caption");
-  if (!omitSortOrderColumn) extra.push("sort_order");
-  return extra.length ? `${MEDIA_FIELDS},${extra.join(",")}` : MEDIA_FIELDS;
+  const cols = omitCaptionColumn ? MEDIA_FIELDS : `${MEDIA_FIELDS},caption`;
+  return omitSortOrderColumn ? cols : `${cols},sort_order`;
 }
 
 /** sort_order nulls last, danach taken_at. Fehlt die Spalte, nur taken_at. */
@@ -87,12 +85,7 @@ export function mediaSortColumnAvailable() {
   return !omitSortOrderColumn;
 }
 
-async function runMediaRead(run, depth = 0) {
-  if (depth > 3) {
-    omitSortOrderColumn = true;
-    omitCaptionColumn = true;
-    return run(mediaSelect());
-  }
+async function runMediaRead(run) {
   const cols = mediaSelect();
   const first = await run(cols);
   // Parallele Abfragen haben caption schon in ihrer eigenen Liste, auch wenn
@@ -100,11 +93,11 @@ async function runMediaRead(run, depth = 0) {
   // zweite den Fehler zurück und der Ort bleibt ohne Fotos.
   if (first?.error && isMissingSortOrderColumn(first.error) && cols.includes("sort_order")) {
     omitSortOrderColumn = true;
-    return runMediaRead(run, depth + 1);
+    return runMediaRead(run);
   }
   if (first?.error && isMissingCaptionColumn(first.error) && cols.includes("caption")) {
     omitCaptionColumn = true;
-    return runMediaRead(run, depth + 1);
+    return run(mediaSelect());
   }
   return first;
 }
