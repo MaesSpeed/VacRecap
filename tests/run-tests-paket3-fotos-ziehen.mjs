@@ -222,6 +222,11 @@ function allowWrites(state) {
           if (row.waypoint_id === placeId && !seen.has(row.id)) row.sort_order = null;
         }
       }
+      const stamp = new Date().toISOString();
+      state.lastSortStamp = stamp;
+      for (const row of state.media) {
+        if (row.waypoint_id === placeId) row.updated_at = stamp;
+      }
       for (const snap of before) {
         const row = state.media.find((item) => item.id === snap.id);
         if (row && row.taken_at !== snap.taken_at) throw new Error(`taken_at verändert ${snap.id}`);
@@ -392,7 +397,7 @@ function assertOneRefresh(snap, label) {
   const rpc = snap.calls.filter((item) => item.includes("set_place_media_order")).length;
   const mediaGets = snap.calls.filter((item) => item.startsWith("GET") && item.endsWith("/media")).length;
   assert(rpc === 1, `${label}: RPC ${rpc} (${snap.calls.join(" | ")})`);
-  assert(mediaGets === 0, `${label}: Medien-GET ${mediaGets}`);
+  assert(mediaGets === 1, `${label}: Medien-GET ${mediaGets}`);
   report.push({ label, ...snap, rpc, mediaGets });
 }
 
@@ -517,6 +522,52 @@ async function assertScrollAndSwipe(page, state, label) {
   assert(!during.some((item) => item.includes("set_place_media_order")), `${label}: Wischen speichert eine Reihenfolge`);
 }
 
+async function assertFreshStamp(page, state, label) {
+  const stamp = state.lastSortStamp;
+  const seen = await page.evaluate(async ({ trip, day }) => {
+    const { peekDayPlace } = await import("./js/ui-place-list.js");
+    const item = peekDayPlace(trip, day, "p-park");
+    return (item?.media || []).map((entry) => entry.remoteUpdatedAt);
+  }, { trip: TRIP, day: DAYS[1] });
+  assert(stamp && seen.length && seen.every((value) => value === stamp), `${label}: Cache-Zeit ${seen.join(",")} statt ${stamp}`);
+}
+
+async function assertTapAfterTouch(page, label) {
+  await page.locator('[data-page="current"] [data-testid="photo-caption-row"][data-media-id="m1"]').scrollIntoViewIfNeeded();
+  const mode = await page.evaluate(() => {
+    const el = document.querySelector("[data-page='current'] [data-testid='place-photo'][data-media-id='m1']");
+    if (!el || typeof Touch !== "function" || typeof TouchEvent !== "function") return "ohne Touch";
+    const rect = el.getBoundingClientRect();
+    const x0 = rect.left + rect.width / 2;
+    const y0 = rect.top + rect.height / 2;
+    const fire = (type, x, y) => {
+      const touch = new Touch({ identifier: 4, target: el, clientX: x, clientY: y, pageX: x, pageY: y });
+      const list = type === "touchend" ? [] : [touch];
+      el.dispatchEvent(new TouchEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        touches: list,
+        targetTouches: list,
+        changedTouches: [touch],
+      }));
+    };
+    fire("touchstart", x0, y0);
+    for (let step = 1; step <= 8; step += 1) fire("touchmove", x0, y0 + step * 18);
+    fire("touchend", x0, y0 + 144);
+    return "touch";
+  });
+  assert(mode === "touch", `${label}: ${mode}`);
+  await page.waitForTimeout(500);
+  if (await page.locator('[data-testid="media-viewer"]').count()) {
+    await page.click('[data-testid="media-viewer-close"]');
+    await page.waitForSelector('[data-testid="media-viewer"]', { state: "detached" });
+  }
+  await page.locator('[data-page="current"] [data-testid="place-photo"][data-media-id="m6"]').click();
+  await page.waitForSelector('[data-testid="media-viewer"]');
+  await page.click('[data-testid="media-viewer-close"]');
+  await page.waitForSelector('[data-testid="media-viewer"]', { state: "detached" });
+}
+
 async function assertDragVisual(page, label) {
   await page.locator('[data-page="current"] [data-testid="photo-row-check"][data-media-id="m1"]').click();
   await page.waitForSelector('[data-testid="photo-select-bar"]');
@@ -545,6 +596,8 @@ async function saveDrag(page, state, from, target, expected, label) {
       shadow: style.boxShadow,
       left: rect.left,
       right: rect.right,
+      top: rect.top,
+      inner: window.innerHeight,
       rows: [...el.querySelectorAll(".photo-row")].map((row) => row.dataset.mediaId),
     };
   });
@@ -552,6 +605,7 @@ async function saveDrag(page, state, from, target, expected, label) {
   assert(drag.bg === "rgb(255, 255, 255)", `${label}: gezogene Fläche ${drag.bg}`);
   assert(drag.shadow && drag.shadow !== "none", `${label}: gezogene Fläche ohne Schatten`);
   assert(drag.left < card.x - 4 && drag.right > card.x + card.width + 4, `${label}: Zug ragt nicht über die Karte`);
+  assert(drag.top > -8 && drag.top < drag.inner - 8, `${label}: Block liegt außerhalb (top ${drag.top})`);
   assert(gap === "dashed", `${label}: Lücke ${gap}`);
   const count = await page.locator('[data-testid="photo-select-count"]').innerText();
   assert(await page.locator('[data-testid="photo-select-bar"]').isVisible(), `${label}: Leiste verschwindet beim Ziehen`);
@@ -665,6 +719,8 @@ async function runCase(browser, baseUrl, viewport, role) {
       assert(single.count.includes("1 ausgewählt"), `${label}: Leiste ${single.count}`);
       assert((await page.locator('[data-testid="photo-select-count"]').innerText()).includes("1 ausgewählt"), `${label}: Auswahl nach dem Zug weg`);
       assert(state.media.find((row) => row.id === "m1").taken_at.endsWith("T13:00:00.000Z"), `${label}: taken_at überschrieben`);
+      await assertFreshStamp(page, state, `${label} eine Zeile`);
+      await assertFreshStamp(page, state, `${label} eine Zeile`);
       await page.locator('[data-page="current"] [data-testid="photo-row-check"][data-media-id="m3"]').click();
       await page.waitForFunction(() => (document.querySelector('[data-testid="photo-select-count"]')?.textContent || "").includes("2 ausgewählt"));
       const blockFrom = await pointOf(page.locator('[data-page="current"] [data-testid="place-photo"][data-media-id="m3"]'));
@@ -694,8 +750,20 @@ async function runCase(browser, baseUrl, viewport, role) {
       assert(state.media.filter((row) => row.waypoint_id === "p-park").every((row) => row.sort_order == null), `${label}: sort_order bleibt gesetzt`);
       for (const row of state.media) assert(row.taken_at === taken[row.id], `${label}: Reset ändert taken_at`);
       assert((await page.locator('[data-testid="photo-sort-reset"]').count()) === 0, `${label}: Reset bleibt stehen`);
-      await page.locator('[data-testid="photo-select-exit"]').click();
-      await page.waitForSelector('[data-testid="photo-select-bar"]', { state: "detached" });
+      await assertFreshStamp(page, state, `${label} Reset`);
+      await assertTapAfterTouch(page, label);
+      await page.locator('[data-testid="photo-move"]').click();
+      await page.waitForSelector('[data-testid="photo-move-sheet"]');
+      await page.locator('[data-move-place="p-ziel"]').click();
+      await page.waitForFunction(() => {
+        const toast = document.querySelector('[data-testid="app-toast"]')?.textContent || "";
+        return toast.includes("verschoben") && !toast.includes("Inzwischen geändert");
+      });
+      assert(state.media.find((row) => row.id === "m1").waypoint_id === "p-ziel", `${label}: Verschieben nach dem Sortieren`);
+      if ((await page.locator('[data-testid="photo-select-exit"]').count()) === 1) {
+        await page.locator('[data-testid="photo-select-exit"]').click();
+        await page.waitForSelector('[data-testid="photo-select-bar"]', { state: "detached" });
+      }
       await page.locator('[data-page="current"] [data-place-id="p-mix"] .oc__title').click();
       await page.locator('[data-page="current"] [data-place-id="p-mix"] [data-action="edit-place"]').click();
       await page.waitForSelector('[data-testid="place-edit-sheet"]');

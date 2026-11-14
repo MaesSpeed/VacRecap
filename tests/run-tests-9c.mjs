@@ -438,11 +438,11 @@ async function runFlows(page, state, label) {
   await assertTouch(page, '[data-testid="photo-select-exit"]', `${label} Beenden`);
   await assertTouch(page, '[data-testid="photo-move"]', `${label} Verschieben`);
   await page.locator('[data-testid="photo-row-check"][data-media-id="m-fremd"]').click({ force: true });
-  await page.waitForSelector('[data-testid="app-toast"]');
-  const foreignToast = await page.locator('[data-testid="app-toast"]').innerText();
-  assert(foreignToast.includes("Nur eigene Fotos"), `${label}: Hinweis fremd «${foreignToast}»`);
-  assert((await page.locator('[data-testid="photo-select-count"]').innerText()).includes("0 ausgewählt"), `${label}: fremdes Foto mitgezählt`);
-  assert(await page.locator('[data-testid="photo-foreign-hint"]').count(), `${label}: Hinweis fehlt`);
+  await page.waitForFunction(() => (document.querySelector('[data-testid="photo-select-count"]')?.textContent || "").includes("1 ausgewählt"));
+  assert((await page.locator('[data-testid="photo-row-check"][data-media-id="m-fremd"]').getAttribute("aria-pressed")) === "true", `${label}: fremdes Foto nicht angehakt`);
+  assert((await page.locator('[data-testid="photo-foreign-hint"]').count()) === 0, `${label}: Besitzer sieht die Fremd-Sperre`);
+  await page.locator('[data-testid="photo-row-check"][data-media-id="m-fremd"]').click();
+  await page.waitForFunction(() => (document.querySelector('[data-testid="photo-select-count"]')?.textContent || "").includes("0 ausgewählt"));
   const moveDisabled = await page.locator('[data-testid="photo-move"]').isDisabled();
   assert(moveDisabled, `${label}: Verschieben ohne Auswahl aktiv`);
   await selectOwn(page, "m-own-1");
