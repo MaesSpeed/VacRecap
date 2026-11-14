@@ -168,7 +168,14 @@ export function mediaRowToApp(row) {
     deletedAt: row.deleted_at || null,
     caption: normalizeMediaCaption(row.caption),
     hasOwnTime: row.taken_at != null && String(row.taken_at) !== "",
+    sortOrder: mediaSortRankFromRow(row.sort_order),
   };
+}
+
+function mediaSortRankFromRow(value) {
+  if (value == null || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 /** Eine Bildunterschrift, höchstens 500 Zeichen. Leer wird null. */

@@ -57,7 +57,7 @@ import { canAddOwn, canEditItem, getConfirmedTripRole } from "./trip-role.js";
 import { loadTripPeople } from "./trip-people.js";
 import { takeStaleNotice } from "./save-conflict.js";
 import { loadRecapEntry, recapEntryCardHtml } from "./ui-recap-video.js";
-import { deleteMedia } from "./db.js";
+import { deleteMedia, getMediaForPlace } from "./db.js";
 import { openConfirmDialog } from "./ui-confirm.js";
 import { startGalleryPhotoUpload } from "./gallery-upload.js";
 import { openPhotoUploadSheet } from "./ui-photo-upload-sheet.js";
@@ -69,6 +69,7 @@ import { openPhotoCaptionSheet } from "./ui-photo-caption-sheet.js";
 
 import { openEditPlaceSheet, openSoftPointSheet } from "./ui-place-sheets.js";
 import { mountTripFooter } from "./ui-trip-footer.js";
+import { applyMediaRanks, compareMediaOrder } from "./media-order.js";
 import { escapeHtml, todayIso } from "./utils.js";
 
 const CHIP_ARROW_PREV = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M14 6l-6 6 6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -876,6 +877,42 @@ export async function renderUrlaubDetail(appEl, id) {
     }
     await refreshDayList({ reuse: true });
   }
+
+  // Paket 3: Reihenfolge nur im Tagescache, dann der vorhandene publishSaved-Anstrich.
+  // Kein data-changed und kein zweiter Refresh.
+  const applyMediaOrder = async (placeId, orderedIds) => {
+    if (appEl?.dataset?.appRenderGen !== mountGen || !contentEl?.isConnected) return;
+    const bundle = dayCache.get(state.activeDay);
+    const item = bundle?.items?.find((entry) => entry.place?.id === placeId);
+    let applied = false;
+    try {
+      const fresh = await getMediaForPlace(placeId);
+      if (item?.media && fresh?.length) {
+        const byId = new Map(fresh.map((entry) => [entry.id, entry]));
+        for (const entry of item.media) {
+          const next = byId.get(entry.id);
+          if (!next) continue;
+          entry.sortOrder = next.sortOrder;
+          entry.remoteUpdatedAt = next.remoteUpdatedAt;
+        }
+        item.media.sort(compareMediaOrder);
+        applied = true;
+      }
+    } catch {
+      applied = false;
+    }
+    if (!applied && item?.media) {
+      applyMediaRanks(item.media, orderedIds);
+      item.media.sort(compareMediaOrder);
+    }
+    await publishSaved({ id: placeId, mediaOrder: true });
+  };
+  window.vacrecapApplyMediaOrder = applyMediaOrder;
+  const orderCleanup = appEl._screenCleanup;
+  appEl._screenCleanup = () => {
+    if (window.vacrecapApplyMediaOrder === applyMediaOrder) window.vacrecapApplyMediaOrder = null;
+    orderCleanup?.();
+  };
 
   async function activeDayItems() {
     const bundle = dayCache.get(state.activeDay);
@@ -1980,7 +2017,8 @@ export async function renderUrlaubDetail(appEl, id) {
       photoSelectChain = photoSelectChain.catch(() => {}).then(async () => {
         const mediaId = photoCheck.dataset.mediaId;
         const placeId = photoCheck.closest("[data-place-id]")?.dataset.placeId || null;
-        if (photoCheck.dataset.own !== "1") {
+        const maySortForeign = photoCheck.closest(".photo-rows")?.dataset.canReorder === "1";
+        if (photoCheck.dataset.own !== "1" && !maySortForeign) {
           showWarnToast("Nur eigene Fotos kannst du verschieben.");
           return;
         }

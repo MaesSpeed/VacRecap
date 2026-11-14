@@ -1,11 +1,14 @@
 import { fetchMediaForWaypoints, fetchNotesForWaypoints } from "./db.js";
 import { formatTimeFromTs } from "./geo.js";
+import { compareMediaOrder } from "./media-order.js";
 import { formatMediaDuration } from "./media-process.js";
 import { photoBadges, noteMarkup } from "./member-marks.js";
 import { mediaOwnedBy } from "./photo-move.js";
+import "./photo-row-drag.js";
 import { buildPlaceMetaLine } from "./place-stats.js";
 import { filterSoftPointsHidden, softPointLabel } from "./place-service.js";
 import { sortPlacesChronologicalDesc } from "./places.js";
+import { canEditAny, peekConfirmedTripRole } from "./trip-role.js";
 import { escapeHtml } from "./utils.js";
 
 const PIN_SVG = `<svg width="19" height="19" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M16 2.8c-5.8 0-10 4.3-10 9.7 0 6.9 10 15.7 10 15.7s10-8.8 10-15.7c0-5.4-4.2-9.7-10-9.7z" fill="#d4523e"/><circle cx="16" cy="12.6" r="3.8" fill="#fff"/></svg>`;
@@ -90,7 +93,7 @@ async function assembleDay(vacationId, day, dayPlaces, mediaByPlace, notesByPlac
     if (p.soft) return { place: p, photos: 0, videos: 0, notes: [], media: [], mediaLoadError: false };
     const media = mediaByPlace.get(p.id) || [];
     const notes = notesByPlace.get(p.id) || [];
-    const sortedMedia = media.slice().sort((a, b) => a.ts - b.ts);
+    const sortedMedia = media.slice().sort((a, b) => compareMediaOrder(a, b));
     const photos = media.filter(isUploadedPhoto).length;
     const videos = media.filter((m) => m.type === "video").length;
     return {
@@ -296,13 +299,24 @@ function uploadStateBadge(media) {
   return "";
 }
 
-function renderSelectBar(photoSelect) {
+function hasForeignContent(media, notes, userId) {
+  if (!userId) return false;
+  const photos = (media || []).some((item) => item?.author && item.author !== userId);
+  const foreignNotes = (notes || []).some((item) => item?.author && item.author !== userId);
+  return photos || foreignNotes;
+}
+
+function renderSelectBar(photoSelect, { canReset = false } = {}) {
   const count = photoSelect.selectedIds?.size || 0;
+  const reset = canReset
+    ? `<button type="button" class="photo-select-bar__reset" data-action="photo-sort-reset" data-testid="photo-sort-reset">Nach Aufnahmezeit sortieren</button>`
+    : "";
   return `
     <div class="photo-select-bar" data-testid="photo-select-bar">
       <button type="button" data-action="photo-select-exit" data-testid="photo-select-exit">Beenden</button>
       <span class="photo-select-bar__count" data-testid="photo-select-count">${count} ausgewählt</span>
       <button type="button" data-action="photo-move" data-testid="photo-move"${count ? "" : " disabled"}>Verschieben nach …</button>
+      ${reset}
     </div>`;
 }
 
@@ -349,9 +363,11 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
             ? `<span class="tile__dur" data-testid="photo-caption-mark" aria-hidden="true">${ICON_NOTE}</span>`
             : "";
         const dimPicked = Boolean(photoSelect?.active && dimMedia && photoSelect.selectedIds?.has(dimMedia.id));
+        const canReorder = canEditAny(peekConfirmedTripRole(place.vacationId));
         const foreignHint =
           photoSelect?.active &&
           selected &&
+          !canReorder &&
           media.some(
             (item) =>
               item.type !== "video" &&
@@ -360,10 +376,9 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
           )
             ? `<p class="photo-select-hint" data-testid="photo-foreign-hint">Fremde Fotos sind nicht wählbar.</p>`
             : "";
-
         const photoRows =
           selected && hasMedia
-            ? `<div class="photo-rows">${renderPhotoRows(media, thumbUrls, canEditMedia, photoSelect, share)}</div>`
+            ? `<div class="photo-rows" data-can-reorder="${canReorder ? "1" : "0"}">${renderPhotoRows(media, thumbUrls, canEditMedia, photoSelect, share, canReorder)}</div>`
             : "";
 
         const notesBlock = sortedNotes.length
@@ -387,9 +402,10 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
             </div>`
             : "";
 
+        const foreignContent = hasForeignContent(media, notes, photoSelect?.userId) ? "1" : "0";
         return `
       <li>
-        <article class="oc${selected ? " oc--selected" : ""}${dim ? " oc--dim" : ""}" data-place-id="${place.id}">
+        <article class="oc${selected ? " oc--selected" : ""}${dim ? " oc--dim" : ""}" data-place-id="${place.id}" data-foreign-content="${foreignContent}">
           <div class="pinb${selected ? " pinb--selected" : ""}">
             ${PIN_SVG}
             ${photos > 0 ? `<span class="cb" aria-hidden="true">${PIN_CAM_BADGE}</span>` : ""}
@@ -431,7 +447,13 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
   return {
     listHtml,
     mediaErrorHtml,
-    selectBarHtml: photoSelect?.active ? renderSelectBar(photoSelect) : "",
+    selectBarHtml: photoSelect?.active
+      ? renderSelectBar(photoSelect, {
+          canReset:
+            canEditAny(peekConfirmedTripRole(items.find((item) => item.place?.id === selectedId)?.place?.vacationId)) &&
+            (items.find((item) => item.place?.id === selectedId)?.media || []).some((item) => item?.sortOrder != null),
+        })
+      : "",
   };
 }
 
@@ -444,36 +466,37 @@ function captionAriaLabel(index, item) {
   return `Notiz zum Foto ${index + 1}${when ? `, ${when}` : ""}`;
 }
 
-function renderPhotoRows(media, thumbUrls, canEditMedia, photoSelect, share) {
+function renderPhotoRows(media, thumbUrls, canEditMedia, photoSelect, share, canReorder) {
   const userId = photoSelect?.userId;
   const selecting = Boolean(photoSelect?.active);
-  const sorted = (media || []).slice().sort((a, b) => (a.ts || 0) - (b.ts || 0) || String(a.id).localeCompare(String(b.id)));
+  const sorted = (media || []).slice().sort((a, b) => compareMediaOrder(a, b));
   let photoIndex = 0;
   return sorted
     .map((item) => {
       const isVideo = item.type === "video";
       const index = isVideo ? 0 : photoIndex;
       if (!isVideo) photoIndex += 1;
-      return renderPhotoRow(item, index, thumbUrls, canEditMedia, userId, selecting, photoSelect, share);
+      return renderPhotoRow(item, index, thumbUrls, canEditMedia, userId, selecting, photoSelect, share, canReorder);
     })
     .join("");
 }
 
-function renderPhotoRow(item, index, thumbUrls, canEditMedia, userId, selecting, photoSelect, share) {
+function renderPhotoRow(item, index, thumbUrls, canEditMedia, userId, selecting, photoSelect, share, canReorder) {
   const status = item.uploadStatus || "uploaded";
   const uploaded = status === "uploaded";
   const failed = status === "failed";
   const isVideo = item.type === "video";
   const isPhoto = !isVideo;
   const own = mediaOwnedBy(item, userId);
-  const picked = selecting && own && photoSelect.selectedIds?.has(item.id);
+  const selectable = isPhoto && uploaded && (own || Boolean(canReorder));
+  const picked = selecting && selectable && photoSelect.selectedIds?.has(item.id);
   const note = isPhoto ? captionText(item) : "";
   const canEdit = isPhoto && uploaded && canEditMedia && own;
   const badges = photoBadges(item, share, { seal: true });
   const thumb = uploaded ? thumbUrls[item.id] : "";
   const thumbTestId = canEdit ? "photo-caption-edit-thumb" : "photo-caption-thumb";
   const img = thumb
-    ? `<img class="tile__img" src="${thumb}" alt="" decoding="async" data-media-id="${item.id}" data-testid="${thumbTestId}" />`
+    ? `<img class="tile__img" src="${thumb}" alt="" decoding="async" draggable="false" data-media-id="${item.id}" data-testid="${thumbTestId}" />`
     : "";
   const captionMark =
     isPhoto && note
@@ -490,28 +513,32 @@ function renderPhotoRow(item, index, thumbUrls, canEditMedia, userId, selecting,
   const openable = uploaded && !failed;
   const check =
     isPhoto && uploaded
-      ? `<button type="button" class="photo-row__check" data-action="photo-row-check" data-testid="photo-row-check" data-media-id="${item.id}" data-own="${own ? "1" : "0"}" aria-pressed="${picked ? "true" : "false"}" aria-label="${escapeHtml(own ? (picked ? "Auswahl aufheben" : "Foto auswählen") : "Fremdes Foto, nicht verschiebbar")}"></button>`
+      ? `<button type="button" class="photo-row__check" data-action="photo-row-check" data-testid="photo-row-check" data-media-id="${item.id}" data-own="${own ? "1" : "0"}" aria-pressed="${picked ? "true" : "false"}" aria-label="${escapeHtml(own || canReorder ? (picked ? "Auswahl aufheben" : "Foto auswählen") : "Fremdes Foto, nicht verschiebbar")}"></button>`
       : `<span class="photo-row__check photo-row__check--spacer" aria-hidden="true"></span>`;
   const thumbLabel = failed ? "Fehlgeschlagenes Foto entfernen" : "Medium anzeigen";
   const thumbBtn = `<button type="button" class="tile tile--btn photo-row__thumb${failed ? " tile--failed" : ""}${openable ? "" : " tile--no-open"}${badges.foreign ? " fg-foreign" : ""}" data-testid="place-photo" data-media-id="${item.id}" data-own="${own ? "1" : "0"}" data-upload-status="${status}"${openable ? "" : ' aria-disabled="true"'} aria-label="${escapeHtml(thumbLabel)}">${img}${uploadStateBadge(item)}${badges.mine}${badges.lock}${badges.circle}${captionMark}${removeBtn}${play}${dur}</button>`;
   const label = isPhoto ? captionAriaLabel(index, item) : "Video";
   let text;
+  const sortable = picked && canReorder;
+  const grip = sortable
+    ? `<span class="photo-row__grip" data-testid="photo-row-grip" aria-hidden="true"></span>`
+    : "";
   if (canEdit) {
     const filled = Boolean(note);
     const pencil = `<span class="photo-cap-row__pencil${filled ? "" : " photo-cap-row__pencil--muted"}" aria-hidden="true">${ICON_CAPTION_PENCIL}</span>`;
     const body = filled
-      ? `<span class="photo-cap-row__text">${escapeHtml(note)}</span>${pencil}`
-      : `${pencil}<span class="photo-cap-row__placeholder">Notiz hinzufügen</span>`;
+      ? `<span class="photo-cap-row__text">${escapeHtml(note)}</span>${grip}${pencil}`
+      : `${grip}${pencil}<span class="photo-cap-row__placeholder">Notiz hinzufügen</span>`;
     text = `<button type="button" class="photo-row__text" data-action="edit-photo-caption" data-testid="photo-caption-edit" data-media-id="${item.id}" aria-label="${escapeHtml(label)}">${body}</button>`;
   } else if (isPhoto && uploaded) {
     const body = note
-      ? `<span class="photo-cap-row__text">${escapeHtml(note)}</span>`
-      : `<span class="photo-cap-row__placeholder">Keine Notiz</span>`;
+      ? `<span class="photo-cap-row__text">${escapeHtml(note)}</span>${grip}`
+      : `<span class="photo-cap-row__placeholder">Keine Notiz</span>${grip}`;
     text = `<button type="button" class="photo-row__text" data-action="open-photo-caption" data-testid="photo-row-text" data-media-id="${item.id}" aria-label="${escapeHtml(label)}">${body}</button>`;
   } else {
     text = `<span class="photo-row__text photo-row__text--plain">${isVideo ? escapeHtml(item.durationLabel || formatMediaDuration(item.duration)) : ""}</span>`;
   }
-  return `<div class="photo-row${picked ? " photo-row--on" : ""}" data-media-id="${item.id}" data-own="${own ? "1" : "0"}" data-testid="photo-caption-row">${check}${thumbBtn}${text}</div>`;
+  return `<div class="photo-row${picked ? " photo-row--on" : ""}" data-media-id="${item.id}" data-own="${own ? "1" : "0"}" data-sortable="${sortable ? "1" : "0"}" data-testid="photo-caption-row">${check}${thumbBtn}${text}</div>`;
 }
 
 function qaButtons(place, canEditMedia, canEditPlace) {

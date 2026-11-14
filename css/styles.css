@@ -4376,7 +4376,61 @@ body {
 }
 
 .photo-row--on {
-  background: rgba(0, 102, 179, 0.1);
+  background: #e7eef3;
+}
+
+.photo-row[data-sortable="1"] {
+  touch-action: none;
+  cursor: grab;
+}
+
+.photo-row__grip {
+  width: 14px;
+  height: 10px;
+  flex: 0 0 14px;
+  display: inline-block;
+  color: #9aa7b3;
+  background:
+    linear-gradient(currentColor, currentColor) left 0 / 14px 1.5px no-repeat,
+    linear-gradient(currentColor, currentColor) left 4.25px / 14px 1.5px no-repeat,
+    linear-gradient(currentColor, currentColor) left 8.5px / 14px 1.5px no-repeat;
+}
+
+.photo-row--source {
+  display: none !important;
+}
+
+.photo-row-gap {
+  box-sizing: border-box;
+  min-height: 76px;
+  border: 1.5px dashed #b7c3ce;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.photo-row-drag {
+  position: fixed;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-sizing: border-box;
+  padding: 4px;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 14px 32px rgba(20, 32, 43, 0.28);
+  transform: scale(1.04);
+  transform-origin: center center;
+  pointer-events: none;
+}
+
+.photo-row-drag .photo-row {
+  background: transparent;
+}
+
+body.photo-row-dragging {
+  user-select: none;
+  cursor: grabbing;
 }
 
 .photo-row__check {
@@ -4871,15 +4925,22 @@ body:has(.screen--trip-swipe) {
 .photo-select-bar {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 5;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin: 0 0 10px;
   padding: 4px;
   border-radius: 14px;
   background: #fff;
   box-shadow: 0 1px 0 #e6eef5;
+}
+
+.photo-select-bar__reset {
+  flex: 1 0 100%;
+  background: #f3f6f8;
+  color: #3d4e5c;
 }
 
 .photo-select-bar button {
