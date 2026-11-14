@@ -536,19 +536,33 @@ async function assertTapAfterTouch(page, label) {
   await page.locator('[data-page="current"] [data-testid="photo-caption-row"][data-media-id="m1"]').scrollIntoViewIfNeeded();
   const mode = await page.evaluate(() => {
     const el = document.querySelector("[data-page='current'] [data-testid='place-photo'][data-media-id='m1']");
-    if (!el || typeof Touch !== "function" || typeof TouchEvent !== "function") return "ohne Touch";
+    if (!el || typeof TouchEvent !== "function") return "ohne Touch";
     const rect = el.getBoundingClientRect();
     const x0 = rect.left + rect.width / 2;
     const y0 = rect.top + rect.height / 2;
+    const point = (x, y) => {
+      try {
+        return new Touch({ identifier: 4, target: el, clientX: x, clientY: y, pageX: x, pageY: y });
+      } catch {
+        if (typeof document.createTouch !== "function") throw new Error("Touch fehlt");
+        return document.createTouch(window, el, 4, x, y, x, y);
+      }
+    };
+    const asList = (touch, active) => {
+      if (typeof document.createTouchList === "function" && touch && !(touch instanceof Touch)) {
+        return active ? document.createTouchList(touch) : document.createTouchList();
+      }
+      return active ? [touch] : [];
+    };
     const fire = (type, x, y) => {
-      const touch = new Touch({ identifier: 4, target: el, clientX: x, clientY: y, pageX: x, pageY: y });
-      const list = type === "touchend" ? [] : [touch];
+      const touch = point(x, y);
+      const active = type !== "touchend";
       el.dispatchEvent(new TouchEvent(type, {
         bubbles: true,
         cancelable: true,
-        touches: list,
-        targetTouches: list,
-        changedTouches: [touch],
+        touches: asList(touch, active),
+        targetTouches: asList(touch, active),
+        changedTouches: asList(touch, true),
       }));
     };
     fire("touchstart", x0, y0);
