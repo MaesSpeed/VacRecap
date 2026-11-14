@@ -615,7 +615,7 @@ function realErrors(list) {
 
 async function runFlows(page, state, label) {
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 68, `${label}: Build ${build}`);
+  assert(Number(build) === 69, `${label}: Build ${build}`);
 
   let releaseInsert;
   state.recapInsertGate = new Promise((resolve) => {
@@ -922,7 +922,7 @@ async function runSuite(browserType, baseUrl, label, viewport) {
     await runFlows(page, state, where);
     const errors = realErrors(pageErrors);
     assert(errors.length === 0, `${where}: ${errors.join(" | ")}`);
-    console.log(`Playwright 12b tests OK (${where}, Build 68)`);
+    console.log(`Playwright 12b tests OK (${where}, Build 69)`);
   } finally {
     await browser.close();
   }
@@ -940,5 +940,5 @@ if (isDirectRun) {
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
-  console.log("Playwright 12b recap-video tests OK (Build 68)");
+  console.log("Playwright 12b recap-video tests OK (Build 69)");
 }
