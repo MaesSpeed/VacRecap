@@ -23,7 +23,15 @@ security definer
 set search_path = ''
 as $$
 begin
-  if new.sort_order is distinct from old.sort_order then
+  -- Ortswechsel: der alte Rang gilt im neuen Ort nicht.
+  if tg_op = 'UPDATE'
+     and new.waypoint_id is distinct from old.waypoint_id
+     and new.sort_order is not distinct from old.sort_order then
+    new.sort_order := null;
+    return new;
+  end if;
+  if (tg_op = 'INSERT' and new.sort_order is not null)
+     or (tg_op = 'UPDATE' and new.sort_order is distinct from old.sort_order) then
     if (select auth.uid()) is null
        or new.trip_id is null
        or not private.has_trip_role(new.trip_id, array['owner', 'editor']) then
@@ -36,7 +44,7 @@ $$;
 
 drop trigger if exists media_guard_sort_order on public.media;
 create trigger media_guard_sort_order
-  before update on public.media
+  before insert or update on public.media
   for each row execute function private.guard_media_sort_order();
 
 -- p_reset setzt sort_order des Orts auf null.
