@@ -540,18 +540,20 @@ async function assertTapAfterTouch(page, label) {
     const rect = el.getBoundingClientRect();
     const x0 = rect.left + rect.width / 2;
     const y0 = rect.top + rect.height / 2;
+    let legacy = false;
     const point = (x, y) => {
-      try {
-        return new Touch({ identifier: 4, target: el, clientX: x, clientY: y, pageX: x, pageY: y });
-      } catch {
-        if (typeof document.createTouch !== "function") throw new Error("Touch fehlt");
-        return document.createTouch(window, el, 4, x, y, x, y);
+      if (!legacy) {
+        try {
+          return new Touch({ identifier: 4, target: el, clientX: x, clientY: y, pageX: x, pageY: y });
+        } catch {
+          legacy = true;
+        }
       }
+      if (typeof document.createTouch !== "function") throw new Error("Touch fehlt");
+      return document.createTouch(window, el, 4, x, y, x, y);
     };
     const asList = (touch, active) => {
-      if (typeof document.createTouchList === "function" && touch && !(touch instanceof Touch)) {
-        return active ? document.createTouchList(touch) : document.createTouchList();
-      }
+      if (legacy) return active ? document.createTouchList(touch) : document.createTouchList();
       return active ? [touch] : [];
     };
     const fire = (type, x, y) => {
