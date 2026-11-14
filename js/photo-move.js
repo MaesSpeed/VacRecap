@@ -41,6 +41,7 @@ export async function movePhotosToPlace(photos, place) {
       });
       snap.afterUpdatedAt = mapped?.remoteUpdatedAt || null;
       if (source && mapped?.remoteUpdatedAt) source.remoteUpdatedAt = mapped.remoteUpdatedAt;
+      if (source && mapped) source.sortOrder = mapped.sortOrder;
       applied.push(snap);
     }
     return previous;

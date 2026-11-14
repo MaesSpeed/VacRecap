@@ -363,9 +363,11 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
             ? `<span class="tile__dur" data-testid="photo-caption-mark" aria-hidden="true">${ICON_NOTE}</span>`
             : "";
         const dimPicked = Boolean(photoSelect?.active && dimMedia && photoSelect.selectedIds?.has(dimMedia.id));
+        const canReorder = canEditAny(peekConfirmedTripRole(place.vacationId));
         const foreignHint =
           photoSelect?.active &&
           selected &&
+          !canReorder &&
           media.some(
             (item) =>
               item.type !== "video" &&
@@ -374,8 +376,6 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
           )
             ? `<p class="photo-select-hint" data-testid="photo-foreign-hint">Fremde Fotos sind nicht wählbar.</p>`
             : "";
-
-        const canReorder = canEditAny(peekConfirmedTripRole(place.vacationId));
         const photoRows =
           selected && hasMedia
             ? `<div class="photo-rows" data-can-reorder="${canReorder ? "1" : "0"}">${renderPhotoRows(media, thumbUrls, canEditMedia, photoSelect, share, canReorder)}</div>`
@@ -488,7 +488,8 @@ function renderPhotoRow(item, index, thumbUrls, canEditMedia, userId, selecting,
   const isVideo = item.type === "video";
   const isPhoto = !isVideo;
   const own = mediaOwnedBy(item, userId);
-  const picked = selecting && own && photoSelect.selectedIds?.has(item.id);
+  const selectable = isPhoto && uploaded && (own || Boolean(canReorder));
+  const picked = selecting && selectable && photoSelect.selectedIds?.has(item.id);
   const note = isPhoto ? captionText(item) : "";
   const canEdit = isPhoto && uploaded && canEditMedia && own;
   const badges = photoBadges(item, share, { seal: true });
@@ -512,7 +513,7 @@ function renderPhotoRow(item, index, thumbUrls, canEditMedia, userId, selecting,
   const openable = uploaded && !failed;
   const check =
     isPhoto && uploaded
-      ? `<button type="button" class="photo-row__check" data-action="photo-row-check" data-testid="photo-row-check" data-media-id="${item.id}" data-own="${own ? "1" : "0"}" aria-pressed="${picked ? "true" : "false"}" aria-label="${escapeHtml(own ? (picked ? "Auswahl aufheben" : "Foto auswählen") : "Fremdes Foto, nicht verschiebbar")}"></button>`
+      ? `<button type="button" class="photo-row__check" data-action="photo-row-check" data-testid="photo-row-check" data-media-id="${item.id}" data-own="${own ? "1" : "0"}" aria-pressed="${picked ? "true" : "false"}" aria-label="${escapeHtml(own || canReorder ? (picked ? "Auswahl aufheben" : "Foto auswählen") : "Fremdes Foto, nicht verschiebbar")}"></button>`
       : `<span class="photo-row__check photo-row__check--spacer" aria-hidden="true"></span>`;
   const thumbLabel = failed ? "Fehlgeschlagenes Foto entfernen" : "Medium anzeigen";
   const thumbBtn = `<button type="button" class="tile tile--btn photo-row__thumb${failed ? " tile--failed" : ""}${openable ? "" : " tile--no-open"}${badges.foreign ? " fg-foreign" : ""}" data-testid="place-photo" data-media-id="${item.id}" data-own="${own ? "1" : "0"}" data-upload-status="${status}"${openable ? "" : ' aria-disabled="true"'} aria-label="${escapeHtml(thumbLabel)}">${img}${uploadStateBadge(item)}${badges.mine}${badges.lock}${badges.circle}${captionMark}${removeBtn}${play}${dur}</button>`;
@@ -531,8 +532,8 @@ function renderPhotoRow(item, index, thumbUrls, canEditMedia, userId, selecting,
     text = `<button type="button" class="photo-row__text" data-action="edit-photo-caption" data-testid="photo-caption-edit" data-media-id="${item.id}" aria-label="${escapeHtml(label)}">${body}</button>`;
   } else if (isPhoto && uploaded) {
     const body = note
-      ? `<span class="photo-cap-row__text">${escapeHtml(note)}</span>`
-      : `<span class="photo-cap-row__placeholder">Keine Notiz</span>`;
+      ? `<span class="photo-cap-row__text">${escapeHtml(note)}</span>${grip}`
+      : `<span class="photo-cap-row__placeholder">Keine Notiz</span>${grip}`;
     text = `<button type="button" class="photo-row__text" data-action="open-photo-caption" data-testid="photo-row-text" data-media-id="${item.id}" aria-label="${escapeHtml(label)}">${body}</button>`;
   } else {
     text = `<span class="photo-row__text photo-row__text--plain">${isVideo ? escapeHtml(item.durationLabel || formatMediaDuration(item.duration)) : ""}</span>`;
