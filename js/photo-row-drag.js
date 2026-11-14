@@ -11,8 +11,17 @@ const THRESHOLD = 10;
 const UNAVAILABLE = "Die Reihenfolge ist noch nicht verfügbar.";
 
 let suppressClick = false;
+let suppressTimer = 0;
 let saving = false;
 let session = null;
+
+function armClickSuppress() {
+  suppressClick = true;
+  clearTimeout(suppressTimer);
+  suppressTimer = setTimeout(() => {
+    suppressClick = false;
+  }, 350);
+}
 
 function messageFor(err) {
   if (err instanceof MediaSortUnavailableError) return err.message || UNAVAILABLE;
@@ -70,14 +79,16 @@ function startDrag(y) {
     return false;
   }
   session.decided = "drag";
-  suppressClick = true;
+  if (session.kind === "pointer") armClickSuppress();
+  const rowRect = row.getBoundingClientRect();
+  session.grabDy = session.startY - rowRect.top;
   session.blockIds = selected.map((item) => item.dataset.mediaId);
   session.original = [...list.querySelectorAll(".photo-row")].map((item) => item.dataset.mediaId);
+  const height = selected.reduce((sum, item) => sum + item.getBoundingClientRect().height, 0);
   const gap = document.createElement("div");
   gap.className = "photo-row-gap";
   gap.dataset.testid = "photo-row-gap";
   gap.setAttribute("aria-hidden", "true");
-  const height = selected.reduce((sum, item) => sum + item.getBoundingClientRect().height, 0);
   gap.style.height = `${Math.max(76, height)}px`;
   list.insertBefore(gap, selected[0]);
   const float = document.createElement("div");
@@ -95,8 +106,6 @@ function startDrag(y) {
   for (const source of selected) source.classList.add("photo-row--source");
   session.gap = gap;
   session.float = float;
-  const rowRect = row.getBoundingClientRect();
-  session.grabDy = session.startY - rowRect.top;
   placeGap(y);
   placeFloat(y);
   return true;
@@ -130,6 +139,12 @@ function placeFloat(y) {
 
 function moveDrag(yClientX, y) {
   void yClientX;
+  const scroller = session.list?.closest("[data-page='current']");
+  if (scroller) {
+    const rect = scroller.getBoundingClientRect();
+    if (y < rect.top + 48) scroller.scrollTop -= 16;
+    else if (y > rect.bottom - 48) scroller.scrollTop += 16;
+  }
   placeGap(y);
   placeFloat(y);
 }
@@ -195,6 +210,7 @@ function end(kind, pointerId) {
   if (!current || current.kind !== kind || current.pointerId !== pointerId) return;
   session = null;
   if (current.decided !== "drag") return;
+  if (kind === "pointer") armClickSuppress();
   void commit(current);
 }
 
