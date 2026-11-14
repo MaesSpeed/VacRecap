@@ -776,10 +776,14 @@ async function runCase(browser, baseUrl, viewport, role) {
         return toast.includes("verschoben") && !toast.includes("Inzwischen geändert");
       });
       assert(state.media.find((row) => row.id === "m1").waypoint_id === "p-ziel", `${label}: Verschieben nach dem Sortieren`);
-      if ((await page.locator('[data-testid="photo-select-exit"]').count()) === 1) {
-        await page.locator('[data-testid="photo-select-exit"]').click();
-        await page.waitForSelector('[data-testid="photo-select-bar"]', { state: "detached" });
-      }
+      // Der Zug lässt die Tagesliste kurz stehen. Das Verschieben räumt die Auswahl
+      // selbst ab. Ein echter Klick trifft in WebKit dann die alte, gerade ersetzte Leiste.
+      await page
+        .waitForSelector('[data-testid="photo-select-bar"]', { state: "detached", timeout: 4000 })
+        .catch(async () => {
+          await page.locator('[data-testid="photo-select-exit"]').evaluate((btn) => btn.click());
+          await page.waitForSelector('[data-testid="photo-select-bar"]', { state: "detached" });
+        });
       await page.locator('[data-page="current"] [data-place-id="p-mix"] .oc__title').click();
       await page.locator('[data-page="current"] [data-place-id="p-mix"] [data-action="edit-place"]').click();
       await page.waitForSelector('[data-testid="place-edit-sheet"]');
