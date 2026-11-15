@@ -392,7 +392,7 @@ async function runPhotoSuite(page, baseUrl, state, fixturePaths, label) {
   const [fixturePath, fixturePathB, fixturePathC] = fixturePaths;
   await page.goto(baseUrl);
   const v = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  if (Number(v) !== 68) throw new Error(`${label}: Build ${v} != 68`);
+  if (Number(v) !== 69) throw new Error(`${label}: Build ${v} != 69`);
   await login(page);
   const { tripId, day, placeId } = await seedTripWithPlace(page);
 

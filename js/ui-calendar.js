@@ -111,9 +111,24 @@ export function openDateRangePicker({ startDate, endDate, tripStartDate = "", on
 
   const today = new Date();
   const todayIso = formatIsoDate(today);
-  const monthStarts = buildMonthList(today, tripStartDate);
+  // Bearbeiten bleibt am Reisestart verankert. Eine neue Reise darf darüber
+  // hinaus Jahre zurück, ohne die erste Ansicht (aktueller Monat) zu verschieben.
+  const listAnchor = tripStartDate || startDate;
+  const monthStarts = buildMonthList(today, listAnchor);
+  const allowEarlier = !tripStartDate;
+  const earliestMonth = new Date(today.getFullYear() - 100, 0, 1);
 
-  monthStarts.forEach((monthDate) => {
+  let earlierBtn = null;
+  if (allowEarlier) {
+    earlierBtn = document.createElement("button");
+    earlierBtn.type = "button";
+    earlierBtn.className = "calendar-earlier";
+    earlierBtn.dataset.testid = "calendar-earlier";
+    earlierBtn.textContent = "Frühere Monate";
+    monthsEl.appendChild(earlierBtn);
+  }
+
+  function buildMonthSection(monthDate) {
     const y = monthDate.getFullYear();
     const m = monthDate.getMonth();
     const section = document.createElement("section");
@@ -149,7 +164,45 @@ export function openDateRangePicker({ startDate, endDate, tripStartDate = "", on
       grid.appendChild(btn);
     });
     section.appendChild(grid);
-    monthsEl.appendChild(section);
+    return section;
+  }
+
+  function firstMonthDate() {
+    const ym = monthsEl.querySelector(".calendar-month")?.dataset.yearMonth;
+    if (!ym) return null;
+    const [y, m] = ym.split("-").map(Number);
+    return new Date(y, m - 1, 1);
+  }
+
+  function syncEarlierButton() {
+    if (!earlierBtn) return;
+    const first = firstMonthDate();
+    earlierBtn.hidden = !first || first <= earliestMonth;
+  }
+
+  function prependEarlierMonths() {
+    const first = monthsEl.querySelector(".calendar-month");
+    const current = firstMonthDate();
+    if (!first || !current || current <= earliestMonth) return;
+    let cursor = new Date(current.getFullYear(), current.getMonth() - 12, 1);
+    if (cursor < earliestMonth) cursor = new Date(earliestMonth.getTime());
+    const frag = document.createDocumentFragment();
+    while (cursor < current) {
+      frag.appendChild(buildMonthSection(cursor));
+      cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+    }
+    first.before(frag);
+    monthsEl.scrollTop = 0;
+    syncEarlierButton();
+  }
+
+  monthStarts.forEach((monthDate) => {
+    monthsEl.appendChild(buildMonthSection(monthDate));
+  });
+  syncEarlierButton();
+  earlierBtn?.addEventListener("click", () => {
+    prependEarlierMonths();
+    refresh();
   });
 
   function refresh() {
