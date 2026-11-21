@@ -24,6 +24,18 @@ import {
 } from "./utils.js";
 import { openDateRangePicker } from "./ui-calendar.js";
 
+function shareInviteDrafting() {
+  const email = document.querySelector('[data-testid="share-email-input"]');
+  const name = document.querySelector('[data-testid="share-name-input"]');
+  const focus = document.activeElement;
+  const emailBusy = Boolean(email && (focus === email || email.value.trim()));
+  const nameBusy = Boolean(name && (focus === name || name.value.trim()));
+  if (!emailBusy && !nameBusy) return false;
+  const uncommitted = Boolean(email?.value.trim() || name?.value.trim());
+  if (!uncommitted && document.querySelector('[data-testid="share-chip"]')) return false;
+  return true;
+}
+
 function newerTrip(a, b) {
   if (!a) return b || null;
   if (!b) return a;
@@ -66,6 +78,8 @@ export async function renderUrlaubForm(appEl, { mode, id }) {
   let coverMedia = coverInfo.media;
   const coverUnknown = Boolean(coverInfo.unknown) && vacation.cover?.type === "media";
   if (appEl?.dataset?.appRenderGen !== mountGen) return;
+  // Zweites Zeichnen während der Eingabe leert das Feld. Stehende Chips dürfen neu gezeichnet werden.
+  if (shareInviteDrafting()) return;
 
   appEl.className = "screen screen--form";
   appEl.innerHTML = `

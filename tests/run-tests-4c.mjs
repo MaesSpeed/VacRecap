@@ -65,11 +65,13 @@ async function assertFooterVerticalCenter(page, deviceName, width) {
   const m = await page.locator(".trip-footer").evaluate((footer) => {
     const fr = footer.getBoundingClientRect();
     const icon = footer.querySelector('[data-testid="footer-icon"]');
+    const label = footer.querySelector('[data-testid="footer-label"]');
     const ir = icon.getBoundingClientRect();
+    const lr = label.getBoundingClientRect();
     const contentBottom = fr.bottom - (parseFloat(getComputedStyle(footer).paddingBottom) || 0);
     const contentTop = fr.top;
     const mid = (contentTop + contentBottom) / 2;
-    return { mid, cy: ir.top + ir.height / 2 };
+    return { mid, cy: (ir.top + lr.bottom) / 2 };
   });
   if (Math.abs(m.mid - m.cy) > 1.5) {
     throw new Error(`${deviceName} ${width}px: Footer-Icon nicht mittig (${m.cy} vs ${m.mid})`);

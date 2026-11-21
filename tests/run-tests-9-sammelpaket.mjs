@@ -949,7 +949,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log("Playwright 9 Sammelpaket OK (Build 69)");
+  console.log("Playwright 9 Sammelpaket OK (Build 70)");
 }
 
 main().catch((err) => {
