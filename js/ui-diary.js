@@ -450,12 +450,12 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
         <textarea class="diary-source" data-testid="diary-source" maxlength="${DIARY_TEXT_MAX}" placeholder="${escapeHtml(PLACEHOLDER)}"></textarea>
         <p class="diary-save-hint" data-testid="diary-save-hint" hidden>Auf diesem Gerät gemerkt.</p>
         <div class="diary-tools">
-          <button type="button" class="btn btn-emaille btn-emaille--ghost diary-chip" data-testid="diary-paste">Einfügen</button>
+          <button type="button" class="btn btn-emaille btn-emaille--ghost diary-chip" data-testid="diary-paste" hidden>Einfügen</button>
           <button type="button" class="btn btn-emaille btn-emaille--ghost diary-chip" data-testid="diary-clear" hidden>Leeren</button>
           <span class="diary-count" data-testid="diary-count">0 Zeichen</span>
         </div>
         <div data-testid="diary-preview-slot"></div>
-        <button type="button" class="btn btn-emaille btn-emaille--block diary-action" data-testid="diary-action" data-mode="recognize" disabled>Tage erkennen</button>
+        <button type="button" class="btn btn-emaille btn-emaille--block diary-action" data-testid="diary-action" data-mode="paste">Aus Zwischenablage einfügen</button>
       </div>`;
     const textarea = main.querySelector('[data-testid="diary-source"]');
     const action = main.querySelector('[data-testid="diary-action"]');
@@ -559,15 +559,22 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
       const help = main.querySelector('[data-testid="diary-help"]');
       if (steps) steps.hidden = Boolean(model);
       if (help) help.hidden = Boolean(model);
+      const hasText = Boolean(textarea.value.trim());
+      const paste = main.querySelector('[data-testid="diary-paste"]');
+      if (paste) paste.hidden = !hasText;
       if (!action) return;
       if (model) {
         action.disabled = false;
         action.dataset.mode = "create";
         action.textContent = model.noHeadings ? "Trotzdem übernehmen" : "Entwurf erstellen";
+      } else if (!hasText) {
+        action.disabled = false;
+        action.dataset.mode = "paste";
+        action.textContent = "Aus Zwischenablage einfügen";
       } else {
+        action.disabled = false;
         action.dataset.mode = "recognize";
         action.textContent = "Tage erkennen";
-        action.disabled = !textarea.value.trim();
       }
     };
 
@@ -584,7 +591,7 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
       scheduleDiarySave();
     });
 
-    main.querySelector('[data-testid="diary-paste"]')?.addEventListener("click", async () => {
+    const pasteFromClipboard = async () => {
       try {
         if (!navigator.clipboard?.readText) return;
         const text = await navigator.clipboard.readText();
@@ -599,6 +606,10 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
       } catch {
         /* Zwischenablage nicht erlaubt: das Feld nimmt normales Einfügen an, ohne Fehlermeldung. */
       }
+    };
+
+    main.querySelector('[data-testid="diary-paste"]')?.addEventListener("click", () => {
+      void pasteFromClipboard();
     });
 
     main.querySelector('[data-testid="diary-clear"]')?.addEventListener("click", () => {
@@ -623,6 +634,10 @@ export async function renderDiary(appEl, tripId, { recapId = "" } = {}) {
     });
 
     action?.addEventListener("click", async () => {
+      if (action.dataset.mode === "paste") {
+        await pasteFromClipboard();
+        return;
+      }
       if (action.dataset.mode !== "create") {
         const endDate = diaryEndDate(vacation.startDate, vacation.endDate, material.places, material.photos, todayIso());
         model = createDiaryModel(parseDiary(textarea.value, { startDate: vacation.startDate, endDate }));

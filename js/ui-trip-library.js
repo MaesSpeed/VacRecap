@@ -17,8 +17,6 @@ import { escapeHtml } from "./utils.js";
 /** Letzter erfolgreicher Stand je Reise (nur Metadaten, keine Blobs). */
 const libraryMemory = new Map();
 
-const PIN_SVG = `<svg width="19" height="19" viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M16 2.8c-5.8 0-10 4.3-10 9.7 0 6.9 10 15.7 10 15.7s10-8.8 10-15.7c0-5.4-4.2-9.7-10-9.7z" fill="#d4523e"/><circle cx="16" cy="12.6" r="3.8" fill="#fff"/></svg>`;
-
 const LAZY_ROOT_MARGIN = "160px 0px";
 const SIGN_CONCURRENCY = 4;
 const MAX_MOUNTED_THUMBS = 64;
@@ -178,7 +176,6 @@ export async function renderTripLibrary(appEl, vacationId) {
       .map((group) => {
         const places = group.places
           .map((place) => {
-            const countLabel = place.photos.length === 1 ? "1 Foto" : `${place.photos.length} Fotos`;
             const tiles = place.photos
               .map(
                 (photo) =>
@@ -186,14 +183,10 @@ export async function renderTripLibrary(appEl, vacationId) {
               )
               .join("");
             return `
-              <article class="oc library-place" data-place-id="${escapeHtml(place.placeId || "")}">
-                <div class="pinb" aria-hidden="true">${PIN_SVG}</div>
-                <div class="oc__body">
-                  <h3 class="oc__title">${escapeHtml(place.placeName)}</h3>
-                  <p class="oc__meta">${countLabel}</p>
-                  <div class="library-grid">${tiles}</div>
-                </div>
-              </article>`;
+              <section class="library-place" data-place-id="${escapeHtml(place.placeId || "")}">
+                <h3 class="library-place__name oc__title">${escapeHtml(place.placeName)}</h3>
+                <div class="library-grid">${tiles}</div>
+              </section>`;
           })
           .join("");
         return `

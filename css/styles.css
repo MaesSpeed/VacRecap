@@ -1846,19 +1846,23 @@ body {
 .library-places {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 0 14px;
+  gap: 16px;
+  padding: 0;
 }
 
-.library-place .oc__meta {
-  margin-bottom: 0;
+.library-place__name {
+  margin: 0;
+  padding: 2px 16px 6px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 .library-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-  margin-top: 8px;
+  gap: 2px;
+  margin-top: 0;
 }
 
 .library-thumb {
@@ -1868,7 +1872,7 @@ body {
   height: 0;
   padding: 0 0 100%;
   border: none;
-  border-radius: 11px;
+  border-radius: 0;
   overflow: hidden;
   background: linear-gradient(135deg, #c5d4e8, #9fb3cc);
   cursor: pointer;
@@ -4299,6 +4303,26 @@ body {
   color: #0066b3;
   border: 2px solid #0066b3;
   box-shadow: none;
+}
+
+.place-note-add {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.place-note-add .notes-add {
+  margin: 0;
+}
+
+.place-note-add__hint {
+  margin: 0;
+  color: #5b6b7a;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
 }
 
 .notes-add {

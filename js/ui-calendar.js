@@ -278,7 +278,15 @@ export function openDateRangePicker({ startDate, endDate, tripStartDate = "", on
     const scrollDate = parseIsoDate(scrollIso);
     const ym = `${scrollDate.getFullYear()}-${String(scrollDate.getMonth() + 1).padStart(2, "0")}`;
     const target = monthsEl.querySelector(`[data-year-month="${ym}"]`);
-    target?.scrollIntoView({ block: "start", behavior: "instant" });
+    if (!target) return;
+    const firstMonth = monthsEl.querySelector(".calendar-month");
+    // Der Knopf steht direkt über dem ersten Monat. Springt die Ansicht genau
+    // dorthin, bleibt er im Sichtbereich, statt darüber hinauszurutschen.
+    if (earlierBtn && !earlierBtn.hidden && target === firstMonth) {
+      earlierBtn.scrollIntoView({ block: "start", behavior: "instant" });
+      return;
+    }
+    target.scrollIntoView({ block: "start", behavior: "instant" });
   }
 
   jumpToScrollMonth();

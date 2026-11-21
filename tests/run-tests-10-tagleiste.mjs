@@ -205,7 +205,7 @@ async function login(page, baseUrl) {
   await page.goto(baseUrl);
   await page.waitForSelector('[data-testid="login-screen"]');
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 70, `Build ${build}, erwartet 70`);
+  assert(Number(build) === 71, `Build ${build}, erwartet 71`);
   await page.fill('input[name="email"]', "test@example.com");
   await page.click('form[data-step="email"] button[type="submit"]');
   await page.waitForSelector('form[data-step="otp"]');
@@ -571,7 +571,7 @@ async function main() {
   } finally {
     server.close();
   }
-  console.log(`Playwright 10 Tag-Leiste OK (Build 70, Bilder in ${SHOTS})`);
+  console.log(`Playwright 10 Tag-Leiste OK (Build 71, Bilder in ${SHOTS})`);
 }
 
 main().catch((err) => {

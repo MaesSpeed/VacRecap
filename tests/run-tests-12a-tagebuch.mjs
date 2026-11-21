@@ -171,7 +171,7 @@ async function recognize(page, text) {
 
 async function runFlows(page, state, label) {
   const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-  assert(Number(build) === 70, `${label}: Build ${build}`);
+  assert(Number(build) === 71, `${label}: Build ${build}`);
 
   await openTrip(page);
   await page.click('[data-action="settings"]');
@@ -189,7 +189,8 @@ async function runFlows(page, state, label) {
   await page.waitForSelector('[data-testid="diary-source"]');
   const help = await page.locator('[data-testid="diary-help"]').innerText();
   assert(help.includes("eigene Zeile"), `${label}: Hilfe «${help}»`);
-  assert(await page.locator('[data-testid="diary-action"]').isDisabled(), `${label}: leeres Feld erkennt schon`);
+  assert(!(await page.locator('[data-testid="diary-action"]').isDisabled()), `${label}: leeres Feld ohne Hauptknopf`);
+  assert((await page.locator('[data-testid="diary-action"]').innerText()).includes("Zwischenablage"), `${label}: Hauptknopf`);
   assert((await page.locator('[data-testid="diary-source"]').getAttribute("maxlength")) === "30000", `${label}: maxlength`);
   assert((await page.locator('[data-testid="diary-count"]').innerText()).includes("0 Zeichen"), `${label}: Zähler`);
 
@@ -199,19 +200,19 @@ async function runFlows(page, state, label) {
       window.__diaryClip.fail = true;
       window.__diaryClip.text = "";
     });
-    await page.click('[data-testid="diary-paste"]');
+    await page.click('[data-testid="diary-action"]');
     await page.waitForFunction(() => document.querySelector('[data-testid="diary-source"]').value === "");
     assert((await page.locator('[data-testid="app-toast"]').count()) === 0, `${label}: Einfügen zeigt einen Fehler`);
     await page.evaluate(() => {
       window.__diaryClip.fail = false;
       window.__diaryClip.text = "Montag\nAus der Zwischenablage.";
     });
-    await page.click('[data-testid="diary-paste"]');
+    await page.click('[data-testid="diary-action"]');
     await page.waitForFunction(() => document.querySelector('[data-testid="diary-source"]').value.includes("Zwischenablage"));
     await page.click('[data-testid="diary-clear"]');
     await page.waitForFunction(() => document.querySelector('[data-testid="diary-source"]').value === "");
   } else {
-    await page.click('[data-testid="diary-paste"]');
+    await page.click('[data-testid="diary-action"]');
     assert((await page.locator('[data-testid="app-toast"]').count()) === 0, `${label}: Einfügen ohne Zwischenablage zeigt einen Fehler`);
   }
 
@@ -526,7 +527,7 @@ async function runSuite(browserType, baseUrl, label, viewport) {
     await runFlows(page, state, where);
     const errors = realErrors(pageErrors);
     assert(errors.length === 0, `${where}: ${errors.join(" | ")}`);
-    console.log(`Playwright 12a tests OK (${where}, Build 70)`);
+    console.log(`Playwright 12a tests OK (${where}, Build 71)`);
   } finally {
     await browser.close();
   }
@@ -543,4 +544,4 @@ try {
 } finally {
   await new Promise((resolve) => server.close(resolve));
 }
-console.log("Playwright 12a tagebuch tests OK (Build 70)");
+console.log("Playwright 12a tagebuch tests OK (Build 71)");
