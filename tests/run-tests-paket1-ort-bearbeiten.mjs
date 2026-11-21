@@ -295,7 +295,9 @@ async function openTripDay(page) {
 
 async function selectPlace(page, id) {
   const card = page.locator(`[data-page="current"] [data-place-id="${id}"]`);
-  await card.click();
+  if ((await page.locator(`[data-page="current"] .oc--selected[data-place-id="${id}"]`).count()) === 0) {
+    await card.locator(".oc__title").click();
+  }
   await page.waitForFunction(
     (placeId) => document.querySelector("[data-page='current'] .oc--selected")?.dataset.placeId === placeId,
     id
