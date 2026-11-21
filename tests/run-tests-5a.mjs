@@ -81,16 +81,18 @@ async function assertFooterCenter(page, label) {
   const m = await page.locator(".trip-footer").evaluate((footer) => {
     const fr = footer.getBoundingClientRect();
     const icon = footer.querySelector('[data-testid="footer-icon"]');
+    const label = footer.querySelector('[data-testid="footer-label"]');
     const ir = icon.getBoundingClientRect();
+    const lr = label.getBoundingClientRect();
     const contentBottom = fr.bottom - (parseFloat(getComputedStyle(footer).paddingBottom) || 0);
     const mid = (fr.top + contentBottom) / 2;
-    return { mid, cy: ir.top + ir.height / 2, h: fr.height - (parseFloat(getComputedStyle(footer).paddingBottom) || 0) };
+    return { mid, cy: (ir.top + lr.bottom) / 2, h: fr.height - (parseFloat(getComputedStyle(footer).paddingBottom) || 0) };
   });
   if (Math.abs(m.mid - m.cy) > 0.5) {
     throw new Error(`${label}: Footer-Icon Abweichung ${Math.abs(m.mid - m.cy)}px`);
   }
-  if (Math.abs(m.h - 52) > 0.5) {
-    throw new Error(`${label}: Footer-Höhe ${m.h}px statt 52px`);
+  if (Math.abs(m.h - 68) > 0.5) {
+    throw new Error(`${label}: Footer-Höhe ${m.h}px statt 68px`);
   }
 }
 

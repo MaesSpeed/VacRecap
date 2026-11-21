@@ -1,4 +1,8 @@
 import { signInWithEmailOtp, verifyEmailOtp } from "./auth-service.js";
+import { assetUrl } from "./config.js";
+import { COVER_PRESETS } from "./covers.js";
+
+const LOGIN_HERO = COVER_PRESETS.find((preset) => preset.id === "strand");
 
 const OTP_MIN_DIGITS = 6;
 const OTP_MAX_DIGITS = 10;
@@ -20,6 +24,10 @@ export function renderLoginScreen(appEl, onSignedIn) {
       <h1 class="top-bar__title">Reisetagebuch</h1>
     </header>
     <main class="login-main" data-testid="login-screen">
+      <figure class="login-hero">
+        <img src="${assetUrl(LOGIN_HERO.file)}" alt="Titelbild: Strand" data-testid="login-hero" />
+      </figure>
+      <p class="login-pitch" data-testid="login-pitch">Orte, Fotos und Notizen einer Reise an einem Ort.</p>
       <p class="login-lead">Melde dich mit deiner E-Mail an. Du erhältst einen Code per E-Mail.</p>
       <form class="login-form" data-step="email" novalidate>
         <label class="field">

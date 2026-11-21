@@ -420,12 +420,12 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
                 }</h4>
                 <div class="oc__meta">${escapeHtml(meta)}</div>
               </div>
-              ${
-                selected && !photoSelect?.active
-                  ? qaButtons(place, canEditMedia, canEditPlace)
-                  : ""
-              }
             </div>
+            ${
+              selected && !photoSelect?.active
+                ? qaButtons(place, canEditMedia, canEditPlace)
+                : ""
+            }
             ${photoRows}
             ${foreignHint}
             ${notesBlock}
@@ -544,10 +544,10 @@ function renderPhotoRow(item, index, thumbUrls, canEditMedia, userId, selecting,
 function qaButtons(place, canEditMedia, canEditPlace) {
   const allowEdit = typeof canEditPlace === "function" ? canEditPlace(place) : true;
   const edit = allowEdit
-    ? `<button type="button" class="qa__btn" data-action="edit-place" aria-label="Bearbeiten">${ICON_EDIT}</button>`
+    ? `<button type="button" class="qa__btn" data-action="edit-place" aria-label="Bearbeiten">${ICON_EDIT}<span class="qa__label">Bearbeiten</span></button>`
     : "";
   const add = canEditMedia
-    ? `<button type="button" class="qa__btn" data-action="gallery-place" data-testid="place-gallery" aria-label="Fotos">${ICON_GALLERY}</button><button type="button" class="qa__btn" data-action="camera-place" aria-label="Kamera">${ICON_CAM}</button>`
+    ? `<button type="button" class="qa__btn" data-action="gallery-place" data-testid="place-gallery" aria-label="Fotos">${ICON_GALLERY}<span class="qa__label">Fotos</span></button><button type="button" class="qa__btn" data-action="camera-place" aria-label="Kamera">${ICON_CAM}<span class="qa__label">Kamera</span></button>`
     : "";
   if (!edit && !add) return "";
   return `<div class="qa">${edit}${add}</div>`;

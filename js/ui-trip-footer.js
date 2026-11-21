@@ -20,6 +20,7 @@ export function mountTripFooter(container, handlers = {}) {
     (a) => `
     <button type="button" class="trip-footer__btn ${a.className}" data-footer-action="${a.id}" aria-label="${a.label}">
       <span class="trip-footer__icon" data-testid="footer-icon">${a.html}</span>
+      <span class="trip-footer__label" data-testid="footer-label">${a.label}</span>
     </button>`
   ).join("");
 

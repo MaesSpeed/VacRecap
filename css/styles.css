@@ -14,7 +14,7 @@
   --shadow: 0 4px 18px rgba(22, 58, 120, 0.12);
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
-  --footer-body: 52px;
+  --footer-body: 68px;
   --footer-total: calc(var(--footer-body) + var(--safe-bottom));
   --kb: 0px;
   --font: "Nunito Sans", system-ui, sans-serif;
@@ -1962,10 +1962,18 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0;
+  gap: 2px;
   cursor: pointer;
   transition: transform 0.12s ease;
   padding: 0;
+}
+
+.trip-footer__label {
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 700;
+  color: var(--navy);
+  white-space: nowrap;
 }
 
 .trip-footer__icon {
@@ -1992,7 +2000,7 @@ body {
 
 .trip-footer-hint {
   position: absolute;
-  bottom: calc(76px + var(--safe-bottom));
+  bottom: calc(var(--footer-body) + 12px + var(--safe-bottom));
   left: 50%;
   transform: translateX(-50%) translateY(6px);
   background: rgba(22, 58, 120, 0.92);
@@ -2340,28 +2348,44 @@ body {
   color: #5b6b7a;
   margin-top: 2px;
   line-height: 1.35;
-  white-space: normal;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .qa {
   display: flex;
   gap: 8px;
-  margin-left: auto;
-  flex-shrink: 0;
+  margin: 8px 0 0;
+  width: 100%;
 }
 
 .qa__btn {
-  width: 44px;
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
   height: 44px;
-  border-radius: 50%;
+  border-radius: 12px;
   border: 1px solid #c5e4f6;
   background: #eaf4fb;
   color: #005291;
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 0;
+  gap: 1px;
+  padding: 4px 2px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.1;
   cursor: pointer;
+}
+
+.qa__label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .np {
@@ -4167,6 +4191,27 @@ body {
   padding: 20px 16px 32px;
   max-width: 420px;
   margin: 0 auto;
+}
+
+.login-hero {
+  margin: 0 0 14px;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.login-hero img {
+  display: block;
+  width: 100%;
+  height: 168px;
+  object-fit: cover;
+}
+
+.login-pitch {
+  margin: 0 0 8px;
+  color: var(--navy);
+  font-size: 1.02rem;
+  font-weight: 800;
+  line-height: 1.35;
 }
 
 .login-lead {
