@@ -427,6 +427,14 @@ export function renderPlaceListHtml(items, { selectedId, notesExpanded, thumbUrl
                 : ""
             }
             ${photoRows}
+            ${
+              selected && !photoSelect?.active && canEditMedia
+                ? `<div class="place-note-add">
+                    <button type="button" class="notes-add" data-action="add-note" data-testid="add-place-note">+ Notiz zum Ort</button>
+                    <p class="place-note-add__hint">Gehört zum ganzen Ort, nicht zu einem einzelnen Foto.</p>
+                  </div>`
+                : ""
+            }
             ${foreignHint}
             ${notesBlock}
           </div>

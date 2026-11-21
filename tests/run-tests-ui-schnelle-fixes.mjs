@@ -173,7 +173,7 @@ async function runCase(browserType, contextOptions, baseUrl) {
     await page.goto("./");
     await page.waitForSelector('[data-testid="login-hero"]');
     const build = await page.evaluate(async () => (await import("./js/app-version.js")).APP_BUILD_VERSION);
-    assert(Number(build) === 70, `${label}: Build ${build}, erwartet 70`);
+    assert(Number(build) === 71, `${label}: Build ${build}, erwartet 71`);
 
     const loginUi = await page.evaluate(() => {
       const hero = document.querySelector('[data-testid="login-hero"]');
@@ -279,4 +279,4 @@ try {
 } finally {
   server.close();
 }
-console.log("Playwright schnelle Fixes OK (Build 70)");
+console.log("Playwright schnelle Fixes OK (Build 71)");

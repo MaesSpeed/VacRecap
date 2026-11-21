@@ -393,8 +393,13 @@ async function runCase(browser, baseUrl, viewport, role) {
     assert(cardText.includes("Parkweg"), `${label}: bestehende Notiz fehlt auf der Karte`);
     assert(cardText.includes("Sigurta Park"), `${label}: Ortsname fehlt`);
     assert(
-      (await page.locator('[data-page="current"] .oc [data-action="add-note"]').count()) === 0,
-      `${label}: + Notiz liegt noch auf der Karte`
+      (await page.locator('[data-page="current"] .oc--selected [data-testid="add-place-note"]').innerText()) ===
+        "+ Notiz zum Ort",
+      `${label}: + Notiz zum Ort fehlt auf dem gewählten Ort`
+    );
+    assert(
+      (await page.locator('[data-page="current"] .oc:not(.oc--selected) [data-action="add-note"]').count()) === 0,
+      `${label}: Notizknopf liegt auf einem nicht gewählten Ort`
     );
     assert((await page.locator('[data-footer-action="note"]').count()) === 1, `${label}: Footer-Notiz fehlt`);
 
